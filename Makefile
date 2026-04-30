@@ -54,6 +54,10 @@ docker-dev: prep
 docker-dev-ui: prep
 	$(DOCKER_CMD) build --build-arg VERSION=$(GO_VERSION_MIN) --build-arg BUILD_TAGS="$(BUILD_TAGS)" -f scripts/docker/Dockerfile.ui -t openbao:dev-ui .
 
+push:
+	$(DOCKER_CMD) tag openbao:dev $(REGISTRY)/openbao:$(TAG)
+	$(DOCKER_CMD) push $(REGISTRY)/openbao:$(TAG)
+
 # test runs the unit tests and vets the code
 test: prep
 	@CGO_ENABLED=$(CGO_ENABLED) \
