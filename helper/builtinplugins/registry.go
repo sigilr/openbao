@@ -26,6 +26,9 @@ import (
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMysql "github.com/openbao/openbao/plugins/database/mysql"
 	dbPostgres "github.com/openbao/openbao/plugins/database/postgresql"
+
+	// dbRemotePostgres "github.com/openbao/openbao/plugins/database/remote-postgres"
+	dbRemoteDB "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	dbValkey "github.com/openbao/openbao/plugins/database/valkey"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -83,6 +86,10 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
+			// "remote-postgres-database-plugin": {Factory: dbRemotePostgres.New},
+			"remote-postgres-plugin": {Factory: dbRemoteDB.New(dbRemoteDB.PostgresDialect)},
+			"remote-mysql-plugin":    {Factory: dbRemoteDB.New(dbRemoteDB.MySQLDialect)},
+			"remote-valkey-plugin":   {Factory: dbRemoteDB.New(dbRemoteDB.ValkeyDialect)},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
