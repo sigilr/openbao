@@ -1,0 +1,76 @@
+// Copyright (c) KubeVault Authors
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package pluginproxy;
+
+option go_package = "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto";
+
+// PluginProxyService handles forwarding plugin requests to spoke
+service PluginProxyService {
+    rpc Connect(stream PluginMessage) returns (stream PluginMessage);
+}
+
+message PluginMessage {
+    string client_name = 1;
+    string target_name = 2;
+    bool is_response = 3;
+    
+    oneof payload {
+        InitializeRequest initialize_req = 10;
+        InitializeResponse initialize_resp = 11;
+        NewUserRequest new_user_req = 12;
+        NewUserResponse new_user_resp = 13;
+        UpdateUserRequest update_user_req = 14;
+        UpdateUserResponse update_user_resp = 15;
+        DeleteUserRequest delete_user_req = 16;
+        DeleteUserResponse delete_user_resp = 17;
+        ErrorResponse error_resp = 18;
+    }
+}
+
+message InitializeRequest {
+    string plugin_name = 1;
+    map<string, string> config = 2;
+    bool verify_connection = 3;
+}
+
+message InitializeResponse {
+    map<string, string> config = 1;
+}
+
+message NewUserRequest {
+    string username_display = 1;
+    string username_role = 2;
+    string password = 3;
+    int64 expiration = 4;
+    repeated string statements = 5;
+}
+
+message NewUserResponse {
+    string username = 1;
+}
+
+message UpdateUserRequest {
+    string username = 1;
+    string new_password = 2;
+    int64 new_expiration = 3;
+    repeated string password_statements = 4;
+    repeated string expiration_statements = 5;
+}
+
+message UpdateUserResponse {
+}
+
+message DeleteUserRequest {
+    string username = 1;
+    repeated string statements = 2;
+}
+
+message DeleteUserResponse {
+}
+
+message ErrorResponse {
+    string error = 1;
+}

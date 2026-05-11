@@ -86,10 +86,15 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
-			// "remote-postgres-database-plugin": {Factory: dbRemotePostgres.New},
-			"remote-postgres-plugin": {Factory: dbRemoteDB.New(dbRemoteDB.PostgresDialect)},
-			"remote-mysql-plugin":    {Factory: dbRemoteDB.New(dbRemoteDB.MySQLDialect)},
-			"remote-valkey-plugin":   {Factory: dbRemoteDB.New(dbRemoteDB.ValkeyDialect)},
+			// Old dialect-based plugins (commented for testing proxy)
+			// "remote-postgres-plugin": {Factory: dbRemoteDB.New(dbRemoteDB.PostgresDialect)},
+			// "remote-mysql-plugin":    {Factory: dbRemoteDB.New(dbRemoteDB.MySQLDialect)},
+			// "remote-valkey-plugin":   {Factory: dbRemoteDB.New(dbRemoteDB.ValkeyDialect)},
+			// New proxy-based plugins (admin's approach)
+			"remote-postgres-proxy": {Factory: dbRemoteDB.NewProxy("postgresql-database-plugin")},
+			"remote-mysql-proxy":    {Factory: dbRemoteDB.NewProxy("mysql-database-plugin")},
+			"remote-redis-proxy":    {Factory: dbRemoteDB.NewProxy("redis-database-plugin")},
+			"remote-valkey-proxy":   {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},

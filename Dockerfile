@@ -1,4 +1,5 @@
 # Copyright (c) HashiCorp, Inc.
+
 # SPDX-License-Identifier: MPL-2.0
 
 # This is {docker.io,quay.io,ghcr.io}/openbao/openbao{,-hsm}.
