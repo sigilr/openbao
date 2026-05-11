@@ -1,0 +1,18 @@
+FROM debian:stable-slim
+
+# Install required packages
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Copy binaries
+COPY spoke-agent-v2/spoke-agent-v2 /usr/local/bin/spoke-agent-v2
+COPY cmd/plugin-runner/plugin-runner /usr/local/bin/plugin-runner
+
+# Make binaries executable
+RUN chmod +x /usr/local/bin/spoke-agent-v2 /usr/local/bin/plugin-runner
+
+# Set working directory
+WORKDIR /app
+
+# Default command
+ENTRYPOINT ["/usr/local/bin/spoke-agent-v2"]
+CMD ["-server=hub:50053", "-name=spoke-1"]
