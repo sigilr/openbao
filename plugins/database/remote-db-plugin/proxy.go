@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto"
+	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"google.golang.org/grpc"
 )
@@ -29,6 +29,13 @@ var (
 	proxyServerStartErr error
 	proxyServerInstance *proxyServer
 )
+
+//func init() {
+//	// Start gRPC server when plugin loads
+//	go func() {
+//		getProxyServer().Start(proxyAgentPort)
+//	}()
+//}
 
 // proxyServer is a simple gRPC server for spoke-agent connections
 type proxyServer struct {

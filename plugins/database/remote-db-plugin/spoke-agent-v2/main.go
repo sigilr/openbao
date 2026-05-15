@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto"
+	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -91,7 +91,7 @@ func main() {
 		if strings.HasPrefix(msg.Command, "plugin-runner ") {
 			// Extract JSON request (everything after "plugin-runner ")
 			jsonRequest := strings.TrimPrefix(msg.Command, "plugin-runner ")
-			
+
 			// Execute plugin-runner with full path
 			cmd := exec.Command(pluginRunnerPath, jsonRequest)
 			out, err := cmd.CombinedOutput()

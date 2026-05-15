@@ -17,7 +17,7 @@ func main() {
 	}
 
 	r := runner.NewPluginRunner()
-	
+
 	requestJSON := os.Args[1]
 	response, err := r.ExecuteRequest(requestJSON)
 	if err != nil {

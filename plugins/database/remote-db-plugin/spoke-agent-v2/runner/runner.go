@@ -27,7 +27,7 @@ func (r *PluginRunner) LoadPlugin(pluginName string) (dbplugin.Database, error) 
 	// Always create a new plugin instance since plugin-runner runs as one-shot
 	// and doesn't maintain state between invocations
 	var factory func() (interface{}, error)
-	
+
 	switch pluginName {
 	case "postgresql-database-plugin":
 		factory = dbPostgres.New
@@ -211,7 +211,7 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 	if passwordData, ok := req["password"].(map[string]interface{}); ok {
 		newPassword := getString(passwordData, "new_password")
 		statements := getStringSlice(passwordData, "statements")
-		
+
 		updateReq.Password = &dbplugin.ChangePassword{
 			NewPassword: newPassword,
 			Statements: dbplugin.Statements{
@@ -223,7 +223,7 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 	if expirationData, ok := req["expiration"].(map[string]interface{}); ok {
 		newExpirationUnix, _ := expirationData["new_expiration"].(float64)
 		statements := getStringSlice(expirationData, "statements")
-		
+
 		updateReq.Expiration = &dbplugin.ChangeExpiration{
 			NewExpiration: time.Unix(int64(newExpirationUnix), 0),
 			Statements: dbplugin.Statements{
@@ -293,5 +293,3 @@ func getStringSlice(m map[string]interface{}, key string) []string {
 	}
 	return nil
 }
-
-
