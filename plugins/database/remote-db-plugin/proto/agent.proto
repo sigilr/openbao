@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen";
+
+service AgentService {
+  rpc Connect(stream AgentMessage) returns (stream AgentMessage);
+}
+
+message AgentMessage {
+  string client_name = 1;
+  string target_name = 5;
+  string command = 2;
+  string output = 3;
+  bool is_response = 4;
+}
