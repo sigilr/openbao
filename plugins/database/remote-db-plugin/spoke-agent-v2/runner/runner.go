@@ -193,7 +193,7 @@ func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginN
 	})
 	if err != nil {
 		_ = plugin.Close()
-		return "", fmt.Errorf("Initialize: %w", err)
+		return "", fmt.Errorf("initialize: %w", err)
 	}
 	r.put(instanceID, &pluginEntry{pluginName: pluginName, db: plugin})
 
@@ -286,7 +286,7 @@ func (r *PluginRunner) handleClose(_ context.Context, instanceID string) (string
 		return "{}", nil
 	}
 	if err := entry.db.Close(); err != nil {
-		return "", fmt.Errorf("Close: %w", err)
+		return "", fmt.Errorf("close: %w", err)
 	}
 	return "{}", nil
 }

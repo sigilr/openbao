@@ -1,7 +1,10 @@
 // Copyright (c) KubeVault Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package remotedb
+// Package agent implements the OpenBao logical backend that operators use to
+// bootstrap and run the hub-and-spoke trust state for the remote-db-plugin.
+// It is mounted at `agent/` by `bao agent init`.
+package agent
 
 import (
 	"context"
@@ -12,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -30,7 +34,11 @@ import (
 //	DELETE agent/bootstrap-tokens/<id>
 //	GET    agent/cluster-info         — UNAUTH; serves the JWS-signed bundle (cluster-info ConfigMap)
 //	POST   agent/sign-csr             — UNAUTH; exchange token for client cert (CSR + bootstrap RBAC)
-func AgentBackendFactory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
+//
+// Factory builds the agent backend. Named Factory to match the convention used
+// by every other builtin logical backend (helper/builtinplugins/registry.go
+// invokes it as `Factory`).
+func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
 	b := &agentBackend{}
 	b.Backend = &framework.Backend{
 		Help: strings.TrimSpace(agentBackendHelp),
@@ -152,7 +160,7 @@ func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 		// usual error path by returning so the operator sees it on next request.
 		return fmt.Errorf("stored hub_endpoint %q has no parseable port: %w", bundle.HubEndpoint, err)
 	}
-	return StartProxyServer(port)
+	return remotedb.StartProxyServer(port)
 }
 
 // portFromEndpoint extracts the port from "host:port". The hub endpoint is

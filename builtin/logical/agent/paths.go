@@ -1,7 +1,7 @@
 // Copyright (c) KubeVault Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package remotedb
+package agent
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -54,7 +55,8 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	port, err := portFromEndpoint(endpoint)
 	if err != nil {
 		return logical.ErrorResponse(fmt.Sprintf(
-			"hub_endpoint must be host:port (%v)", err)), nil
+			"hub_endpoint must be host:port (%v)", err,
+		)), nil
 	}
 	dnsSANs := d.Get("hub_dns_sans").([]string)
 	ipSANs := d.Get("hub_ip_sans").([]string)
@@ -97,7 +99,7 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	// `bao agent init`, not to whoever later mounts a database engine, and the
 	// port comes from a single source of truth instead of the first DB mount's
 	// agent_port config.
-	if err := StartProxyServer(port); err != nil {
+	if err := remotedb.StartProxyServer(port); err != nil {
 		return logical.ErrorResponse(fmt.Sprintf("start proxy listener: %v", err)), nil
 	}
 
@@ -150,17 +152,17 @@ func (b *agentBackend) handleCAInfo(ctx context.Context, req *logical.Request, _
 
 	return &logical.Response{
 		Data: map[string]any{
-			"ca_cert_pem":      string(bundle.CACertPEM),
-			"ca_cert_hash":     bootstrap.HashCert(caCert),
-			"ca_subject":       caCert.Subject.String(),
-			"ca_not_after":     caCert.NotAfter.Unix(),
-			"hub_endpoint":     bundle.HubEndpoint,
-			"hub_cert_subject": hubCert.Subject.String(),
+			"ca_cert_pem":        string(bundle.CACertPEM),
+			"ca_cert_hash":       bootstrap.HashCert(caCert),
+			"ca_subject":         caCert.Subject.String(),
+			"ca_not_after":       caCert.NotAfter.Unix(),
+			"hub_endpoint":       bundle.HubEndpoint,
+			"hub_cert_subject":   hubCert.Subject.String(),
 			"hub_cert_not_after": hubCert.NotAfter.Unix(),
-			"hub_dns_sans":     hubCert.DNSNames,
-			"hub_ip_sans":      ipSANs,
-			"created_unix":     bundle.CreatedUnix,
-			"listener_port":    proxyServerPort(),
+			"hub_dns_sans":       hubCert.DNSNames,
+			"hub_ip_sans":        ipSANs,
+			"created_unix":       bundle.CreatedUnix,
+			"listener_port":      remotedb.ProxyServerPort(),
 		},
 	}, nil
 }
@@ -531,7 +533,8 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	}
 	if t.AllowedSpokeName != "" && t.AllowedSpokeName != spokeName {
 		return logical.ErrorResponse(fmt.Sprintf(
-			"token is restricted to spoke %q", t.AllowedSpokeName)), nil
+			"token is restricted to spoke %q", t.AllowedSpokeName,
+		)), nil
 	}
 
 	bundle, err := readCA(ctx, req.Storage)
@@ -574,7 +577,7 @@ func (b *agentBackend) pathSpokes() *framework.Path {
 }
 
 func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
-	statuses := ListConnectedSpokes()
+	statuses := remotedb.ListConnectedSpokes()
 	now := time.Now()
 	entries := make([]map[string]any, 0, len(statuses))
 	healthyCount := 0
@@ -592,11 +595,11 @@ func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _
 	}
 	return &logical.Response{
 		Data: map[string]any{
-			"spokes":             entries,
-			"connected_count":    len(statuses),
-			"healthy_count":      healthyCount,
-			"listener_port":      proxyServerPort(),
-			"stale_after_seconds": int64(SpokeStaleAfter / time.Second),
+			"spokes":              entries,
+			"connected_count":     len(statuses),
+			"healthy_count":       healthyCount,
+			"listener_port":       remotedb.ProxyServerPort(),
+			"stale_after_seconds": int64(remotedb.SpokeStaleAfter / time.Second),
 		},
 	}, nil
 }

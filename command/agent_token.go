@@ -93,14 +93,22 @@ Usage: bao agent token create [options]
 func (c *AgentTokenCreateCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
-	f.StringVar(&StringVar{Name: "ttl", Target: &c.flagTTL, Default: "24h",
-		Usage: "Token lifetime; 0 disables expiry."})
-	f.StringVar(&StringVar{Name: "allowed-spoke-name", Target: &c.flagAllowedSpoke,
-		Default: "", Usage: "Restrict the token to a specific spoke identity."})
-	f.StringVar(&StringVar{Name: "description", Target: &c.flagDescription,
-		Default: "", Usage: "Free-form description recorded with the token."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
+	f.StringVar(&StringVar{
+		Name: "ttl", Target: &c.flagTTL, Default: "24h",
+		Usage: "Token lifetime; 0 disables expiry.",
+	})
+	f.StringVar(&StringVar{
+		Name: "allowed-spoke-name", Target: &c.flagAllowedSpoke,
+		Default: "", Usage: "Restrict the token to a specific spoke identity.",
+	})
+	f.StringVar(&StringVar{
+		Name: "description", Target: &c.flagDescription,
+		Default: "", Usage: "Free-form description recorded with the token.",
+	})
 	return set
 }
 
@@ -173,8 +181,10 @@ Usage: bao agent token list [options]
 func (c *AgentTokenListCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
 	return set
 }
 
@@ -256,8 +266,10 @@ Usage: bao agent token revoke [options] TOKEN_ID
 func (c *AgentTokenRevokeCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
 	return set
 }
 

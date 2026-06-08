@@ -6,7 +6,6 @@ package command
 import (
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 
 	"github.com/hashicorp/cli"
@@ -129,8 +128,8 @@ func (c *AgentInitCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentInitCommand) AutocompleteArgs() complete.Predictor    { return nil }
-func (c *AgentInitCommand) AutocompleteFlags() complete.Flags       { return c.Flags().Completions() }
+func (c *AgentInitCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *AgentInitCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
 func (c *AgentInitCommand) Run(args []string) int {
 	f := c.Flags()
@@ -174,14 +173,14 @@ func (c *AgentInitCommand) Run(args []string) int {
 	c.UI.Output("")
 	c.UI.Output("Hub initialized. Run the following on each spoke:")
 	c.UI.Output("")
-	c.UI.Output(fmt.Sprintf("  bao agent join \\"))
+	c.UI.Output("  bao agent join \\")
 	c.UI.Output(fmt.Sprintf("      -hub-addr=%s \\", hubEndpoint))
 	c.UI.Output(fmt.Sprintf("      -hub-cert-hash=%s \\", caHash))
 	c.UI.Output(fmt.Sprintf("      -token=%s \\", tokenData["token"]))
 	if c.flagAllowedSpoke != "" {
 		c.UI.Output(fmt.Sprintf("      -spoke-name=%s", c.flagAllowedSpoke))
 	} else {
-		c.UI.Output(fmt.Sprintf("      -spoke-name=<choose-a-name>"))
+		c.UI.Output("      -spoke-name=<choose-a-name>")
 	}
 	c.UI.Output("")
 	return 0
@@ -260,15 +259,4 @@ func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand)
 
 func isAlreadyInitialized(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "CA already initialized")
-}
-
-// hostPort is a tiny helper so callers can normalize a -hub-endpoint that
-// the operator typed without a port. Unused for now, kept for symmetry with
-// agent_join.go which does the inverse parse.
-func hostPort(s string) (string, string, error) {
-	h, p, err := net.SplitHostPort(s)
-	if err != nil {
-		return "", "", err
-	}
-	return h, p, nil
 }
