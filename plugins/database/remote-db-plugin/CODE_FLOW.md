@@ -5,6 +5,13 @@ SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
 
 # Remote Database Plugin - Code Flow
 
+> **⚠️ Stale.** This document describes an earlier architecture where each
+> spoke request fork-execed a `plugin-runner` subprocess and `spoke-agent-v2`
+> was a separate binary. Both are gone: the spoke daemon now ships as
+> `bao agent run` (subcommand of the main `bao` binary), and the per-instance
+> plugin cache lives in-process. Treat the file paths and request flow below
+> as a rough historical reference, not a description of current code.
+
 ## File Structure
 
 ```

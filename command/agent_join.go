@@ -39,8 +39,8 @@ import (
 // JWS check is a separate, application-layer authenticity guarantee on top —
 // not a substitute for TLS.
 //
-// The spoke daemon (spoke-agent-v2) then loads the credentials directory and
-// connects to the hub's gRPC proxy port over mTLS.
+// The spoke daemon (`bao agent run`) then loads the credentials directory
+// and connects to the hub's gRPC proxy port over mTLS.
 type AgentJoinCommand struct {
 	*BaseCommand
 
@@ -78,7 +78,7 @@ Usage: bao agent join [options]
   -ca-cert, -tls-skip-verify, …). The application-layer JWS signature is
   the kubeadm-style authenticity check; TLS is not bypassed.
 
-  After a successful join, point spoke-agent-v2 at the credentials directory.
+  After a successful join, start the spoke daemon with 'bao agent run'.
 
   Example:
 
@@ -248,7 +248,7 @@ func (c *AgentJoinCommand) Run(args []string) int {
 	c.UI.Output(fmt.Sprintf("Credentials written to %s", c.flagCredentialsDir))
 	c.UI.Output("")
 	c.UI.Output("Start the spoke daemon with:")
-	c.UI.Output(fmt.Sprintf("  spoke-agent-v2 -server=%s -credentials-dir=%s",
+	c.UI.Output(fmt.Sprintf("  bao agent run -server=%s -credentials-dir=%s",
 		hubAddr, c.flagCredentialsDir))
 	return 0
 }
