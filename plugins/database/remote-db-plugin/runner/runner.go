@@ -188,10 +188,21 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 		VerifyConnection: false,
 	}); err != nil {
 		_ = plugin.Close()
+		// Don't leave the load mutex stranded if we failed; the next caller
+		// gets a fresh one and a clean retry.
+		r.mu.Lock()
+		delete(r.loading, instanceID)
+		r.mu.Unlock()
 		return nil, fmt.Errorf("lazy initialize: %w", err)
 	}
 	entry := &pluginEntry{pluginName: pluginName, db: plugin}
 	r.put(instanceID, entry)
+	// Done loading. Future cold-misses for this id will create a fresh mutex
+	// (after the entry is later removed via Close). Without this delete the
+	// loading map would grow once per distinct id the spoke ever saw.
+	r.mu.Lock()
+	delete(r.loading, instanceID)
+	r.mu.Unlock()
 	return entry, nil
 }
 
