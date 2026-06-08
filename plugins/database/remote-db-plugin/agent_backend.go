@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,7 +127,9 @@ func (t *tokenStorage) hasUsage(want string) bool {
 // --- Hydration --------------------------------------------------------------
 
 // hydrateHubState pushes the persisted CA/hub-cert into the singleton the
-// proxy gRPC server reads. Called on backend init.
+// proxy gRPC server reads, then brings up the listener. Called on backend
+// init so a restarted OpenBao is immediately ready to receive spoke
+// connections without waiting for a database mount to fire.
 func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) error {
 	bundle, err := readCA(ctx, s)
 	if err != nil {
@@ -134,10 +138,37 @@ func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 	if bundle == nil {
 		return nil // not initialized yet; `bao agent init` will populate it
 	}
-	return bootstrap.Global().SetIdentity(
+	if err := bootstrap.Global().SetIdentity(
 		&bootstrap.CABundle{CertPEM: bundle.CACertPEM, KeyPEM: bundle.CAKeyPEM},
 		&bootstrap.HubServerCert{CertPEM: bundle.HubCertPEM, KeyPEM: bundle.HubKeyPEM},
-	)
+	); err != nil {
+		return err
+	}
+	port, err := portFromEndpoint(bundle.HubEndpoint)
+	if err != nil {
+		// Older state may have an endpoint without a port; log via the backend's
+		// usual error path by returning so the operator sees it on next request.
+		return fmt.Errorf("stored hub_endpoint %q has no parseable port: %w", bundle.HubEndpoint, err)
+	}
+	return StartProxyServer(port)
+}
+
+// portFromEndpoint extracts the port from "host:port". The hub endpoint is
+// validated to have a port by `bao agent init`, so this should not fail in
+// fresh state; the explicit error helps when migrating from older data.
+func portFromEndpoint(endpoint string) (int, error) {
+	_, p, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return 0, err
+	}
+	port, err := strconv.Atoi(p)
+	if err != nil {
+		return 0, err
+	}
+	if port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("port %d out of range", port)
+	}
+	return port, nil
 }
 
 func readCA(ctx context.Context, s logical.Storage) (*caStorage, error) {

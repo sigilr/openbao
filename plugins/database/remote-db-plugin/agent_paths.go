@@ -51,6 +51,11 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	if endpoint == "" {
 		return logical.ErrorResponse("hub_endpoint is required"), nil
 	}
+	port, err := portFromEndpoint(endpoint)
+	if err != nil {
+		return logical.ErrorResponse(fmt.Sprintf(
+			"hub_endpoint must be host:port (%v)", err)), nil
+	}
 	dnsSANs := d.Get("hub_dns_sans").([]string)
 	ipSANs := d.Get("hub_ip_sans").([]string)
 	force := d.Get("force").(bool)
@@ -85,6 +90,15 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	}
 	if err := bootstrap.Global().SetIdentity(ca, hub); err != nil {
 		return nil, err
+	}
+	// Bring up the gRPC listener now, while we have an authenticated operator
+	// holding the response. Doing it here (instead of lazily from the database
+	// mount's Initialize) means port problems surface to whoever ran
+	// `bao agent init`, not to whoever later mounts a database engine, and the
+	// port comes from a single source of truth instead of the first DB mount's
+	// agent_port config.
+	if err := StartProxyServer(port); err != nil {
+		return logical.ErrorResponse(fmt.Sprintf("start proxy listener: %v", err)), nil
 	}
 
 	caCert, err := bootstrap.ParseCert(ca.CertPEM)
