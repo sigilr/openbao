@@ -173,6 +173,7 @@ func (c *AgentInitCommand) Run(args []string) int {
 	c.UI.Output("")
 	c.UI.Output("Hub initialized. Run the following on each spoke:")
 	c.UI.Output("")
+	c.UI.Output(fmt.Sprintf("  BAO_ADDR=%s \\", client.Address()))
 	c.UI.Output("  bao agent join \\")
 	c.UI.Output(fmt.Sprintf("      -hub-addr=%s \\", hubEndpoint))
 	c.UI.Output(fmt.Sprintf("      -hub-cert-hash=%s \\", caHash))

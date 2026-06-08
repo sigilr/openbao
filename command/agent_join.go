@@ -8,14 +8,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +25,7 @@ import (
 
 // AgentJoinCommand is the spoke-side counterpart to AgentInitCommand:
 //
-//  1. Fetch cluster-info from the hub over an insecure channel.
+//  1. Fetch cluster-info from the hub OpenBao API.
 //  2. Verify the JWS-HS256 signature using the bootstrap token's secret half.
 //     (kubeadm equivalent: `cluster-info` ConfigMap + bootstrap-signer JWS.)
 //  3. Verify the CA cert's SPKI hash against the operator-supplied pin.
@@ -37,12 +34,16 @@ import (
 //     the hub's authenticated sign-csr endpoint.
 //  5. Write cert.pem, key.pem, ca.pem to -credentials-dir.
 //
-// The spoke daemon (spoke-agent-v2) then loads that directory and connects to
-// the hub's gRPC port over mTLS.
+// HTTPS to the hub's bao API is verified with the standard OpenBao TLS knobs
+// (-ca-cert, -ca-path, -tls-skip-verify, BAO_CACERT, …). The kubeadm-style
+// JWS check is a separate, application-layer authenticity guarantee on top —
+// not a substitute for TLS.
+//
+// The spoke daemon (spoke-agent-v2) then loads the credentials directory and
+// connects to the hub's gRPC proxy port over mTLS.
 type AgentJoinCommand struct {
 	*BaseCommand
 
-	flagBaoAddr        string
 	flagMount          string
 	flagToken          string
 	flagHubAddr        string
@@ -67,18 +68,22 @@ Usage: bao agent join [options]
 
   Bootstraps trust between this spoke and the hub OpenBao. The command:
 
-    1. Fetches cluster-info from the hub's OpenBao API (insecure TLS).
+    1. Fetches cluster-info from the hub's OpenBao API.
     2. Verifies the JWS-HS256 signature using the bootstrap token's secret.
     3. Verifies the CA cert's SPKI hash against -hub-cert-hash.
     4. Generates a key, requests a signed spoke cert via -token.
     5. Writes cert.pem/key.pem/ca.pem to -credentials-dir.
+
+  HTTPS to the hub OpenBao API uses the standard TLS flags (-address,
+  -ca-cert, -tls-skip-verify, …). The application-layer JWS signature is
+  the kubeadm-style authenticity check; TLS is not bypassed.
 
   After a successful join, point spoke-agent-v2 at the credentials directory.
 
   Example:
 
       $ bao agent join \
-          -bao-addr=https://hub.example.com:8200 \
+          -address=https://hub.example.com:8200 \
           -hub-addr=hub.example.com:50053 \
           -hub-cert-hash=sha256:abcdef... \
           -token=abcdef.0123456789abcdef \
@@ -89,16 +94,14 @@ Usage: bao agent join [options]
 }
 
 func (c *AgentJoinCommand) Flags() *FlagSets {
-	set := c.flagSet(FlagSetNone)
+	// FlagSetHTTP gives us -address, -ca-cert, -ca-path, -client-cert,
+	// -client-key, -tls-skip-verify, BAO_CACERT, BAO_ADDR, etc. so HTTPS to
+	// the hub bao API is verified the same way every other bao command
+	// verifies its endpoint. Operators with a self-signed hub set
+	// -tls-skip-verify explicitly.
+	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 
-	f.StringVar(&StringVar{
-		Name:    "bao-addr",
-		Target:  &c.flagBaoAddr,
-		Default: "",
-		EnvVar:  "BAO_ADDR",
-		Usage:   "Address of the hub OpenBao API (e.g. https://hub:8200).",
-	})
 	f.StringVar(&StringVar{
 		Name:    "mount",
 		Target:  &c.flagMount,
@@ -152,8 +155,8 @@ func (c *AgentJoinCommand) Run(args []string) int {
 		c.UI.Error(err.Error())
 		return 1
 	}
-	if c.flagBaoAddr == "" || c.flagToken == "" || c.flagSpokeName == "" {
-		c.UI.Error("-bao-addr, -token, -spoke-name are all required")
+	if c.flagToken == "" || c.flagSpokeName == "" {
+		c.UI.Error("-token and -spoke-name are required")
 		return 1
 	}
 	if c.flagHubCertHash == "" && !c.flagInsecure {
@@ -167,8 +170,16 @@ func (c *AgentJoinCommand) Run(args []string) int {
 		return 1
 	}
 
-	// 1. Fetch cluster-info insecurely.
-	info, err := fetchClusterInfo(c.flagBaoAddr, c.flagMount, tok.ID)
+	client, err := c.Client()
+	if err != nil {
+		c.UI.Error(err.Error())
+		return 2
+	}
+	mount := strings.Trim(c.flagMount, "/")
+
+	// 1. Fetch cluster-info using the standard OpenBao client (TLS is
+	//    verified per the operator's -ca-cert / -tls-skip-verify flags).
+	info, err := fetchClusterInfo(client, mount, tok.ID)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Fetch cluster-info: %s", err))
 		return 2
@@ -177,7 +188,7 @@ func (c *AgentJoinCommand) Run(args []string) int {
 	// 2. Verify the JWS signature using the token's secret.
 	if err := bootstrap.VerifyDetached(tok.Secret, []byte(info.Payload), info.Signature); err != nil {
 		c.UI.Error(fmt.Sprintf("JWS verification failed: %s", err))
-		c.UI.Error("The hub at -bao-addr did not prove knowledge of the bootstrap token; aborting.")
+		c.UI.Error("The hub at -address did not prove knowledge of the bootstrap token; aborting.")
 		return 2
 	}
 
@@ -210,8 +221,9 @@ func (c *AgentJoinCommand) Run(args []string) int {
 		return 2
 	}
 
-	// 5. Re-dial with the verified CA pinned (now TLS-secure) and sign the CSR.
-	signResp, err := signCSR(c.flagBaoAddr, c.flagMount, payload.CACertPEM, c.flagToken, c.flagSpokeName, csrPEM)
+	// 5. Sign the CSR on the hub. Uses the same TLS-verified client as
+	//    cluster-info.
+	signResp, err := signCSR(client, mount, payload.CACertPEM, c.flagToken, c.flagSpokeName, csrPEM)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Sign CSR: %s", err))
 		return 2
@@ -248,43 +260,32 @@ type clusterInfoResp struct {
 	Signature string `json:"signature"`
 }
 
-// fetchClusterInfo hits agent/cluster-info INSECURELY. We have not yet
-// verified the hub's identity — the JWS signature, computed with our token
-// secret, is what proves we're talking to the real hub.
-func fetchClusterInfo(baoAddr, mount, tokenID string) (*clusterInfoResp, error) {
-	u, err := url.Parse(strings.TrimRight(baoAddr, "/"))
+// fetchClusterInfo hits agent/cluster-info using the operator's standard
+// OpenBao client. TLS is verified by api.Client per BAO_CACERT /
+// -tls-skip-verify; we deliberately don't override the transport here.
+//
+// The JWS over the returned payload is an additional, application-layer
+// authenticity check (kubeadm's bootstrap-signer pattern): even with a
+// correctly-verified TLS channel, only the real hub knows the token's secret
+// half and can produce a matching signature.
+func fetchClusterInfo(client *api.Client, mount, tokenID string) (*clusterInfoResp, error) {
+	resp, err := client.Logical().ReadWithDataWithContext(
+		context.Background(),
+		mount+"/cluster-info",
+		map[string][]string{"token_id": {tokenID}},
+	)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = fmt.Sprintf("/v1/%s/cluster-info", strings.Trim(mount, "/"))
-	q := u.Query()
-	q.Set("token_id", tokenID)
-	u.RawQuery = q.Encode()
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	httpClient := &http.Client{Transport: tr}
-	resp, err := httpClient.Get(u.String())
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("cluster-info HTTP %d", resp.StatusCode)
-	}
-
-	var body struct {
-		Data clusterInfoResp `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
-	}
-	if body.Data.Payload == "" || body.Data.Signature == "" {
+	if resp == nil || resp.Data == nil {
 		return nil, fmt.Errorf("hub returned empty cluster-info bundle")
 	}
-	return &body.Data, nil
+	payload, _ := resp.Data["payload"].(string)
+	sig, _ := resp.Data["signature"].(string)
+	if payload == "" || sig == "" {
+		return nil, fmt.Errorf("hub returned empty cluster-info bundle")
+	}
+	return &clusterInfoResp{Payload: payload, Signature: sig}, nil
 }
 
 type signResp struct {
@@ -292,37 +293,19 @@ type signResp struct {
 	CACertPEM []byte
 }
 
-// signCSR talks to agent/sign-csr using TLS pinned to the now-verified CA.
-// At this point we know the hub is the real hub (JWS verified) and its TLS
-// cert SPKI matches the pin, so a standard TLS handshake against the bao API
-// rooted at the spoke CA covers the bao API listener as well — provided the
-// operator configured OpenBao to terminate TLS with a cert chained to the
-// spoke CA. In the more common case where the bao API uses a different cert,
-// the caller can pass -skip-cert-hash-check, but the JWS guarantee remains.
-func signCSR(baoAddr, mount, hubCAPEM, token, spokeName string, csrPEM []byte) (*signResp, error) {
-	// Use the public api package so this code path benefits from any
-	// retry/timeouts/headers that core configures.
-	cfg := api.DefaultConfig()
-	cfg.Address = baoAddr
-	// We DO want to verify TLS now if the bao API cert is chained to the
-	// spoke CA. Fall back to insecure if the user opted in — the post-JWS
-	// payload is what authenticates the channel.
-	cfg.HttpClient = &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}}
-	cli, err := api.NewClient(cfg)
-	if err != nil {
-		return nil, err
-	}
-
+// signCSR exchanges the bootstrap token for a signed spoke client cert. Uses
+// the same TLS-verified client as fetchClusterInfo. The hubCAPEM (verified
+// via JWS in step 2) is sanity-checked against the CA the hub returns here
+// so we catch a hub returning a different CA between calls.
+func signCSR(client *api.Client, mount, hubCAPEM, token, spokeName string, csrPEM []byte) (*signResp, error) {
 	body := map[string]interface{}{
 		"token":      token,
 		"spoke_name": spokeName,
 		"csr_pem":    string(csrPEM),
 	}
-	resp, err := cli.Logical().WriteWithContext(
+	resp, err := client.Logical().WriteWithContext(
 		context.Background(),
-		strings.Trim(mount, "/")+"/sign-csr",
+		mount+"/sign-csr",
 		body,
 	)
 	if err != nil {
@@ -336,7 +319,6 @@ func signCSR(baoAddr, mount, hubCAPEM, token, spokeName string, csrPEM []byte) (
 	if certPEM == "" || caPEM == "" {
 		return nil, fmt.Errorf("sign-csr missing cert_pem or ca_cert_pem")
 	}
-	// Sanity: the CA the hub returned must match the one we already pinned.
 	if hubCAPEM != "" && strings.TrimSpace(caPEM) != strings.TrimSpace(hubCAPEM) {
 		return nil, fmt.Errorf("hub returned a different CA via sign-csr than via cluster-info")
 	}
