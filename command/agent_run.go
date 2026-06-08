@@ -182,7 +182,11 @@ func (c *AgentRunCommand) Run(args []string) int {
 	// whenever the request handlers were also sending — the same lock the
 	// hub uses to detect a wedged spoke. Move to a sendCh + dedicated
 	// sender goroutine so a slow Send only backs up the queue, never the
-	// heartbeat ticker. The hub side uses the same pattern (proxy.go).
+	// heartbeat ticker. The hub side uses the same pattern (proxy.go), but
+	// it can't close its sendCh on tear-down — its senders are external
+	// goroutines that outlive the connection. Here every sender (heartbeat,
+	// renewal, request handler) is scoped to this Run() and is torn down
+	// before the deferred close(sendCh) runs, so closing is safe.
 	sendCh := make(chan *proto.AgentMessage, 64)
 	sendDone := make(chan struct{})
 	sendErrCh := make(chan error, 1)
