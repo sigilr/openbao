@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/cli"
@@ -166,15 +165,43 @@ func (c *AgentRunCommand) Run(args []string) int {
 		return 1
 	}
 
-	// stream.Send is not safe for concurrent calls; serialize through this
-	// mutex. Application-level traffic is low rate so a mutex beats a sendCh
-	// goroutine here.
-	var sendMu sync.Mutex
+	// stream.Send is not safe for concurrent calls. The previous mutex-based
+	// serialization made the heartbeat goroutine block (holding sendMu)
+	// whenever the request handlers were also sending — the same lock the
+	// hub uses to detect a wedged spoke. Move to a sendCh + dedicated
+	// sender goroutine so a slow Send only backs up the queue, never the
+	// heartbeat ticker. The hub side uses the same pattern (proxy.go).
+	sendCh := make(chan *proto.AgentMessage, 64)
+	sendDone := make(chan struct{})
+	sendErrCh := make(chan error, 1)
+	go func() {
+		defer close(sendDone)
+		for msg := range sendCh {
+			if err := stream.Send(msg); err != nil {
+				select {
+				case sendErrCh <- err:
+				default:
+				}
+				// Drain the rest so producers don't block forever; we will
+				// exit shortly after the recv loop also notices.
+				for range sendCh {
+				}
+				return
+			}
+		}
+	}()
 	send := func(msg *proto.AgentMessage) error {
-		sendMu.Lock()
-		defer sendMu.Unlock()
-		return stream.Send(msg)
+		select {
+		case sendCh <- msg:
+			return nil
+		case <-sendDone:
+			return fmt.Errorf("send: stream closed")
+		}
 	}
+	defer func() {
+		close(sendCh)
+		<-sendDone
+	}()
 
 	if err := send(&proto.AgentMessage{ClientName: spokeName, IsResponse: false}); err != nil {
 		c.UI.Error(fmt.Sprintf("register: %s", err))
@@ -216,6 +243,12 @@ func (c *AgentRunCommand) Run(args []string) int {
 		if err != nil {
 			c.UI.Error(fmt.Sprintf("stream error: %s", err))
 			return 1
+		}
+		select {
+		case sendErr := <-sendErrCh:
+			c.UI.Error(fmt.Sprintf("send loop: %s", sendErr))
+			return 1
+		default:
 		}
 		// Heartbeats and the initial Connected ack don't carry work.
 		if msg.Command == "" || msg.IsResponse {
