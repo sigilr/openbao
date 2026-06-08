@@ -466,7 +466,7 @@ type PluginProxy struct {
 
 var _ dbplugin.Database = (*PluginProxy)(nil)
 
-func NewProxy(pluginName string) func() (interface{}, error) {
+func New(pluginName string) func() (interface{}, error) {
 	return func() (interface{}, error) {
 		db := &PluginProxy{
 			pluginName: pluginName,
