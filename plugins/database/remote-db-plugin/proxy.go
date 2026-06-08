@@ -343,11 +343,18 @@ func spokeNameFromPeer(ctx context.Context) (string, error) {
 // RunCommand sends a request to spokeName and waits for the correlated
 // response. Many callers can be in-flight concurrently against the same spoke;
 // each parks on its own channel keyed by request_id.
+// RenewCertMaxTTL caps the validity period RenewCert will sign for, regardless
+// of what the spoke requested. The mTLS handshake proves the caller holds a
+// currently-valid spoke cert, but a compromised cert that requests 10 years
+// would give the attacker decade-long persistence; the cap limits the
+// blast radius even when the mTLS check passes.
+const RenewCertMaxTTL = 90 * 24 * time.Hour
+
 // RenewCert is the spoke-cert renewal RPC. The caller is already authenticated
 // at the transport layer via mTLS — completing the gRPC handshake proves the
 // spoke holds a valid client cert signed by the spoke-CA. We then refuse any
 // CSR whose CN does not match the peer cert's CN, so renewal cannot rebind to
-// a different identity.
+// a different identity, and we cap the requested TTL at RenewCertMaxTTL.
 func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRequest) (*agentproto.RenewCertResponse, error) {
 	peerCN, err := spokeNameFromPeer(ctx)
 	if err != nil {
@@ -377,6 +384,9 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 	ca := &bootstrap.CABundle{CertPEM: caCertPEM, KeyPEM: caKeyPEM}
 
 	ttl := time.Duration(req.TtlSeconds) * time.Second
+	if ttl <= 0 || ttl > RenewCertMaxTTL {
+		ttl = RenewCertMaxTTL
+	}
 	certPEM, err := ca.SignSpokeCSR(csrDER, peerCN, ttl)
 	if err != nil {
 		return nil, err
