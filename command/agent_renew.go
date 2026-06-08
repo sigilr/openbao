@@ -235,6 +235,16 @@ func parseFirstCert(certPEM []byte) (*x509.Certificate, error) {
 // place. We do not need a sync(2) here — even if the daemon crashes mid-write
 // the new cert is just unavailable, the old one is still readable, and the
 // next renewal attempt cleans up.
+//
+// Order matters. tls.LoadX509KeyPair reads cert.pem first and then key.pem;
+// a concurrent reader sandwiched between the two renames sees whichever pair
+// we leave it. We rename the cert FIRST so the brief observable state is
+// (new cert, old key) — which fails the LoadX509KeyPair signature check
+// loudly, the caller retries, and the next attempt sees (new cert, new key).
+// Doing it the other way around — key first, then cert — leaves (old cert,
+// new key) visible, which silently mismatches at handshake time and is much
+// harder to recover from in the renewal goroutine that just successfully
+// renewed.
 func writeRenewedCreds(dir string, certPEM, keyPEM []byte) error {
 	certPath := filepath.Join(dir, "cert.pem")
 	keyPath := filepath.Join(dir, "key.pem")
@@ -248,13 +258,11 @@ func writeRenewedCreds(dir string, certPEM, keyPEM []byte) error {
 		_ = os.Remove(tmpCert)
 		return err
 	}
-	// Rename key first so a renewed cert is never paired with an old key on
-	// any reader's view of the dir.
-	if err := os.Rename(tmpKey, keyPath); err != nil {
-		_ = os.Remove(tmpCert)
+	if err := os.Rename(tmpCert, certPath); err != nil {
+		_ = os.Remove(tmpKey)
 		return err
 	}
-	if err := os.Rename(tmpCert, certPath); err != nil {
+	if err := os.Rename(tmpKey, keyPath); err != nil {
 		return err
 	}
 	return nil
