@@ -485,10 +485,34 @@ func New(pluginName string) func() (interface{}, error) {
 	}
 }
 
+// secretSensitiveKeys lists config map keys whose values must be masked in
+// any error returned from the spoke. The list mirrors what the built-in
+// database plugins treat as sensitive (password, username when used as part
+// of credentials rotation, private_key for client-cert auth, etc.). Extra
+// keys are cheap to mask — better to over-redact than to leak.
+var secretSensitiveKeys = []string{
+	"password",
+	"username",
+	"private_key",
+	"client_key",
+	"tls_key",
+	"token",
+	"secret",
+}
+
 func (p *PluginProxy) secretValues() map[string]string {
-	return map[string]string{
-		p.connectionURL: "[connection_url]",
+	out := map[string]string{}
+	if p.connectionURL != "" {
+		out[p.connectionURL] = "[connection_url]"
 	}
+	for _, k := range secretSensitiveKeys {
+		v, ok := p.config[k].(string)
+		if !ok || v == "" {
+			continue
+		}
+		out[v] = "[" + k + "]"
+	}
+	return out
 }
 
 const proxyInstanceIDKey = "plugin_instance_id"
