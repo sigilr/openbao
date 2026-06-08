@@ -76,6 +76,17 @@ type spokeConnection struct {
 
 	// sendCh serializes all outbound frames through a single goroutine.
 	// grpc.ServerStream.Send is not safe for concurrent use.
+	//
+	// Deliberately never closed. RunCommand callers (PluginProxy.NewUser etc.
+	// invoked from arbitrary OpenBao request goroutines) outlive any single
+	// Connect handler and can be mid-`conn.sendCh <- msg` when the spoke
+	// reconnects or the stream tears down. Closing the channel from the
+	// Connect handler would race with those sends and panic. The senders
+	// already select on `<-conn.done` to bail out cleanly; the sender
+	// goroutine returns on the same signal. The channel itself is GCd when
+	// the last waiter releases the spokeConnection. (The spoke side closes
+	// its sendCh because every sender is scoped to bao agent run's Run()
+	// and has already been torn down by the time the defer fires.)
 	sendCh chan *agentproto.AgentMessage
 	// done is closed when the Connect handler returns (stream broke or the
 	// spoke reconnected). Waiters unblock and return an error.
