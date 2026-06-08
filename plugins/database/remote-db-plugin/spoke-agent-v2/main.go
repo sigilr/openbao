@@ -1,5 +1,5 @@
-// Copyright (c) KubeVault Authors
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) AppsCode Inc.
+// SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
 
 // spoke-agent-v2 connects to the hub's proxy gRPC server using mTLS, then
 // dispatches incoming requests to a long-lived in-process plugin runner.

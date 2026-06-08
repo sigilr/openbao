@@ -1,5 +1,5 @@
-// Copyright (c) KubeVault Authors
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) AppsCode Inc.
+// SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
 
 // Package bootstrap implements the kubeadm-style trust-bootstrap primitives
 // used by `bao agent init` and `bao agent join`:

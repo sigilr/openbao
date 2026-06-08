@@ -1,3 +1,8 @@
+<!--
+Copyright (c) AppsCode Inc.
+SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+-->
+
 # Remote Database Plugin
 
 A production-ready OpenBao plugin that enables a hub vault instance to manage database credentials in remote spoke clusters through a proxy architecture.

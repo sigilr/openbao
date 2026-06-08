@@ -1,3 +1,6 @@
+# Copyright (c) AppsCode Inc.
+# SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+
 FROM alpine:3.19
 
 ARG BIN_NAME=bao

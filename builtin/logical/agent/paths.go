@@ -1,5 +1,5 @@
-// Copyright (c) KubeVault Authors
-// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) AppsCode Inc.
+// SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
 
 package agent
 
