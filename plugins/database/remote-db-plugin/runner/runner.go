@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -45,13 +46,21 @@ type PluginRunner struct {
 	plugins map[string]*pluginEntry
 	loading map[string]*sync.Mutex
 
-	idleTTL time.Duration // 0 disables idle eviction
+	idleTTL       time.Duration // 0 disables idle eviction
+	evictorOnce   sync.Once
+	evictorActive bool // set under evictorOnce so tests can detect
 }
 
 type pluginEntry struct {
 	pluginName string
 	db         dbplugin.Database
 	lastUsed   time.Time
+
+	// refs is the count of in-flight handlers currently using db. evictIdle
+	// only evicts entries with refs == 0; without this an entry whose
+	// handler holds entry.db longer than idleTTL would race with Close.
+	// Bumped under r.mu by withPlugin around the handler call.
+	refs atomic.Int32
 }
 
 // DefaultIdleTTL is the period of inactivity after which a cached plugin
@@ -76,31 +85,34 @@ func NewPluginRunnerWithTTL(idleTTL time.Duration) *PluginRunner {
 
 // StartIdleEvictor launches a background goroutine that closes plugins whose
 // lastUsed is older than idleTTL. Cancellable via ctx; the goroutine returns
-// when ctx is done. Safe to call once per runner; calling more than once just
-// spawns extra evictors (harmless).
+// when ctx is done. Idempotent — calling it more than once is a no-op (only
+// the first call spawns an evictor).
 func (r *PluginRunner) StartIdleEvictor(ctx context.Context) {
 	if r.idleTTL <= 0 {
 		return
 	}
-	go func() {
-		// Check at roughly 1/4 the TTL so an idle entry is evicted within a
-		// reasonable window past the deadline, without thrashing on a
-		// short TTL.
-		tick := r.idleTTL / 4
-		if tick < time.Minute {
-			tick = time.Minute
-		}
-		t := time.NewTicker(tick)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-t.C:
-				r.evictIdle(now)
+	r.evictorOnce.Do(func() {
+		r.evictorActive = true
+		go func() {
+			// Check at roughly 1/4 the TTL so an idle entry is evicted within
+			// a reasonable window past the deadline, without thrashing on a
+			// short TTL.
+			tick := r.idleTTL / 4
+			if tick < time.Minute {
+				tick = time.Minute
 			}
-		}
-	}()
+			t := time.NewTicker(tick)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-t.C:
+					r.evictIdle(now)
+				}
+			}
+		}()
+	})
 }
 
 func (r *PluginRunner) evictIdle(now time.Time) {
@@ -114,6 +126,11 @@ func (r *PluginRunner) evictIdle(now time.Time) {
 	r.mu.Lock()
 	var toClose []evicted
 	for id, e := range r.plugins {
+		if e.refs.Load() > 0 {
+			// In-flight handler. Skip — it'll bump lastUsed when it
+			// releases, or stay long enough to be picked up next tick.
+			continue
+		}
 		if now.Sub(e.lastUsed) > r.idleTTL {
 			toClose = append(toClose, evicted{id, e})
 			delete(r.plugins, id)
@@ -206,7 +223,9 @@ func (r *PluginRunner) remove(instanceID string) *pluginEntry {
 // catch and replay Initialize on cache misses.
 //
 // Concurrent cold-cache callers for the same id are single-flighted via
-// loadOrInit so only one plugin is constructed.
+// loadOrInit so only one plugin is constructed. The handler is invoked under
+// a refcount bump on the entry so evictIdle cannot close the plugin
+// underneath an in-flight call, even if the call runs longer than idleTTL.
 func (r *PluginRunner) withPlugin(
 	ctx context.Context,
 	instanceID string,
@@ -215,7 +234,7 @@ func (r *PluginRunner) withPlugin(
 	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
 ) (string, error) {
 	if entry, ok := r.get(instanceID); ok {
-		return handler(ctx, entry.db, req)
+		return r.runHandler(ctx, entry, req, handler)
 	}
 
 	cfg, _ := req["config"].(map[string]interface{})
@@ -226,6 +245,26 @@ func (r *PluginRunner) withPlugin(
 	if err != nil {
 		return "", err
 	}
+	return r.runHandler(ctx, entry, req, handler)
+}
+
+// runHandler invokes handler while holding a reference on entry, then bumps
+// lastUsed on release so the next eviction check sees fresh activity even if
+// the call took a long time. evictIdle skips entries with refs > 0, which is
+// what keeps a long-running handler safe.
+func (r *PluginRunner) runHandler(
+	ctx context.Context,
+	entry *pluginEntry,
+	req map[string]interface{},
+	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
+) (string, error) {
+	entry.refs.Add(1)
+	defer func() {
+		entry.refs.Add(-1)
+		r.mu.Lock()
+		entry.lastUsed = time.Now()
+		r.mu.Unlock()
+	}()
 	return handler(ctx, entry.db, req)
 }
 
