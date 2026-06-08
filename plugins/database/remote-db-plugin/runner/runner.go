@@ -32,11 +32,17 @@ import (
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
-// concurrent use: a sync.Mutex guards the map; once a plugin is taken out of
-// the map by load(), callers operate on it without holding the runner mutex.
+// concurrent use: r.mu guards `plugins` and `loading`; once a plugin is taken
+// out of `plugins` by get/load, callers operate on it without holding r.mu.
+//
+// `loading` carries a per-instance-id mutex used to single-flight cold-cache
+// loads — without it, two concurrent requests for the same id can both call
+// Initialize then put(), and the second put() closes the first plugin's DB
+// connection underneath whatever handler is still using it.
 type PluginRunner struct {
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry
+	loading map[string]*sync.Mutex
 }
 
 type pluginEntry struct {
@@ -45,7 +51,10 @@ type pluginEntry struct {
 }
 
 func NewPluginRunner() *PluginRunner {
-	return &PluginRunner{plugins: make(map[string]*pluginEntry)}
+	return &PluginRunner{
+		plugins: make(map[string]*pluginEntry),
+		loading: make(map[string]*sync.Mutex),
+	}
 }
 
 // ExecuteRequest is the single entry point called for every inbound request
@@ -117,6 +126,9 @@ func (r *PluginRunner) remove(instanceID string) *pluginEntry {
 // (e.g. spoke restarted), it lazy-inits from the config carried in the
 // request. This keeps the system self-healing: hub callers don't have to
 // catch and replay Initialize on cache misses.
+//
+// Concurrent cold-cache callers for the same id are single-flighted via
+// loadOrInit so only one plugin is constructed.
 func (r *PluginRunner) withPlugin(
 	ctx context.Context,
 	instanceID string,
@@ -132,19 +144,55 @@ func (r *PluginRunner) withPlugin(
 	if cfg == nil {
 		return "", fmt.Errorf("instance %s not cached and request carries no config to re-init", instanceID)
 	}
-	plugin, err := loadPlugin(pluginName)
+	entry, err := r.loadOrInit(ctx, instanceID, pluginName, cfg)
 	if err != nil {
 		return "", err
+	}
+	return handler(ctx, entry.db, req)
+}
+
+// loadOrInit single-flights cold-cache loads for instanceID. Callers race for
+// the per-id load mutex; the first to acquire it does the Initialize and puts
+// the result in the cache, subsequent acquirers re-check the cache and find
+// the freshly-loaded entry.
+func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName string, cfg map[string]interface{}) (*pluginEntry, error) {
+	// Find or create a load lock for this id without holding it across
+	// Initialize (which can be slow — Initialize opens a DB connection).
+	r.mu.Lock()
+	if entry, ok := r.plugins[instanceID]; ok {
+		r.mu.Unlock()
+		return entry, nil
+	}
+	loadMu, ok := r.loading[instanceID]
+	if !ok {
+		loadMu = &sync.Mutex{}
+		r.loading[instanceID] = loadMu
+	}
+	r.mu.Unlock()
+
+	loadMu.Lock()
+	defer loadMu.Unlock()
+
+	// Double-check: another caller may have populated the cache while we were
+	// queued on loadMu.
+	if entry, ok := r.get(instanceID); ok {
+		return entry, nil
+	}
+
+	plugin, err := loadPlugin(pluginName)
+	if err != nil {
+		return nil, err
 	}
 	if _, err := plugin.Initialize(ctx, dbplugin.InitializeRequest{
 		Config:           cfg,
 		VerifyConnection: false,
 	}); err != nil {
 		_ = plugin.Close()
-		return "", fmt.Errorf("lazy initialize: %w", err)
+		return nil, fmt.Errorf("lazy initialize: %w", err)
 	}
-	r.put(instanceID, &pluginEntry{pluginName: pluginName, db: plugin})
-	return handler(ctx, plugin, req)
+	entry := &pluginEntry{pluginName: pluginName, db: plugin}
+	r.put(instanceID, entry)
+	return entry, nil
 }
 
 // --- Plugin loader ---------------------------------------------------------
