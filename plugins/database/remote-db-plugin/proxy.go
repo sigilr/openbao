@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 
@@ -289,6 +290,22 @@ func proxyServerPort() int {
 	proxyServerLifecycleMu.Lock()
 	defer proxyServerLifecycleMu.Unlock()
 	return proxyServerStartedPort
+}
+
+// ListConnectedSpokes returns the names of all spokes with an open `Connect`
+// stream, sorted. Used by the `agent/spokes` backend path to power
+// `bao agent list`. The list is point-in-time and may race with a
+// disconnect, which is fine for an operator-facing view.
+func ListConnectedSpokes() []string {
+	s := getProxyServer()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	names := make([]string, 0, len(s.spokes))
+	for n := range s.spokes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
