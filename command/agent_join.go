@@ -12,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,6 +52,7 @@ type AgentJoinCommand struct {
 	flagSpokeName      string
 	flagCredentialsDir string
 	flagInsecure       bool
+	flagForce          bool
 }
 
 var (
@@ -141,6 +143,15 @@ func (c *AgentJoinCommand) Flags() *FlagSets {
 		Usage:   "Directory to write cert.pem/key.pem/ca.pem.",
 	})
 	f.BoolVar(&BoolVar{
+		Name:    "force",
+		Target:  &c.flagForce,
+		Default: false,
+		Usage: "Overwrite an existing credentials directory. Without -force " +
+			"the command refuses to clobber cert.pem/key.pem/ca.pem so two " +
+			"daemons sharing one credentials directory (same peer-cert CN) " +
+			"don't end up kicking each other off the hub.",
+	})
+	f.BoolVar(&BoolVar{
 		Name:    "skip-cert-hash-check",
 		Target:  &c.flagInsecure,
 		Default: false,
@@ -163,6 +174,21 @@ func (c *AgentJoinCommand) Run(args []string) int {
 	}
 	if c.flagHubCertHash == "" && !c.flagInsecure {
 		c.UI.Error("-hub-cert-hash is required (or pass -skip-cert-hash-check to opt out)")
+		return 1
+	}
+	// Refuse to overwrite an existing credentials directory without -force.
+	// Two daemons sharing one directory share a peer-cert CN, which makes
+	// the hub's reconnect logic kick them off in alternation — a confusing
+	// failure mode that's a CLI mistake away. -force lets the operator
+	// say 'yes I really mean it' (e.g. re-joining the same spoke).
+	if existing, err := existingSpokeCredentials(c.flagCredentialsDir); err != nil {
+		c.UI.Error(fmt.Sprintf("check credentials dir: %s", err))
+		return 1
+	} else if existing && !c.flagForce {
+		c.UI.Error(fmt.Sprintf(
+			"%s already contains spoke credentials. Pass -force to overwrite, or pick a different -credentials-dir.",
+			c.flagCredentialsDir))
+		c.UI.Error("Two daemons sharing one credentials directory will be detected by the hub as the same spoke and kick each other off the Connect stream.")
 		return 1
 	}
 
@@ -350,6 +376,25 @@ func encodeECKey(k *ecdsa.PrivateKey) ([]byte, error) {
 		return nil, err
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
+}
+
+// existingSpokeCredentials reports whether dir already contains any of the
+// three files bao agent join writes. We treat 'any of them present' as
+// 'this dir is in use'; an operator who reset only part of it should clean
+// the rest up before re-joining.
+func existingSpokeCredentials(dir string) (bool, error) {
+	for _, name := range []string{"cert.pem", "key.pem", "ca.pem"} {
+		_, err := os.Stat(filepath.Join(dir, name))
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func writeCredentials(dir string, cert, key, ca []byte) error {
