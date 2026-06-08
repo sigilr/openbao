@@ -360,6 +360,12 @@ func spokeNameFromPeer(ctx context.Context) (string, error) {
 // blast radius even when the mTLS check passes.
 const RenewCertMaxTTL = 90 * 24 * time.Hour
 
+// RenewCertDefaultTTL is what we sign for when the spoke requests 0. Kept
+// equal to the initial bao agent join cert validity so the default renewal
+// cadence (bao agent run -renew-threshold=0.5) lines up with operators'
+// expectations.
+const RenewCertDefaultTTL = 30 * 24 * time.Hour
+
 // RenewCert is the spoke-cert renewal RPC. The caller is already authenticated
 // at the transport layer via mTLS — completing the gRPC handshake proves the
 // spoke holds a valid client cert signed by the spoke-CA. We then refuse any
@@ -394,7 +400,10 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 	ca := &bootstrap.CABundle{CertPEM: caCertPEM, KeyPEM: caKeyPEM}
 
 	ttl := time.Duration(req.TtlSeconds) * time.Second
-	if ttl <= 0 || ttl > RenewCertMaxTTL {
+	switch {
+	case ttl <= 0:
+		ttl = RenewCertDefaultTTL
+	case ttl > RenewCertMaxTTL:
 		ttl = RenewCertMaxTTL
 	}
 	certPEM, err := ca.SignSpokeCSR(csrDER, peerCN, ttl)
