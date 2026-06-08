@@ -337,7 +337,7 @@ func (b *agentBackend) handleTokenCreate(ctx context.Context, req *logical.Reque
 	if err := writeToken(ctx, req.Storage, rec); err != nil {
 		return nil, err
 	}
-	return &logical.Response{
+	resp := &logical.Response{
 		Data: map[string]any{
 			"id":                 tok.ID,
 			"token":              tok.String(),
@@ -345,7 +345,14 @@ func (b *agentBackend) handleTokenCreate(ctx context.Context, req *logical.Reque
 			"allowed_spoke_name": allowedName,
 			"usages":             usages,
 		},
-	}, nil
+	}
+	// The token is the JWS-HMAC key and the spoke-CSR-signing capability all
+	// in one short string. Operators need to see it once — same trade-off as
+	// `kubeadm token create` — but they should not see it again in audit
+	// logs or forwarded responses. Emit a warning so it shows up next to the
+	// token wherever the caller surfaces it.
+	resp.AddWarning("This token is shown only once. Communicate it out of band; do not store or log it. Configure audit_non_hmac_response_keys=token on the agent mount and request response wrapping (-wrap-ttl) for production use.")
+	return resp, nil
 }
 
 func (b *agentBackend) handleTokenList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
