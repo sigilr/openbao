@@ -8,16 +8,11 @@ ARG BIN_NAME=bao
 # Install dependencies
 RUN apk add --no-cache ca-certificates bash libcap su-exec dumb-init tzdata
 
-# Copy OpenBao binary
+# Copy OpenBao binary. The remote-db-plugin spoke daemon ships inside this
+# binary as `bao agent run` — no separate spoke-agent-v2 / plugin-runner.
 COPY ${BIN_NAME} /bin/bao
 
-# Copy CLI tools for remote-db-plugin
-COPY plugins/database/remote-db-plugin/bin/bao-cluster /bin/bao-cluster
-COPY plugins/database/remote-db-plugin/bin/plugin-runner /bin/plugin-runner
-COPY plugins/database/remote-db-plugin/bin/spoke-agent-v2 /bin/spoke-agent-v2
-
-# Set permissions
-RUN chmod +x /bin/bao /bin/bao-cluster /bin/plugin-runner /bin/spoke-agent-v2
+RUN chmod +x /bin/bao
 
 # Create vault user
 RUN addgroup bao && \

@@ -3,19 +3,15 @@
 
 FROM debian:stable-slim
 
-# Install required packages
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Copy binaries
-COPY spoke-agent-v2/spoke-agent-v2 /usr/local/bin/spoke-agent-v2
-COPY cmd/plugin-runner/plugin-runner /usr/local/bin/plugin-runner
+# The spoke daemon ships as a subcommand of the main bao binary now
+# (`bao agent run`); no separate spoke-agent-v2 / plugin-runner binaries.
+COPY bin/bao /usr/local/bin/bao
 
-# Make binaries executable
-RUN chmod +x /usr/local/bin/spoke-agent-v2 /usr/local/bin/plugin-runner
+RUN chmod +x /usr/local/bin/bao
 
-# Set working directory
 WORKDIR /app
 
-# Default command
-ENTRYPOINT ["/usr/local/bin/spoke-agent-v2"]
-CMD ["-server=hub:50053", "-name=spoke-1"]
+ENTRYPOINT ["/usr/local/bin/bao", "agent", "run"]
+CMD ["-server=hub:50053", "-credentials-dir=/etc/openbao-spoke"]

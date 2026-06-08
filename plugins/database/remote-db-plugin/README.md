@@ -88,13 +88,8 @@ remote-db-plugin/
 │   ├── plugin_proxy.proto           # Protocol buffer definition
 │   ├── agent.pb.go                  # Generated protobuf code
 │   └── agent_grpc.pb.go             # Generated gRPC code
-├── spoke-agent-v2/                   # Spoke-side agent
-│   ├── main.go                      # Agent main (connects to hub)
-│   └── runner/
-│       └── runner.go                # Plugin execution logic
-├── cmd/
-│   └── plugin-runner/               # Plugin runner binary
-│       └── main.go                  # Executes built-in plugins
+├── runner/                          # In-process plugin dispatcher
+│   └── runner.go                    # Per-instance plugin cache + dispatch
 ├── yaml/                            # Kubernetes manifests
 │   ├── 01-vaultserverversion.yaml  # Custom VaultServerVersion
 │   ├── 02-vaultserver-hub.yaml     # Hub vault deployment
@@ -125,11 +120,10 @@ remote-db-plugin/
 
 ## 📦 Binaries
 
-| Binary | Size | Purpose | Location |
-|--------|------|---------|----------|
-| `bao` | ~171M | OpenBao with proxy plugin | Hub cluster |
-| `spoke-agent-v2` | ~15M | Connects to hub and executes plugin-runner | Spoke cluster |
-| `plugin-runner` | ~27M | Executes built-in database plugins | Spoke cluster (called by agent) |
+| Binary | Purpose | Location |
+|--------|---------|----------|
+| `bao` | OpenBao server (hub) — proxy plugin + agent backend | Hub cluster |
+| `bao agent run` | Long-running spoke daemon (same `bao` binary, different subcommand) | Spoke cluster |
 
 ## 🔐 Security Considerations
 
