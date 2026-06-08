@@ -573,6 +573,12 @@ func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Reque
 	if bundle == nil {
 		// Collapsing to the same error as token-not-found avoids leaking
 		// whether the hub itself has been initialized via this endpoint.
+		// Still log it server-side so an operator who actually hit this
+		// failure mode (a token slipped into storage somehow without the
+		// CA having been initialized — should not happen via the CLI but
+		// possible via direct API misuse) can find it.
+		b.Logger().Warn("agent/cluster-info called with a valid token but no CA bundle in storage; returning generic error to caller",
+			"token_id", tokenID)
 		return logical.ErrorResponse("token unknown or expired"), nil
 	}
 
