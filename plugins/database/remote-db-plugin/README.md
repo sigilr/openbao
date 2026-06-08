@@ -5,222 +5,163 @@ SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
 
 # Remote Database Plugin
 
-A production-ready OpenBao plugin that enables a hub vault instance to manage database credentials in remote spoke clusters through a proxy architecture.
+A hub-and-spoke deployment of OpenBao's database secrets engine. One OpenBao
+instance (**the hub**) brokers credential operations over mTLS gRPC to one or
+more `bao agent run` daemons (**the spokes**) that run the actual built-in
+database plugins in-process against locally-reachable databases.
 
-## 🚀 Quick Start
+See [DESIGN.md](DESIGN.md) for the architecture, wire protocol, trust
+bootstrap, and request lifecycle. This file is the operator quick start.
+
+## Quick start
 
 ```bash
-# 1. Build binaries and images
-make dev
-docker build -t rudro25/openbao:hub-v2 .
-docker build -f Dockerfile.spoke -t rudro25/spoke-agent:v1 .
+# --- on the hub -----------------------------------------------------------
 
-# 2. Deploy hub vault
-kubectl apply -f yaml/01-vaultserverversion.yaml
-kubectl apply -f yaml/02-vaultserver-hub.yaml
+# 1. Initialize the hub: spoke-CA, hub TLS identity, bootstrap token, and
+#    the proxy gRPC listener (on the port you advertise to spokes).
+$ bao agent init \
+    -hub-endpoint=hub.example.com:50053 \
+    -hub-dns-sans=hub.example.com \
+    -allowed-spoke-name=spoke-1 \
+    -token-ttl=1h
 
-# 3. Deploy spoke-agent
-kubectl apply -f yaml/03-spoke-agent-deployment.yaml
+# `bao agent init` prints a ready-to-paste join command, for example:
+#
+#   bao agent join \
+#       -hub-addr=hub.example.com:50053 \
+#       -hub-cert-hash=sha256:abcd... \
+#       -token=a6b2fa.fd41cda24adcb696 \
+#       -spoke-name=spoke-1
 
-# 4. Configure database
-export VAULT_ADDR="http://hub-ip:30820"
-export VAULT_TOKEN="<root-token>"
-bao secrets enable database
-bao write database/config/spoke-pg \
+# --- on each spoke --------------------------------------------------------
+
+# 2. Exchange the bootstrap token for a long-lived mTLS client cert.
+$ bao agent join \
+    -address=https://hub.example.com:8200 \
+    -hub-addr=hub.example.com:50053 \
+    -hub-cert-hash=sha256:abcd... \
+    -token=a6b2fa.fd41cda24adcb696 \
+    -spoke-name=spoke-1 \
+    -credentials-dir=/etc/openbao-spoke
+
+# 3. Run the spoke daemon (long-running).
+$ bao agent run \
+    -server=hub.example.com:50053 \
+    -credentials-dir=/etc/openbao-spoke
+
+# --- on the hub, day-2 ----------------------------------------------------
+
+# 4. Confirm the spoke is connected and healthy.
+$ bao agent list
+Listener: :50053
+Connected: 1 total, 1 healthy (stale after 45s)
+
+NAME       LAST SEEN  UPTIME  HEALTH
+spoke-1    0s ago     5s      OK
+
+# 5. Mount the database engine and point it at the spoke via the proxy plugin.
+$ bao secrets enable database
+$ bao write database/config/spoke-pg \
     plugin_name=remote-postgres-proxy \
     spoke_name=spoke-1 \
-    connection_url="postgresql://{{username}}:{{password}}@postgres:5432/postgres" \
-    username="postgres" \
-    password="password" \
-    allowed_roles="*"
+    connection_url='postgresql://{{username}}:{{password}}@postgres:5432/postgres' \
+    username=postgres \
+    password=secret \
+    allowed_roles='*'
 
-# 5. Generate credentials
-bao write database/roles/readonly \
+$ bao write database/roles/readonly \
     db_name=spoke-pg \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';" \
-    default_ttl="1h"
-bao read database/creds/readonly
+    default_ttl=1h
+
+$ bao read database/creds/readonly
 ```
 
-## 📚 Documentation
+## CLI surface
 
-- **[PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md)** - Complete production deployment guide with architecture diagrams and troubleshooting
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Quick reference for common commands and operations
-- **[COMPLETE_WORKFLOW.md](COMPLETE_WORKFLOW.md)** - Detailed workflow and design decisions
+| Command | Side | What it does |
+| --- | --- | --- |
+| `bao agent init` | hub | Generate the spoke-CA + hub TLS cert, create a bootstrap token, start the proxy gRPC listener, print the join command. |
+| `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. |
+| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS and serves DB plugin requests in-process. |
+| `bao agent list` | hub | Connected spokes with last-seen and health. |
+| `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. |
+| `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
+| `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. |
+| `bao agent token list` | hub | Outstanding bootstrap tokens with expiry. |
+| `bao agent token revoke` | hub | Revoke by token id. |
 
-## 🏗️ Architecture
+## Supported databases
+
+| Plugin name | Backed by |
+| --- | --- |
+| `remote-postgres-proxy` | OpenBao's built-in `postgresql-database-plugin` |
+| `remote-mysql-proxy` | `mysql-database-plugin` |
+| `remote-redis-proxy` | `valkey-database-plugin` (redis-compatible) |
+| `remote-valkey-proxy` | `valkey-database-plugin` |
+
+Adding more is one line in `helper/builtinplugins/registry.go` plus a `case`
+in `runner/runner.go:loadPlugin` — the underlying plugin already runs
+in-process on the spoke.
+
+## Binaries
+
+| Binary | Role | Location |
+| --- | --- | --- |
+| `bao` | OpenBao server + the `bao agent ...` CLI subtree | Hub cluster |
+| `bao agent run` | The long-running spoke daemon (same `bao` binary, different subcommand) | Spoke cluster |
+
+Operators only install one binary everywhere.
+
+## File structure
 
 ```
-Hub Cluster                          Spoke Cluster
-┌─────────────────┐                 ┌─────────────────┐
-│  OpenBao Vault  │                 │  Spoke-Agent    │
-│  ┌───────────┐  │                 │  ┌───────────┐  │
-│  │  Proxy    │  │  gRPC (50053)   │  │  Plugin   │  │
-│  │  Plugin   │──┼─────────────────┼─→│  Runner   │  │
-│  └───────────┘  │                 │  └───────────┘  │
-│  Auto-starts    │                 │  Executes       │
-│  on first       │                 │  built-in       │
-│  config         │                 │  plugins        │
-└─────────────────┘                 └─────────────────┘
-                                             │
-                                             ↓
-                                    ┌─────────────────┐
-                                    │  PostgreSQL/    │
-                                    │  MySQL Database │
-                                    └─────────────────┘
+plugins/database/remote-db-plugin/
+├── proxy.go               # Hub-side proxy plugin (PluginProxy) + proxy gRPC server
+├── bootstrap/             # Trust-bootstrap primitives
+│   ├── token.go           #   <id>.<secret> format + detached JWS-HS256
+│   ├── pubkeypin.go       #   SPKI SHA-256 hash + verification
+│   ├── ca.go              #   Spoke-CA gen + CSR signing
+│   └── state.go           #   Process-wide identity singleton
+├── runner/                # Spoke-side in-process plugin dispatcher
+│   └── runner.go          #   Per-instance plugin cache + dispatch
+├── proto/                 # gRPC contract
+│   ├── agent.proto
+│   └── gen/               # protoc-generated stubs
+├── yaml/                  # KubeVault deployment manifests
+├── Dockerfile.spoke       # Spoke image (re-uses the bao binary)
+├── DESIGN.md              # Architecture, wire protocol, request lifecycle
+└── README.md              # This file
 ```
 
-## ✨ Key Features
+The CLI lives under `command/agent_*.go` and the `agent/` logical backend
+lives under `builtin/logical/agent/`.
 
-- ✅ **Auto-Start**: gRPC server automatically starts when first database config is created
-- ✅ **Auto-Connect**: Spoke-agent automatically connects to hub when deployed
-- ✅ **Parameter Persistence**: `spoke_name` and `agent_port` automatically saved and persist across restarts
-- ✅ **Multi-Spoke Support**: Hub can manage multiple spoke clusters simultaneously
-- ✅ **Built-in Plugin Reuse**: Reuses OpenBao's built-in PostgreSQL, MySQL, Redis, and Valkey plugins
-- ✅ **Production-Ready**: Kubernetes-native with proper error handling and reconnection logic
+## Security
 
-## 📁 File Structure
+The trust bootstrap is a port of kubeadm's discovery flow. See
+[DESIGN.md](DESIGN.md) for the full threat model. Highlights:
 
-```
-remote-db-plugin/
-├── proxy.go                          # Hub proxy plugin (main logic)
-├── proto/                            # gRPC protocol definitions
-│   ├── plugin_proxy.proto           # Protocol buffer definition
-│   ├── agent.pb.go                  # Generated protobuf code
-│   └── agent_grpc.pb.go             # Generated gRPC code
-├── runner/                          # In-process plugin dispatcher
-│   └── runner.go                    # Per-instance plugin cache + dispatch
-├── yaml/                            # Kubernetes manifests
-│   ├── 01-vaultserverversion.yaml  # Custom VaultServerVersion
-│   ├── 02-vaultserver-hub.yaml     # Hub vault deployment
-│   ├── 03-spoke-agent-deployment.yaml  # Spoke-1 agent
-│   └── 04-spoke-agent-spoke2.yaml  # Spoke-2 agent (multi-spoke)
-├── Dockerfile.spoke                 # Spoke-agent Docker image
-├── PRODUCTION_DEPLOYMENT.md         # Full deployment guide
-├── QUICK_REFERENCE.md               # Quick reference
-├── COMPLETE_WORKFLOW.md             # Detailed workflow
-└── README.md                        # This file
-```
+- **mTLS** between hub and spoke; spoke identity comes from the verified
+  client cert CN, not from any wire field.
+- **Bootstrap tokens** in seal-wrapped storage. JWS-HS256 over the
+  cluster-info bundle authenticates the hub to a joining spoke before TLS is
+  established.
+- **CA-cert SPKI pin** is printed by `bao agent init` and verified by
+  `bao agent join` — defense in depth on top of the JWS check.
+- **gRPC HTTP/2 keepalive + app-level heartbeats** so a wedged spoke is
+  detected within ~45s; `bao agent list` surfaces both.
 
-## 🔌 Supported Databases
+## Status & known limitations
 
-| Plugin Name | Database | Status |
-|-------------|----------|--------|
-| `remote-postgres-proxy` | PostgreSQL | ✅ Tested |
-| `remote-mysql-proxy` | MySQL | ✅ Tested |
-| `remote-redis-proxy` | Redis | ✅ Ready |
-| `remote-valkey-proxy` | Valkey | ✅ Ready |
+- Spoke cert renewal currently requires a fresh `bao agent join`. A CSR
+  renewal flow keyed off the existing client cert is a planned follow-up.
+- The DESIGN.md "Failure modes" table summarizes the rest.
 
-## 🛠️ Build Requirements
+## License
 
-- Go 1.21+
-- Docker
-- Kubernetes cluster
-- KubeVault operator (for hub cluster)
+Copyright &copy; AppsCode Inc.
 
-## 📦 Binaries
-
-| Binary | Purpose | Location |
-|--------|---------|----------|
-| `bao` | OpenBao server (hub) — proxy plugin + agent backend | Hub cluster |
-| `bao agent run` | Long-running spoke daemon (same `bao` binary, different subcommand) | Spoke cluster |
-
-## 🔐 Security Considerations
-
-- Use TLS for gRPC connections in production
-- Implement network policies to restrict access
-- Use Kubernetes RBAC for pod access control
-- Store database passwords in Kubernetes secrets
-- Enable audit logging on vault
-
-## 🚦 Production Checklist
-
-- [ ] Use semantic versioning for Docker images
-- [ ] Enable TLS for gRPC
-- [ ] Use LoadBalancer instead of NodePort
-- [ ] Deploy vault with 3 replicas for HA
-- [ ] Deploy spoke-agent with 2 replicas for redundancy
-- [ ] Configure network policies
-- [ ] Set up monitoring and alerts
-- [ ] Configure backup for vault data
-- [ ] Test disaster recovery procedures
-
-## 🐛 Troubleshooting
-
-### "spoke not connected" error
-Check spoke-agent logs:
-```bash
-kubectl logs -n demo deployment/spoke-agent
-```
-
-### "connection refused" when starting spoke-agent
-This is normal! The gRPC server auto-starts when you create the first database config.
-
-### "Endpoint ignored these unrecognized parameters" warning
-This is cosmetic and can be ignored. Parameters are saved in `connection_details`.
-
-See [PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md) for detailed troubleshooting.
-
-## 📝 Example Usage
-
-### PostgreSQL
-```bash
-bao write database/config/my-postgres \
-    plugin_name=remote-postgres-proxy \
-    spoke_name=spoke-1 \
-    connection_url="postgresql://{{username}}:{{password}}@postgres:5432/mydb" \
-    username="admin" \
-    password="secret" \
-    allowed_roles="*"
-
-bao write database/roles/app-user \
-    db_name=my-postgres \
-    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';" \
-    default_ttl="1h"
-
-bao read database/creds/app-user
-```
-
-### MySQL
-```bash
-bao write database/config/my-mysql \
-    plugin_name=remote-mysql-proxy \
-    spoke_name=spoke-1 \
-    connection_url="{{username}}:{{password}}@tcp(mysql:3306)/" \
-    username="root" \
-    password="secret" \
-    allowed_roles="*"
-
-bao write database/roles/app-user \
-    db_name=my-mysql \
-    creation_statements="CREATE USER '{{name}}'@'%' IDENTIFIED BY '{{password}}'; GRANT SELECT ON *.* TO '{{name}}'@'%';" \
-    default_ttl="1h"
-
-bao read database/creds/app-user
-```
-
-## 🤝 Contributing
-
-This plugin is part of the OpenBao project. Contributions are welcome!
-
-## 📄 License
-
-Apache-2.0
-
-## 🙏 Acknowledgments
-
-- OpenBao community
-- KubeVault project
-- HashiCorp Vault (original inspiration)
-
----
-
-**Status**: ✅ Production-Ready
-
-**Last Updated**: 2026-05-11
-
-**Tested With**:
-- OpenBao 2.4.3
-- Kubernetes 1.34.6
-- PostgreSQL 15
-- MySQL 8.0
+Licensed under the
+[AppsCode Free Trial License 1.0.0](https://github.com/appscode/licenses/blob/1.0.0/AppsCode-Free-Trial-1.0.0.md).
