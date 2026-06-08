@@ -167,6 +167,109 @@ func (b *agentBackend) handleCAInfo(ctx context.Context, req *logical.Request, _
 	}, nil
 }
 
+// --- ca/update-endpoint ------------------------------------------------------
+
+func (b *agentBackend) pathCAUpdateEndpoint() *framework.Path {
+	return &framework.Path{
+		Pattern: "ca/update-endpoint",
+		Fields: map[string]*framework.FieldSchema{
+			"hub_endpoint": {
+				Type:        framework.TypeString,
+				Description: "New host:port advertised to spokes. Port must match the listening port.",
+			},
+			"hub_dns_sans": {
+				Type:        framework.TypeStringSlice,
+				Description: "Replace DNS SANs on the hub TLS cert.",
+			},
+			"hub_ip_sans": {
+				Type:        framework.TypeStringSlice,
+				Description: "Replace IP SANs on the hub TLS cert.",
+			},
+		},
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleCAUpdateEndpoint},
+		},
+		HelpSynopsis: "Change the advertised hub endpoint and/or hub TLS SANs without rotating the CA.",
+	}
+}
+
+// handleCAUpdateEndpoint lets operators move the advertised hub endpoint (e.g.
+// a load-balancer DNS name change) and refresh the hub TLS cert's SANs without
+// touching the CA. The CA stays valid, every spoke's ca.pem stays valid, and
+// every spoke's client cert stays valid — only the hub's own server cert is
+// re-issued. The bound port cannot change here; that requires a process
+// restart, so we reject endpoint values whose port differs from the running
+// listener's.
+func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	bundle, err := readCA(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+	if bundle == nil {
+		return logical.ErrorResponse("CA not initialized; run `bao agent init`"), nil
+	}
+
+	newEndpoint := d.Get("hub_endpoint").(string)
+	if newEndpoint != "" {
+		newPort, err := portFromEndpoint(newEndpoint)
+		if err != nil {
+			return logical.ErrorResponse(fmt.Sprintf(
+				"hub_endpoint must be host:port (%v)", err)), nil
+		}
+		runningPort := remotedb.ProxyServerPort()
+		if runningPort != 0 && runningPort != newPort {
+			return logical.ErrorResponse(fmt.Sprintf(
+				"hub_endpoint port %d does not match the running listener on :%d; "+
+					"changing the listen port requires a process restart",
+				newPort, runningPort)), nil
+		}
+		bundle.HubEndpoint = newEndpoint
+	}
+
+	dnsSANs := d.Get("hub_dns_sans").([]string)
+	ipSANs := d.Get("hub_ip_sans").([]string)
+
+	// Re-issue the hub TLS cert on the existing CA. Carry forward the
+	// existing SANs when the operator did not specify replacements, so a
+	// caller that only changes the endpoint does not silently drop SANs.
+	existingHub, err := bootstrap.ParseCert(bundle.HubCertPEM)
+	if err != nil {
+		return nil, err
+	}
+	if len(dnsSANs) == 0 {
+		dnsSANs = existingHub.DNSNames
+	}
+	if len(ipSANs) == 0 {
+		ipSANs = make([]string, 0, len(existingHub.IPAddresses))
+		for _, ip := range existingHub.IPAddresses {
+			ipSANs = append(ipSANs, ip.String())
+		}
+	}
+
+	ca := &bootstrap.CABundle{CertPEM: bundle.CACertPEM, KeyPEM: bundle.CAKeyPEM}
+	newHub, err := ca.IssueHubServerCert(dnsSANs, ipSANs)
+	if err != nil {
+		return nil, err
+	}
+
+	bundle.HubCertPEM = newHub.CertPEM
+	bundle.HubKeyPEM = newHub.KeyPEM
+	if err := writeCA(ctx, req.Storage, bundle); err != nil {
+		return nil, err
+	}
+	if err := bootstrap.Global().SetIdentity(ca, newHub); err != nil {
+		return nil, err
+	}
+
+	return &logical.Response{
+		Data: map[string]any{
+			"hub_endpoint": bundle.HubEndpoint,
+			"hub_dns_sans": dnsSANs,
+			"hub_ip_sans":  ipSANs,
+		},
+	}, nil
+}
+
 // --- ca/rotate ---------------------------------------------------------------
 
 func (b *agentBackend) pathCARotate() *framework.Path {
