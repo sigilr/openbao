@@ -67,13 +67,14 @@ OpenBao plugins are out-of-process gRPC servers managed by `go-plugin`. A *secre
 
 ### The remote-db-plugin (this fork)
 
-`plugins/database/remote-db-plugin/` adds a hub-and-spoke variant of database plugins:
+`plugins/database/remote-db-plugin/` adds a hub-and-spoke variant of database plugins. See `plugins/database/remote-db-plugin/DESIGN.md` for the full architecture; the short version:
 
-- **`proxy.go`** runs inside the hub OpenBao process and presents itself as a normal v5 database plugin (`remote-postgres-plugin`, `remote-mysql-plugin`, etc.). On first `Initialize`, it auto-starts a gRPC server on port `50053` and persists `spoke_name` / `agent_port` back into the connection config so they survive restarts. Every plugin call (`NewUser`, `UpdateUser`, `DeleteUser`) is forwarded to the spoke identified by `spoke_name`.
-- **`proto/`** — `plugin_proxy.proto` and generated `agent.pb.go` / `agent_grpc.pb.go` define the bidirectional streaming `AgentService.Connect` RPC the spoke uses to register and receive work.
-- **`spoke-agent-v2/`** — the binary that runs in the spoke cluster, dials the hub's gRPC port, and dispatches incoming requests to a local `plugin-runner`.
-- **`cmd/plugin-runner/`** — small binary the spoke-agent execs to run the *actual* built-in database plugin (postgres, mysql, redis, valkey) against the spoke-side database.
-- **`yaml/`** — Kubernetes manifests for hub vault + spoke agent deployments (KubeVault-based).
-- Registration happens in `helper/builtinplugins/registry.go` (around lines 88–91 per the plugin's `CODE_FLOW.md`).
+- **`proxy.go`** runs inside the hub OpenBao process and presents itself as a normal v5 database plugin (`remote-postgres-plugin`, `remote-mysql-plugin`, etc.). It forwards every `Initialize` / `NewUser` / `UpdateUser` / `DeleteUser` / `Close` call to the spoke identified by `spoke_name` over a long-lived mTLS gRPC stream. Each request carries a stable `instance_id` so the spoke can cache the underlying plugin instance instead of re-Initializing on every call. The proxy gRPC listener is started by `bao agent init` (not lazily on first DB mount).
+- **`bootstrap/`** — kubeadm-style trust primitives: token format `<id>.<secret>`, detached JWS-HS256 over the cluster-info bundle, SPKI-hash pin for the spoke-CA, plus the CA generation and CSR signing used by `bao agent init` / `bao agent join` / `bao agent renew`. Backed by focused unit tests.
+- **`runner/`** — spoke-side dispatcher. Holds the per-`instance_id` plugin cache (single-flighted on cold-miss) and dispatches incoming JSON requests to the in-process built-in database plugins.
+- **`proto/agent.proto`** — the gRPC contract: a bidi `Connect` stream for ongoing requests + heartbeats + responses (correlated by `request_id`), and a unary `RenewCert` for spoke-cert renewal authenticated by the existing mTLS client cert.
+- **`builtin/logical/agent/`** — the `agent/` logical backend the hub mounts. Manages the spoke-CA, hub TLS identity, and seal-wrapped bootstrap tokens; serves the unauthenticated `cluster-info` and `sign-csr` paths used by `bao agent join`.
+- **`command/agent_*.go`** — the operator CLI: `bao agent init | join | run | list | renew | ca status | ca rotate | token create | list | revoke`. `bao agent run` is the long-running spoke daemon and ships inside the same `bao` binary.
+- **`yaml/`** — Kubernetes manifests for hub OpenBao + spoke agent deployments (KubeVault-based). May lag behind the rest of the tree; treat as starting points.
 
-The two top-level scripts `build-cli-image.sh` and `build-hub-spoke.sh` are personal build helpers for this work — they hard-code `/home/rudro25/...` paths and are not portable; treat them as references rather than entry points when working in this checkout.
+The two top-level scripts `build-cli-image.sh` and `build-hub-spoke.sh` are personal build helpers — they hard-code `/home/rudro25/...` paths and are not portable; treat them as references rather than entry points when working in this checkout.
