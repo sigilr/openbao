@@ -264,9 +264,23 @@ Day-2 operations:
   port.
 - `bao agent ca rotate` — re-issue the hub TLS cert from the existing CA.
   Transparent to running spokes (they still trust the CA).
+- `bao write agent/ca/update-endpoint hub_endpoint=... hub_dns_sans=...` —
+  refresh what cluster-info advertises plus the SANs on the hub TLS cert,
+  without touching the CA. Useful when the load balancer DNS or the
+  advertised endpoint changes. The bound port cannot change here; that
+  requires a process restart with the new endpoint already persisted.
+
+  Note: this updates what *future* `bao agent join` calls discover via
+  cluster-info. Already-running spoke daemons keep dialing whatever
+  `-server` they were configured with at launch; if the hostname/IP they
+  point at moves, you have to update their daemon configuration out of
+  band. The SAN refresh ensures their TLS handshake against the new
+  hostname still validates (the hub cert chains to the same CA).
+
 - `bao agent ca rotate -full -yes` — regenerate the spoke-CA. **Destructive**:
   every issued spoke cert becomes invalid on its next handshake. Operators
-  must re-join every spoke.
+  must re-join every spoke and redistribute `ca.pem` out of band — there is
+  no in-band channel that survives a full rotation.
 
 ---
 
