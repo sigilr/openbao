@@ -190,8 +190,13 @@ func (c *AgentRunCommand) Run(args []string) int {
 		defer close(sendDone)
 		for msg := range sendCh {
 			if err := stream.Send(msg); err != nil {
+				// Wrap with the failing message's metadata so the recv-loop
+				// log line names which request couldn't be delivered. This
+				// is a debugging aid; the err itself is the canonical cause.
+				wrapped := fmt.Errorf("send failed (request_id=%q is_heartbeat=%t is_response=%t): %w",
+					msg.RequestId, msg.IsHeartbeat, msg.IsResponse, err)
 				select {
-				case sendErrCh <- err:
+				case sendErrCh <- wrapped:
 				default:
 				}
 				// Cancel the heartbeat/renewal context so those goroutines
