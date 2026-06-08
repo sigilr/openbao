@@ -97,6 +97,7 @@ func newRegistry() *registry {
 			"remote-valkey-proxy":   {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
+			"agent":      {Factory: dbRemoteDB.AgentBackendFactory},
 			"kubernetes": {Factory: logicalKube.Factory},
 			"kv":         {Factory: logicalKv.Factory},
 			"openldap":   {Factory: logicalLDAP.Factory},
