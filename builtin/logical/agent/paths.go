@@ -269,7 +269,16 @@ func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request,
 		},
 	}
 	if full {
-		resp.AddWarning("Full CA rotation invalidates every issued spoke cert. Active spoke streams stay up until they disconnect (TLS auth happens at handshake), but any reconnect will fail. Re-run `bao agent join` on each spoke with a fresh bootstrap token, then restart the spoke daemon.")
+		resp.AddWarning(strings.Join([]string{
+			"Full CA rotation invalidates every issued spoke cert AND every spoke's local ca.pem.",
+			"Active gRPC streams stay up until they disconnect (TLS auth happens at handshake), but:",
+			"  - the hub no longer trusts existing spoke client certs (new ClientCAs pool),",
+			"  - spokes no longer trust the hub server cert (the ca.pem they pinned is for the old CA),",
+			"so any reconnect — process restart, network blip, hub restart — will fail in both directions.",
+			"Recovery requires, on each spoke: distribute the new ca.pem out of band, create a fresh bootstrap",
+			"token (`bao agent token create`), run `bao agent join` to obtain a new client cert + ca.pem,",
+			"then restart `bao agent run`. There is no in-band channel that survives a full rotation.",
+		}, " "))
 	}
 	return resp, nil
 }
