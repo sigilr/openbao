@@ -98,7 +98,9 @@ func (c *AgentInitCommand) Flags() *FlagSets {
 		Name:    "allowed-spoke-name",
 		Target:  &c.flagAllowedSpoke,
 		Default: "",
-		Usage:   "Restrict the printed token to a specific spoke identity.",
+		Usage: "Restrict the printed token to a specific spoke identity. " +
+			"Empty (default) means any spoke name may join with this token. " +
+			"Spoke names are case-sensitive (lowercase by convention).",
 	})
 	f.StringVar(&StringVar{
 		Name:    "token-ttl",

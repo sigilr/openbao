@@ -130,7 +130,9 @@ func (c *AgentJoinCommand) Flags() *FlagSets {
 		Name:    "spoke-name",
 		Target:  &c.flagSpokeName,
 		Default: "",
-		Usage:   "Identity to embed in the spoke's client cert.",
+		Usage: "Identity to embed in the spoke's client cert. Must match the " +
+			"token's -allowed-spoke-name if one was set. Case-sensitive; " +
+			"lowercase by convention.",
 	})
 	f.StringVar(&StringVar{
 		Name:    "credentials-dir",
