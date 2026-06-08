@@ -115,7 +115,13 @@ its `ClientCAs` pool.
 3. Open the `AgentService.Connect` bidi stream; send a registration frame.
 4. Goroutine A: tick a heartbeat (`IsHeartbeat=true`) every
    `-heartbeat-interval`.
-5. Goroutine B (`for stream.Recv()`): dispatch every inbound request frame on
+5. Goroutine B: tick cert renewal every `-renew-check-every`. When the cert
+   is past `-renew-threshold` of its lifetime, call `AgentService.RenewCert`
+   over the existing mTLS connection; atomically swap the new cert + key in
+   place under `-credentials-dir`.
+6. Goroutine C: idle-evict cached plugin instances (`runner.DefaultIdleTTL`,
+   24h). Skips entries with an in-flight handler refcount > 0.
+7. Goroutine D (`for stream.Recv()`): dispatch every inbound request frame on
    a bounded worker pool to `runner.ExecuteRequest`. Echo `RequestId` back on
    the response.
 
@@ -127,10 +133,13 @@ only and not trusted.
 
 ## Wire protocol
 
-One service, one RPC:
+One service, two RPCs:
 
 ```protobuf
-service AgentService { rpc Connect(stream AgentMessage) returns (stream AgentMessage); }
+service AgentService {
+  rpc Connect(stream AgentMessage) returns (stream AgentMessage);
+  rpc RenewCert(RenewCertRequest) returns (RenewCertResponse);
+}
 
 message AgentMessage {
   string client_name  = 1;  // informational; hub trusts peer-cert CN instead
@@ -142,7 +151,18 @@ message AgentMessage {
   string request_id   = 7;  // pairs a response with its request
   string error        = 8;  // structured error on the response
 }
+
+message RenewCertRequest  { bytes csr_pem = 1; int64 ttl_seconds = 2; }
+message RenewCertResponse { bytes cert_pem = 1; bytes ca_cert_pem = 2; }
 ```
+
+`RenewCert` is authenticated by the caller's existing mTLS client cert — the
+gRPC handshake proves the spoke holds a valid cert signed by the spoke-CA.
+The hub enforces that the CSR's CN matches the verified peer-cert CN so
+renewal cannot rebind to a different identity. The CA caps the signed cert
+at `RenewCertMaxTTL` (90d); a `ttl_seconds == 0` request gets the default
+`RenewCertDefaultTTL` (30d), matching what `bao agent join` initially
+issues.
 
 Every hub-issued request carries a fresh `request_id` (12-byte hex). The hub
 keeps `inflight map[reqID]chan pendingResponse` per spoke; the dispatch
@@ -214,6 +234,13 @@ responsibilities are minimal: tag every outbound request with a stable
 `PluginProxy.Close()` sends `{method: "Close", instance_id}`. Spoke's
 `runner.handleClose` removes the entry and calls `db.Close()` to release the
 DB connection. Idempotent: closing an unknown id is a no-op.
+
+The spoke runner also runs a background idle evictor (`runner.evictIdle`,
+default `DefaultIdleTTL = 24h`) that catches the case where Close never
+arrived — process crash mid-teardown, mount deleted while the spoke was
+offline, hub forgot the `instance_id` after a restart. Entries with an
+in-flight handler are skipped via an atomic refcount, so a long-running call
+cannot have its DB connection closed underneath it.
 
 The earlier subprocess-per-request design rebuilt the plugin (and the DB
 connection) on every call. That broke any plugin state that has to live

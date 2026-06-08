@@ -83,12 +83,13 @@ $ bao read database/creds/readonly
 | Command | Side | What it does |
 | --- | --- | --- |
 | `bao agent init` | hub | Generate the spoke-CA + hub TLS cert, create a bootstrap token, start the proxy gRPC listener, print the join command. |
-| `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. |
-| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, and auto-renews its own cert. |
+| `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. Refuses to overwrite an existing directory without `-force`. |
+| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, auto-renews its own cert, and evicts idle cached plugin instances. |
 | `bao agent renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
 | `bao agent list` | hub | Connected spokes with last-seen and health. |
 | `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. |
 | `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
+| `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. Bound listener port can't change here. |
 | `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. |
 | `bao agent token list` | hub | Outstanding bootstrap tokens with expiry. |
 | `bao agent token revoke` | hub | Revoke by token id. |
