@@ -22,6 +22,7 @@ type HubState struct {
 	mu sync.RWMutex
 
 	caCertPEM    []byte // spoke-CA root, distributed to spokes
+	caKeyPEM     []byte // spoke-CA private key, used to sign renewal CSRs
 	hubCertPEM   []byte // hub TLS cert (signed by spoke-CA)
 	hubKeyPEM    []byte
 	clientCAPool *x509.CertPool // pool used by the proxy mTLS listener
@@ -53,6 +54,7 @@ func (s *HubState) SetIdentity(ca *CABundle, hub *HubServerCert) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.caCertPEM = append([]byte(nil), ca.CertPEM...)
+	s.caKeyPEM = append([]byte(nil), ca.KeyPEM...)
 	s.hubCertPEM = append([]byte(nil), hub.CertPEM...)
 	s.hubKeyPEM = append([]byte(nil), hub.KeyPEM...)
 	s.clientCAPool = pool
@@ -65,6 +67,14 @@ func (s *HubState) CACertPEM() []byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]byte(nil), s.caCertPEM...)
+}
+
+// CABundlePEM returns the (cert, key) PEM pair needed for signing CSRs (e.g.
+// the gRPC RenewCert RPC). Empty when the hub is not yet initialized.
+func (s *HubState) CABundlePEM() (certPEM []byte, keyPEM []byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]byte(nil), s.caCertPEM...), append([]byte(nil), s.caKeyPEM...)
 }
 
 // Ready reports whether SetIdentity has been called successfully.

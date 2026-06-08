@@ -211,6 +211,9 @@ func initCommands(ui, serverCmdUi cli.Ui, runOpts *RunOptions) map[string]cli.Co
 		"agent run": func() (cli.Command, error) {
 			return &AgentRunCommand{BaseCommand: getBaseCommand()}, nil
 		},
+		"agent renew": func() (cli.Command, error) {
+			return &AgentRenewCommand{BaseCommand: getBaseCommand()}, nil
+		},
 		"agent ca": func() (cli.Command, error) {
 			return &AgentCACommand{BaseCommand: getBaseCommand()}, nil
 		},

@@ -42,6 +42,8 @@ type AgentRunCommand struct {
 	flagServerName        string
 	flagHeartbeatInterval time.Duration
 	flagMaxConcurrency    int
+	flagRenewCheckEvery   time.Duration
+	flagRenewThreshold    float64
 }
 
 var (
@@ -111,6 +113,18 @@ func (c *AgentRunCommand) Flags() *FlagSets {
 		Default: 32,
 		Usage:   "Max concurrent in-flight requests from the hub.",
 	})
+	f.DurationVar(&DurationVar{
+		Name:    "renew-check-every",
+		Target:  &c.flagRenewCheckEvery,
+		Default: time.Hour,
+		Usage:   "How often to check whether the client cert is past its renewal threshold. 0 disables auto-renewal.",
+	})
+	f.Float64Var(&Float64Var{
+		Name:    "renew-threshold",
+		Target:  &c.flagRenewThreshold,
+		Default: 0.5,
+		Usage:   "Renew when this fraction of the cert lifetime has elapsed (0.5 = half-life).",
+	})
 	return set
 }
 
@@ -178,6 +192,13 @@ func (c *AgentRunCommand) Run(args []string) int {
 	if c.flagHeartbeatInterval > 0 {
 		go runSpokeHeartbeat(hbCtx, send, spokeName, c.flagHeartbeatInterval, c.UI)
 	}
+	if c.flagRenewCheckEvery > 0 {
+		go runCertRenewal(hbCtx, RenewSpokeCertInput{
+			Server:         c.flagServer,
+			ServerName:     c.flagServerName,
+			CredentialsDir: c.flagCredentialsDir,
+		}, c.flagRenewCheckEvery, c.flagRenewThreshold, c.UI)
+	}
 
 	r := runner.NewPluginRunner()
 
@@ -220,6 +241,47 @@ func (c *AgentRunCommand) Run(args []string) int {
 			}
 		}(msg)
 	}
+}
+
+// runCertRenewal ticks on `every` and renews the spoke's client cert once it
+// passes the threshold fraction of its lifetime. Failures are logged and
+// retried on the next tick — there is no point bailing out of the daemon
+// because the hub is briefly unreachable. The renewed cert is written to
+// disk; in-flight gRPC connections stay on the old cert until they
+// reconnect, which is fine if renewal runs with a sensible threshold
+// (default 0.5).
+func runCertRenewal(ctx context.Context, in RenewSpokeCertInput, every time.Duration, threshold float64, ui cli.Ui) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	// Check once at startup; an operator restarting a daemon with an
+	// almost-expired cert shouldn't have to wait for the first tick.
+	maybeRenew(ctx, in, threshold, ui)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			maybeRenew(ctx, in, threshold, ui)
+		}
+	}
+}
+
+func maybeRenew(ctx context.Context, in RenewSpokeCertInput, threshold float64, ui cli.Ui) {
+	notBefore, notAfter, err := CurrentSpokeCertWindow(in.CredentialsDir)
+	if err != nil {
+		ui.Error(fmt.Sprintf("renew: read cert: %s", err))
+		return
+	}
+	if !PastRenewalThreshold(notBefore, notAfter, threshold, time.Now()) {
+		return
+	}
+	res, err := RenewSpokeCert(ctx, in)
+	if err != nil {
+		ui.Error(fmt.Sprintf("renew: %s", err))
+		return
+	}
+	ui.Info(fmt.Sprintf("renewed cert for %q; new expiry %s", res.CommonName,
+		res.NotAfter.UTC().Format(time.RFC3339)))
 }
 
 // runSpokeHeartbeat fires an IsHeartbeat frame every interval. Hub side

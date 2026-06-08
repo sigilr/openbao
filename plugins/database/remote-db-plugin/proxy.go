@@ -8,8 +8,10 @@ package remotedb
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -341,6 +343,64 @@ func spokeNameFromPeer(ctx context.Context) (string, error) {
 // RunCommand sends a request to spokeName and waits for the correlated
 // response. Many callers can be in-flight concurrently against the same spoke;
 // each parks on its own channel keyed by request_id.
+// RenewCert is the spoke-cert renewal RPC. The caller is already authenticated
+// at the transport layer via mTLS — completing the gRPC handshake proves the
+// spoke holds a valid client cert signed by the spoke-CA. We then refuse any
+// CSR whose CN does not match the peer cert's CN, so renewal cannot rebind to
+// a different identity.
+func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRequest) (*agentproto.RenewCertResponse, error) {
+	peerCN, err := spokeNameFromPeer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(req.CsrPem) == 0 {
+		return nil, fmt.Errorf("csr_pem is required")
+	}
+
+	csrDER, err := decodeCSRPEM(req.CsrPem)
+	if err != nil {
+		return nil, err
+	}
+	csr, err := x509.ParseCertificateRequest(csrDER)
+	if err != nil {
+		return nil, fmt.Errorf("parse CSR: %w", err)
+	}
+	if csr.Subject.CommonName != peerCN {
+		return nil, fmt.Errorf("CSR CN %q does not match authenticated spoke %q",
+			csr.Subject.CommonName, peerCN)
+	}
+
+	caCertPEM, caKeyPEM := bootstrap.Global().CABundlePEM()
+	if len(caCertPEM) == 0 || len(caKeyPEM) == 0 {
+		return nil, fmt.Errorf("hub identity not initialized")
+	}
+	ca := &bootstrap.CABundle{CertPEM: caCertPEM, KeyPEM: caKeyPEM}
+
+	ttl := time.Duration(req.TtlSeconds) * time.Second
+	certPEM, err := ca.SignSpokeCSR(csrDER, peerCN, ttl)
+	if err != nil {
+		return nil, err
+	}
+	return &agentproto.RenewCertResponse{
+		CertPem:   certPEM,
+		CaCertPem: caCertPEM,
+	}, nil
+}
+
+// decodeCSRPEM is the same decode used by agent/sign-csr. The function lives
+// here so the gRPC RPC can be self-contained without depending on the agent
+// backend (which imports this package).
+func decodeCSRPEM(csrPEM []byte) ([]byte, error) {
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return nil, fmt.Errorf("csr_pem is not PEM-encoded")
+	}
+	if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
+		return nil, fmt.Errorf("unexpected PEM block %q", block.Type)
+	}
+	return block.Bytes, nil
+}
+
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {
 	s.mu.RLock()
 	conn, ok := s.spokes[spokeName]

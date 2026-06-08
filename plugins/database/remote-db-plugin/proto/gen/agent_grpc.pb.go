@@ -22,7 +22,8 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	AgentService_Connect_FullMethodName = "/agent.AgentService/Connect"
+	AgentService_Connect_FullMethodName   = "/agent.AgentService/Connect"
+	AgentService_RenewCert_FullMethodName = "/agent.AgentService/RenewCert"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -30,6 +31,10 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentServiceClient interface {
 	Connect(ctx context.Context, opts ...grpc.CallOption) (AgentService_ConnectClient, error)
+	// RenewCert exchanges a CSR for a fresh spoke client cert, authenticated
+	// by the caller's existing mTLS client cert. The new CSR's CN must match
+	// the peer cert's CN — renewal is for the same identity, not a rebind.
+	RenewCert(ctx context.Context, in *RenewCertRequest, opts ...grpc.CallOption) (*RenewCertResponse, error)
 }
 
 type agentServiceClient struct {
@@ -72,11 +77,25 @@ func (x *agentServiceConnectClient) Recv() (*AgentMessage, error) {
 	return m, nil
 }
 
+func (c *agentServiceClient) RenewCert(ctx context.Context, in *RenewCertRequest, opts ...grpc.CallOption) (*RenewCertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RenewCertResponse)
+	err := c.cc.Invoke(ctx, AgentService_RenewCert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility
 type AgentServiceServer interface {
 	Connect(AgentService_ConnectServer) error
+	// RenewCert exchanges a CSR for a fresh spoke client cert, authenticated
+	// by the caller's existing mTLS client cert. The new CSR's CN must match
+	// the peer cert's CN — renewal is for the same identity, not a rebind.
+	RenewCert(context.Context, *RenewCertRequest) (*RenewCertResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -86,6 +105,9 @@ type UnimplementedAgentServiceServer struct {
 
 func (UnimplementedAgentServiceServer) Connect(AgentService_ConnectServer) error {
 	return status.Errorf(codes.Unimplemented, "method Connect not implemented")
+}
+func (UnimplementedAgentServiceServer) RenewCert(context.Context, *RenewCertRequest) (*RenewCertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenewCert not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 
@@ -126,13 +148,36 @@ func (x *agentServiceConnectServer) Recv() (*AgentMessage, error) {
 	return m, nil
 }
 
+func _AgentService_RenewCert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewCertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).RenewCert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_RenewCert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).RenewCert(ctx, req.(*RenewCertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var AgentService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agent.AgentService",
 	HandlerType: (*AgentServiceServer)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RenewCert",
+			Handler:    _AgentService_RenewCert_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Connect",

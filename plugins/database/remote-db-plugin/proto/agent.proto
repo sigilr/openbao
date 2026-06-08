@@ -9,6 +9,24 @@ option go_package = "github.com/openbao/openbao/plugins/database/remote-db-plugi
 
 service AgentService {
   rpc Connect(stream AgentMessage) returns (stream AgentMessage);
+
+  // RenewCert exchanges a CSR for a fresh spoke client cert, authenticated
+  // by the caller's existing mTLS client cert. The new CSR's CN must match
+  // the peer cert's CN — renewal is for the same identity, not a rebind.
+  rpc RenewCert(RenewCertRequest) returns (RenewCertResponse);
+}
+
+message RenewCertRequest {
+  // PEM-encoded PKCS#10 CSR. The CN must equal the calling spoke's current
+  // identity (i.e. the CN on its mTLS client cert).
+  bytes csr_pem = 1;
+  // Requested validity. Hub may cap this; 0 means use the hub default.
+  int64 ttl_seconds = 2;
+}
+
+message RenewCertResponse {
+  bytes cert_pem = 1;
+  bytes ca_cert_pem = 2;
 }
 
 message AgentMessage {
