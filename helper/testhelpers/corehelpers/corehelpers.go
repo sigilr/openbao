@@ -178,10 +178,10 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"postgresql-database-plugin",
 			"redis-database-plugin",
 			"valkey-database-plugin",
-			"remote-postgres-proxy",
-			"remote-mysql-proxy",
-			"remote-redis-proxy",
-			"remote-valkey-proxy",
+			"remote-postgres-plugin",
+			"remote-mysql-plugin",
+			"remote-redis-plugin",
+			"remote-valkey-plugin",
 		}
 	case consts.PluginTypeCredential:
 		return []string{

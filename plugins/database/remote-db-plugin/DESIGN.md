@@ -253,7 +253,7 @@ prints:
 $ bao agent list
 $ bao secrets enable database
 $ bao write database/config/my-db \
-    plugin_name=remote-postgres-proxy\
+    plugin_name=remote-postgres-plugin\
     spoke_name=spoke-1 ...
 ```
 
