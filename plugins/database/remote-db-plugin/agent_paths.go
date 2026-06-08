@@ -122,7 +122,7 @@ func (b *agentBackend) pathCAInfo() *framework.Path {
 		Operations: map[logical.Operation]framework.OperationHandler{
 			logical.ReadOperation: &framework.PathOperation{Callback: b.handleCAInfo},
 		},
-		HelpSynopsis: "Return the spoke-CA public cert + hub endpoint.",
+		HelpSynopsis: "Return CA + hub cert metadata.",
 	}
 }
 
@@ -138,14 +138,138 @@ func (b *agentBackend) handleCAInfo(ctx context.Context, req *logical.Request, _
 	if err != nil {
 		return nil, err
 	}
+	hubCert, err := bootstrap.ParseCert(bundle.HubCertPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	ipSANs := make([]string, 0, len(hubCert.IPAddresses))
+	for _, ip := range hubCert.IPAddresses {
+		ipSANs = append(ipSANs, ip.String())
+	}
+
 	return &logical.Response{
 		Data: map[string]any{
-			"ca_cert_pem":  string(bundle.CACertPEM),
-			"ca_cert_hash": bootstrap.HashCert(caCert),
-			"hub_endpoint": bundle.HubEndpoint,
-			"created_unix": bundle.CreatedUnix,
+			"ca_cert_pem":      string(bundle.CACertPEM),
+			"ca_cert_hash":     bootstrap.HashCert(caCert),
+			"ca_subject":       caCert.Subject.String(),
+			"ca_not_after":     caCert.NotAfter.Unix(),
+			"hub_endpoint":     bundle.HubEndpoint,
+			"hub_cert_subject": hubCert.Subject.String(),
+			"hub_cert_not_after": hubCert.NotAfter.Unix(),
+			"hub_dns_sans":     hubCert.DNSNames,
+			"hub_ip_sans":      ipSANs,
+			"created_unix":     bundle.CreatedUnix,
+			"listener_port":    proxyServerPort(),
 		},
 	}, nil
+}
+
+// --- ca/rotate ---------------------------------------------------------------
+
+func (b *agentBackend) pathCARotate() *framework.Path {
+	return &framework.Path{
+		Pattern: "ca/rotate",
+		Fields: map[string]*framework.FieldSchema{
+			"full": {
+				Type:        framework.TypeBool,
+				Description: "If true, rotate the spoke-CA itself (invalidates all spoke certs).",
+			},
+			"hub_dns_sans": {
+				Type:        framework.TypeStringSlice,
+				Description: "Override DNS SANs on the new hub cert; defaults to existing.",
+			},
+			"hub_ip_sans": {
+				Type:        framework.TypeStringSlice,
+				Description: "Override IP SANs on the new hub cert; defaults to existing.",
+			},
+		},
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{Callback: b.handleCARotate},
+		},
+		HelpSynopsis: "Rotate the hub TLS cert (default) or the entire spoke-CA.",
+	}
+}
+
+func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	bundle, err := readCA(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+	if bundle == nil {
+		return logical.ErrorResponse("CA not initialized; run `bao agent init`"), nil
+	}
+
+	full := d.Get("full").(bool)
+	dnsSANs := d.Get("hub_dns_sans").([]string)
+	ipSANs := d.Get("hub_ip_sans").([]string)
+
+	// Carry forward whatever was on the existing hub cert if the operator
+	// didn't override. Rotation should not silently drop SANs.
+	existingHubCert, err := bootstrap.ParseCert(bundle.HubCertPEM)
+	if err != nil {
+		return nil, err
+	}
+	if len(dnsSANs) == 0 {
+		dnsSANs = existingHubCert.DNSNames
+	}
+	if len(ipSANs) == 0 {
+		ipSANs = make([]string, 0, len(existingHubCert.IPAddresses))
+		for _, ip := range existingHubCert.IPAddresses {
+			ipSANs = append(ipSANs, ip.String())
+		}
+	}
+
+	var (
+		newCA       *bootstrap.CABundle
+		newHub      *bootstrap.HubServerCert
+		rotatedKind string
+	)
+	if full {
+		newCA, err = bootstrap.GenerateCA()
+		if err != nil {
+			return nil, err
+		}
+		rotatedKind = "ca+hub"
+	} else {
+		newCA = &bootstrap.CABundle{CertPEM: bundle.CACertPEM, KeyPEM: bundle.CAKeyPEM}
+		rotatedKind = "hub"
+	}
+	newHub, err = newCA.IssueHubServerCert(dnsSANs, ipSANs)
+	if err != nil {
+		return nil, err
+	}
+
+	updated := &caStorage{
+		CACertPEM:   newCA.CertPEM,
+		CAKeyPEM:    newCA.KeyPEM,
+		HubCertPEM:  newHub.CertPEM,
+		HubKeyPEM:   newHub.KeyPEM,
+		HubEndpoint: bundle.HubEndpoint, // endpoint never changes via rotate
+		CreatedUnix: bundle.CreatedUnix,
+	}
+	if err := writeCA(ctx, req.Storage, updated); err != nil {
+		return nil, err
+	}
+	if err := bootstrap.Global().SetIdentity(newCA, newHub); err != nil {
+		return nil, err
+	}
+
+	caCert, err := bootstrap.ParseCert(newCA.CertPEM)
+	if err != nil {
+		return nil, err
+	}
+	resp := &logical.Response{
+		Data: map[string]any{
+			"rotated":      rotatedKind,
+			"ca_cert_hash": bootstrap.HashCert(caCert),
+			"ca_cert_pem":  string(newCA.CertPEM),
+		},
+	}
+	if full {
+		resp.AddWarning("Full CA rotation invalidates every issued spoke cert. Active spoke streams stay up until they disconnect (TLS auth happens at handshake), but any reconnect will fail. Re-run `bao agent join` on each spoke with a fresh bootstrap token, then restart the spoke daemon.")
+	}
+	return resp, nil
 }
 
 // --- bootstrap-tokens (create + list) ----------------------------------------
@@ -432,6 +556,30 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 		Data: map[string]any{
 			"cert_pem":    string(certPEM),
 			"ca_cert_pem": string(bundle.CACertPEM),
+		},
+	}, nil
+}
+
+// --- spokes -----------------------------------------------------------------
+
+func (b *agentBackend) pathSpokes() *framework.Path {
+	return &framework.Path{
+		Pattern: "spokes",
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation: &framework.PathOperation{Callback: b.handleSpokesList},
+			logical.ListOperation: &framework.PathOperation{Callback: b.handleSpokesList},
+		},
+		HelpSynopsis: "List spokes currently connected to the proxy gRPC server.",
+	}
+}
+
+func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	names := ListConnectedSpokes()
+	return &logical.Response{
+		Data: map[string]any{
+			"connected":      names,
+			"connected_count": len(names),
+			"listener_port":  proxyServerPort(),
 		},
 	}, nil
 }

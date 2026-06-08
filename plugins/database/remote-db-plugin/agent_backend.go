@@ -49,10 +49,12 @@ func AgentBackendFactory(ctx context.Context, conf *logical.BackendConfig) (logi
 		Paths: []*framework.Path{
 			b.pathCAInit(),
 			b.pathCAInfo(),
+			b.pathCARotate(),
 			b.pathTokensCreate(),
 			b.pathTokenItem(),
 			b.pathClusterInfo(),
 			b.pathSignCSR(),
+			b.pathSpokes(),
 		},
 
 		BackendType: logical.TypeLogical,

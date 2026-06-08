@@ -205,6 +205,18 @@ func initCommands(ui, serverCmdUi cli.Ui, runOpts *RunOptions) map[string]cli.Co
 		"agent join": func() (cli.Command, error) {
 			return &AgentJoinCommand{BaseCommand: getBaseCommand()}, nil
 		},
+		"agent list": func() (cli.Command, error) {
+			return &AgentListCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent ca": func() (cli.Command, error) {
+			return &AgentCACommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent ca status": func() (cli.Command, error) {
+			return &AgentCAStatusCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent ca rotate": func() (cli.Command, error) {
+			return &AgentCARotateCommand{BaseCommand: getBaseCommand()}, nil
+		},
 		"agent token": func() (cli.Command, error) {
 			return &AgentTokenCommand{BaseCommand: getBaseCommand()}, nil
 		},
