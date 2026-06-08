@@ -266,11 +266,14 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 		VerifyConnection: false,
 	}); err != nil {
 		_ = plugin.Close()
-		// Don't leave the load mutex stranded if we failed; the next caller
-		// gets a fresh one and a clean retry.
-		r.mu.Lock()
-		delete(r.loading, instanceID)
-		r.mu.Unlock()
+		// Leave the load mutex in r.loading on failure. If we deleted it,
+		// a concurrent fresh entrant would create a new mutex and the
+		// retrying waiter (which still holds a reference to the old one)
+		// would race with them — the very duplicate-Initialize bug the
+		// single-flight design exists to prevent. Better to let every
+		// retrying caller serialize through the same mutex; the leak is
+		// bounded by the number of distinct instance ids ever served by
+		// this runner (same bound the cache itself has).
 		return nil, fmt.Errorf("lazy initialize: %w", err)
 	}
 	entry := &pluginEntry{pluginName: pluginName, db: plugin}
