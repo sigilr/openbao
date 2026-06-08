@@ -23,24 +23,10 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
-const (
-	proxyAgentPort = 50053 // Different port to avoid conflict with base.go
-)
-
-var (
-	proxyServerOnce     sync.Once
-	proxyServerStartErr error
-	proxyServerInstance *proxyServer
-)
-
-//func init() {
-//	// Start gRPC server when plugin loads
-//	go func() {
-//		getProxyServer().Start(proxyAgentPort)
-//	}()
-//}
-
-// proxyServer is a simple gRPC server for spoke-agent connections
+// proxyServer is the singleton gRPC server that brokers requests between the
+// hub and spoke-agents. It is started exactly once by StartProxyServer, which
+// is called from the agent backend (on `agent/ca/init` and on backend
+// hydration after a restart). Database mounts no longer touch its lifecycle.
 type proxyServer struct {
 	agentproto.UnimplementedAgentServiceServer
 	mu     sync.RWMutex
@@ -53,31 +39,53 @@ type spokeConnection struct {
 	mu     sync.Mutex
 }
 
-func getProxyServer() *proxyServer {
-	if proxyServerInstance == nil {
-		proxyServerInstance = &proxyServer{
-			spokes: make(map[string]*spokeConnection),
-		}
-	}
-	return proxyServerInstance
-}
+var (
+	proxyServerInstance = &proxyServer{spokes: make(map[string]*spokeConnection)}
 
-func (s *proxyServer) Start(port int) error {
+	proxyServerLifecycleMu sync.Mutex
+	proxyServerStartedPort int // 0 = not started
+)
+
+func getProxyServer() *proxyServer { return proxyServerInstance }
+
+// StartProxyServer brings up the mTLS gRPC listener on the given port. It is
+// idempotent: calling it twice with the same port is a no-op; calling it with
+// a different port returns an error rather than rebinding (a port change
+// requires a process restart).
+//
+// Callers must have already populated bootstrap.Global() via SetIdentity.
+func StartProxyServer(port int) error {
+	if port <= 0 {
+		return fmt.Errorf("invalid port %d", port)
+	}
 	if !bootstrap.Global().Ready() {
 		return fmt.Errorf("hub identity not initialized; run `bao agent init` first")
 	}
+
+	proxyServerLifecycleMu.Lock()
+	defer proxyServerLifecycleMu.Unlock()
+
+	if proxyServerStartedPort != 0 {
+		if proxyServerStartedPort != port {
+			return fmt.Errorf("proxy listener already started on :%d; cannot rebind to :%d without process restart",
+				proxyServerStartedPort, port)
+		}
+		return nil
+	}
+
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}
 	creds := credentials.NewTLS(bootstrap.Global().TLSConfig())
 	srv := grpc.NewServer(grpc.Creds(creds))
-	agentproto.RegisterAgentServiceServer(srv, s)
+	agentproto.RegisterAgentServiceServer(srv, proxyServerInstance)
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			log.Printf("[proxy] gRPC server stopped: %v", err)
 		}
 	}()
+	proxyServerStartedPort = port
 	log.Printf("[proxy] mTLS server listening on :%d", port)
 	return nil
 }
@@ -196,7 +204,6 @@ func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string)
 // PluginProxy forwards all database plugin operations to spoke-agent
 type PluginProxy struct {
 	pluginName    string
-	agentPort     int
 	spokeName     string
 	connectionURL string
 	config        map[string]interface{}
@@ -225,30 +232,22 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 		return dbplugin.InitializeResponse{}, err
 	}
 
-	agentPort := proxyAgentPort
-	if v, ok := req.Config["agent_port"]; ok {
-		if port, ok := v.(int); ok && port > 0 {
-			agentPort = port
-		}
+	if proxyServerPort() == 0 {
+		return dbplugin.InitializeResponse{}, fmt.Errorf(
+			"proxy listener not running; run `bao agent init` on the hub before configuring database mounts")
 	}
 
 	p.spokeName = spokeName
-	p.agentPort = agentPort
 	p.config = req.Config
 
 	if connURL, ok := req.Config["connection_url"].(string); ok {
 		p.connectionURL = connURL
 	}
 
-	// Auto-start gRPC server on first database config
-	proxyServerOnce.Do(func() {
-		proxyServerStartErr = getProxyServer().Start(agentPort)
-	})
-	if proxyServerStartErr != nil {
-		return dbplugin.InitializeResponse{}, proxyServerStartErr
-	}
-
-	// Filter out proxy-specific config fields before sending to actual plugin
+	// Filter out proxy-specific config fields before sending to actual plugin.
+	// agent_port is accepted for backward compatibility with mounts created
+	// before the listener moved under `agent/ca/init`, but it is no longer
+	// honored — the port comes from the agent backend.
 	pluginConfig := make(map[string]interface{})
 	for k, v := range req.Config {
 		if k != "spoke_name" && k != "agent_port" {
@@ -275,14 +274,21 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 		return dbplugin.InitializeResponse{}, fmt.Errorf("parse response failed: %w", err)
 	}
 
-	// Add back proxy-specific fields to persist them
 	if initResp.Config == nil {
 		initResp.Config = make(map[string]interface{})
 	}
 	initResp.Config["spoke_name"] = spokeName
-	initResp.Config["agent_port"] = agentPort
 
 	return dbplugin.InitializeResponse{Config: initResp.Config}, nil
+}
+
+// proxyServerPort returns the port the proxy is bound to, or 0 if not started.
+// Used by PluginProxy.Initialize to fail fast when the operator forgot to run
+// `bao agent init`.
+func proxyServerPort() int {
+	proxyServerLifecycleMu.Lock()
+	defer proxyServerLifecycleMu.Unlock()
+	return proxyServerStartedPort
 }
 
 func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
