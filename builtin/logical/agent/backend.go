@@ -1,5 +1,5 @@
 // Copyright (c) AppsCode Inc.
-// SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+// SPDX-License-Identifier: MPL-2.0
 
 // Package agent implements the OpenBao logical backend that operators use to
 // bootstrap and run the hub-and-spoke trust state for the remote-db-plugin.

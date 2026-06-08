@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copyright (c) AppsCode Inc.
-# SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+# SPDX-License-Identifier: MPL-2.0
 
 # Build script for OpenBao with remote-db-plugin CLI tools
 
