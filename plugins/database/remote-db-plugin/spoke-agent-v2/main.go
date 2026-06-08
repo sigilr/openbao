@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // spoke-agent-v2 connects to the hub's proxy gRPC server using mTLS, then
-// executes plugin-runner to run built-in OpenBao database plugins locally in
-// the spoke cluster.
+// dispatches incoming requests to a long-lived in-process plugin runner.
 //
 // The credentials directory must contain:
 //
@@ -12,7 +11,10 @@
 //	ca.pem    spoke-CA root used to verify the hub
 //
 // The certificate's Common Name is the spoke's authoritative identity; the
-// hub reads it off the verified peer cert.
+// hub reads it off the verified peer cert. Concurrent in-flight requests
+// from the hub are matched to responses via the AgentMessage.RequestId
+// field, and dispatched on independent goroutines so a slow plugin call
+// never blocks another.
 package main
 
 import (
@@ -24,13 +26,13 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
+	"github.com/openbao/openbao/plugins/database/remote-db-plugin/spoke-agent-v2/runner"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -42,13 +44,9 @@ func main() {
 	serverName := flag.String("server-name", "", "Override the SNI/expected hub CN (defaults to the host part of -server)")
 	heartbeatInterval := flag.Duration("heartbeat-interval", 15*time.Second,
 		"How often to send a liveness heartbeat to the hub. 0 disables.")
+	maxConcurrency := flag.Int("max-concurrency", 32,
+		"Max concurrent in-flight requests from the hub.")
 	flag.Parse()
-
-	pluginRunnerPath, err := findPluginRunner()
-	if err != nil {
-		log.Fatalf("plugin-runner: %v", err)
-	}
-	log.Printf("using plugin-runner at: %s", pluginRunnerPath)
 
 	tlsCfg, err := loadClientTLS(*credsDir, *serverName, *serverAddr)
 	if err != nil {
@@ -60,8 +58,6 @@ func main() {
 	conn, err := grpc.NewClient(*serverAddr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			// Send HTTP/2 PINGs even when idle so a dead TCP session is
-			// noticed within ~Time+Timeout, not minutes.
 			Time:                30 * time.Second,
 			Timeout:             10 * time.Second,
 			PermitWithoutStream: true,
@@ -78,8 +74,9 @@ func main() {
 		log.Fatalf("open stream: %v", err)
 	}
 
-	// stream.Send is not safe for concurrent calls. Wrap it so the request
-	// handler and the heartbeat goroutine can both write without racing.
+	// stream.Send is not safe for concurrent calls; serialize through this
+	// mutex. Application-level traffic is low rate so a mutex beats a sendCh
+	// goroutine here.
 	var sendMu sync.Mutex
 	send := func(msg *proto.AgentMessage) error {
 		sendMu.Lock()
@@ -102,6 +99,13 @@ func main() {
 		go runHeartbeat(hbCtx, send, spokeName, *heartbeatInterval)
 	}
 
+	r := runner.NewPluginRunner()
+
+	// Worker pool bounds concurrency. Each inbound request is dispatched on
+	// a worker; the request_id flows back on the response so the hub can
+	// match it to its waiter.
+	sem := make(chan struct{}, *maxConcurrency)
+
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -112,22 +116,29 @@ func main() {
 			log.Printf("stream error: %v", err)
 			return
 		}
+		// Heartbeats and the initial Connected ack don't carry work.
 		if msg.Command == "" || msg.IsResponse {
 			continue
 		}
 
-		output, execErr := runRequest(pluginRunnerPath, msg.Command)
-		if execErr != nil {
-			output = fmt.Sprintf("Error: %v\n%s", execErr, output)
-		}
-		if err := send(&proto.AgentMessage{
-			ClientName: spokeName,
-			Output:     output,
-			IsResponse: true,
-		}); err != nil {
-			log.Printf("send response: %v", err)
-			return
-		}
+		sem <- struct{}{}
+		go func(m *proto.AgentMessage) {
+			defer func() { <-sem }()
+			output, execErr := r.ExecuteRequest(m.Command)
+			resp := &proto.AgentMessage{
+				ClientName: spokeName,
+				RequestId:  m.RequestId,
+				IsResponse: true,
+			}
+			if execErr != nil {
+				resp.Error = execErr.Error()
+			} else {
+				resp.Output = output
+			}
+			if err := send(resp); err != nil {
+				log.Printf("send response (req %s): %v", m.RequestId, err)
+			}
+		}(msg)
 	}
 }
 
@@ -151,32 +162,6 @@ func runHeartbeat(ctx context.Context, send func(*proto.AgentMessage) error, spo
 			}
 		}
 	}
-}
-
-// runRequest executes a plugin-runner command. The previous "bash -lc"
-// fallback has been removed: with mTLS authenticating the hub, there is no
-// legitimate reason for the hub to send arbitrary shell, and accepting it
-// turned the hub's gRPC port into a per-spoke RCE primitive.
-func runRequest(pluginRunner, command string) (string, error) {
-	if !strings.HasPrefix(command, "plugin-runner ") {
-		return "", fmt.Errorf("rejected non-plugin-runner command: %q", command)
-	}
-	jsonRequest := strings.TrimPrefix(command, "plugin-runner ")
-	cmd := exec.Command(pluginRunner, jsonRequest)
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
-}
-
-func findPluginRunner() (string, error) {
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	p := filepath.Join(filepath.Dir(exePath), "plugin-runner")
-	if _, err := os.Stat(p); err != nil {
-		return "", fmt.Errorf("plugin-runner not found at %s: %w", p, err)
-	}
-	return p, nil
 }
 
 // loadClientTLS reads cert/key/ca from credsDir and returns a tls.Config

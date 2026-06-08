@@ -7,13 +7,14 @@ package remotedb
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -52,14 +53,43 @@ type proxyServer struct {
 	spokes map[string]*spokeConnection
 }
 
+// pendingResponse carries a successful output or an error back to a waiting
+// RunCommand caller, dispatched by request_id.
+type pendingResponse struct {
+	output string
+	err    string
+}
+
 type spokeConnection struct {
-	stream    agentproto.AgentService_ConnectServer
-	respCh    chan string
-	mu        sync.Mutex
+	stream      agentproto.AgentService_ConnectServer
 	connectedAt time.Time
+
+	// sendCh serializes all outbound frames through a single goroutine.
+	// grpc.ServerStream.Send is not safe for concurrent use.
+	sendCh chan *agentproto.AgentMessage
+	// done is closed when the Connect handler returns (stream broke or the
+	// spoke reconnected). Waiters unblock and return an error.
+	done chan struct{}
+
+	// inflight maps a request_id to a one-shot channel the waiter is parked
+	// on. Allows many concurrent in-flight requests per spoke.
+	inflightMu sync.Mutex
+	inflight   map[string]chan pendingResponse
 
 	lastSeenMu sync.Mutex
 	lastSeen   time.Time
+}
+
+func newSpokeConnection(stream agentproto.AgentService_ConnectServer) *spokeConnection {
+	now := time.Now()
+	return &spokeConnection{
+		stream:      stream,
+		connectedAt: now,
+		lastSeen:    now,
+		sendCh:      make(chan *agentproto.AgentMessage, 16),
+		done:        make(chan struct{}),
+		inflight:    make(map[string]chan pendingResponse),
+	}
 }
 
 func (c *spokeConnection) touch() {
@@ -72,6 +102,54 @@ func (c *spokeConnection) lastSeenAt() time.Time {
 	c.lastSeenMu.Lock()
 	defer c.lastSeenMu.Unlock()
 	return c.lastSeen
+}
+
+// register parks a waiter for the given request_id.
+func (c *spokeConnection) register(reqID string) chan pendingResponse {
+	ch := make(chan pendingResponse, 1)
+	c.inflightMu.Lock()
+	c.inflight[reqID] = ch
+	c.inflightMu.Unlock()
+	return ch
+}
+
+func (c *spokeConnection) cancel(reqID string) {
+	c.inflightMu.Lock()
+	delete(c.inflight, reqID)
+	c.inflightMu.Unlock()
+}
+
+// deliver hands a response to the waiter and clears the inflight entry. No-op
+// if the waiter already gave up (context cancelled).
+func (c *spokeConnection) deliver(reqID string, resp pendingResponse) {
+	c.inflightMu.Lock()
+	ch, ok := c.inflight[reqID]
+	delete(c.inflight, reqID)
+	c.inflightMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case ch <- resp:
+	default:
+		// channel is buffered (1) so this is only reached if a duplicate
+		// response arrives — ignore the duplicate.
+	}
+}
+
+// failAll unblocks every parked waiter with the given error string. Called
+// when the stream tears down so no caller hangs forever.
+func (c *spokeConnection) failAll(errMsg string) {
+	c.inflightMu.Lock()
+	pending := c.inflight
+	c.inflight = make(map[string]chan pendingResponse)
+	c.inflightMu.Unlock()
+	for _, ch := range pending {
+		select {
+		case ch <- pendingResponse{err: errMsg}:
+		default:
+		}
+	}
 }
 
 var (
@@ -148,19 +226,16 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 		return err
 	}
 
-	now := time.Now()
-	conn := &spokeConnection{
-		stream:      stream,
-		respCh:      make(chan string, 1),
-		connectedAt: now,
-		lastSeen:    now,
-	}
+	conn := newSpokeConnection(stream)
+
+	// Reconnect handling: if the same spoke already had a stream open, cancel
+	// the old one so it doesn't leak. Connect handler returns on Recv error
+	// and the cleanup defer drops the map entry.
 	s.mu.Lock()
 	if old, ok := s.spokes[spokeName]; ok {
-		// A reconnection from the same spoke: drop the stale entry so the new
-		// stream is the one we forward requests on. The old stream is
-		// abandoned and will error out on its next Recv/Send.
-		_ = old
+		log.Printf("[proxy] spoke %q reconnected; tearing down old stream", spokeName)
+		close(old.done)
+		old.failAll(fmt.Sprintf("spoke %q reconnected", spokeName))
 	}
 	s.spokes[spokeName] = conn
 	s.mu.Unlock()
@@ -171,14 +246,43 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 			delete(s.spokes, spokeName)
 		}
 		s.mu.Unlock()
+		// closing twice would panic; only close if we own this connection
+		select {
+		case <-conn.done:
+		default:
+			close(conn.done)
+		}
+		conn.failAll("spoke disconnected")
 	}()
 
-	if err := stream.Send(&agentproto.AgentMessage{
+	// Sender goroutine: drains sendCh and serializes all writes. stream.Send
+	// is not safe for concurrent calls, so every outbound frame must go
+	// through here.
+	sendErrCh := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case msg := <-conn.sendCh:
+				if err := stream.Send(msg); err != nil {
+					select {
+					case sendErrCh <- err:
+					default:
+					}
+					return
+				}
+			case <-conn.done:
+				return
+			}
+		}
+	}()
+
+	// Initial ack. We push it through sendCh like everything else so the
+	// sender goroutine catches any early error. (Earlier code dropped the
+	// send error here entirely.)
+	conn.sendCh <- &agentproto.AgentMessage{
 		ClientName: spokeName,
 		Output:     "Connected",
 		IsResponse: true,
-	}); err != nil {
-		return err
 	}
 
 	for {
@@ -189,6 +293,11 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 		if err != nil {
 			return err
 		}
+		select {
+		case sendErr := <-sendErrCh:
+			return fmt.Errorf("send: %w", sendErr)
+		default:
+		}
 
 		// Every received frame is liveness evidence: heartbeats, responses,
 		// even the initial registration. This is the "response acts as
@@ -198,12 +307,12 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 
 		switch {
 		case msg.IsHeartbeat:
-			// No payload to dispatch; touch() above is the whole point.
-		case msg.IsResponse:
-			select {
-			case conn.respCh <- msg.Output:
-			default:
-			}
+			// touch() above is the whole point.
+		case msg.IsResponse && msg.RequestId != "":
+			conn.deliver(msg.RequestId, pendingResponse{
+				output: msg.Output,
+				err:    msg.Error,
+			})
 		}
 	}
 }
@@ -229,6 +338,9 @@ func spokeNameFromPeer(ctx context.Context) (string, error) {
 	return leaf.Subject.CommonName, nil
 }
 
+// RunCommand sends a request to spokeName and waits for the correlated
+// response. Many callers can be in-flight concurrently against the same spoke;
+// each parks on its own channel keyed by request_id.
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {
 	s.mu.RLock()
 	conn, ok := s.spokes[spokeName]
@@ -237,29 +349,46 @@ func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string)
 		return "", fmt.Errorf("spoke %q not connected", spokeName)
 	}
 
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
+	reqID, err := newRequestID()
+	if err != nil {
+		return "", err
+	}
+	respCh := conn.register(reqID)
+	defer conn.cancel(reqID)
 
 	select {
-	case <-conn.respCh:
-	default:
-	}
-
-	if err := conn.stream.Send(&agentproto.AgentMessage{
+	case conn.sendCh <- &agentproto.AgentMessage{
 		ClientName: "proxy",
 		TargetName: spokeName,
 		Command:    command,
+		RequestId:  reqID,
 		IsResponse: false,
-	}); err != nil {
-		return "", err
+	}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-conn.done:
+		return "", fmt.Errorf("spoke %q disconnected", spokeName)
 	}
 
 	select {
-	case output := <-conn.respCh:
-		return output, nil
+	case resp := <-respCh:
+		if resp.err != "" {
+			return "", fmt.Errorf("spoke: %s", resp.err)
+		}
+		return resp.output, nil
 	case <-ctx.Done():
 		return "", ctx.Err()
+	case <-conn.done:
+		return "", fmt.Errorf("spoke %q disconnected", spokeName)
 	}
+}
+
+func newRequestID() (string, error) {
+	var b [12]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // PluginProxy forwards all database plugin operations to spoke-agent
@@ -267,7 +396,12 @@ type PluginProxy struct {
 	pluginName    string
 	spokeName     string
 	connectionURL string
-	config        map[string]interface{}
+	// instanceID is the stable handle the spoke uses to cache the plugin
+	// instance across calls. Generated on first Initialize, persisted in the
+	// mount config so the same handle is reused on plugin reloads and Vault
+	// restarts.
+	instanceID string
+	config     map[string]interface{}
 }
 
 var _ dbplugin.Database = (*PluginProxy)(nil)
@@ -287,6 +421,8 @@ func (p *PluginProxy) secretValues() map[string]string {
 	}
 }
 
+const proxyInstanceIDKey = "plugin_instance_id"
+
 func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
 	spokeName, err := proxyGetConfigString(req.Config, "spoke_name")
 	if err != nil {
@@ -298,27 +434,32 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 			"proxy listener not running; run `bao agent init` on the hub before configuring database mounts")
 	}
 
+	// Reuse the persisted instance_id when present; otherwise mint a fresh one.
+	// This is the handle the spoke uses to cache its long-lived dbplugin
+	// instance. Stable across plugin reloads so the spoke does not
+	// re-Initialize (re-open a DB connection) on every call.
+	instanceID, _ := req.Config[proxyInstanceIDKey].(string)
+	if instanceID == "" {
+		instanceID, err = newRequestID() // 12-byte hex is plenty unique here
+		if err != nil {
+			return dbplugin.InitializeResponse{}, err
+		}
+	}
+
 	p.spokeName = spokeName
+	p.instanceID = instanceID
 	p.config = req.Config
 
 	if connURL, ok := req.Config["connection_url"].(string); ok {
 		p.connectionURL = connURL
 	}
 
-	// Filter out proxy-specific config fields before sending to actual plugin.
-	// agent_port is accepted for backward compatibility with mounts created
-	// before the listener moved under `agent/ca/init`, but it is no longer
-	// honored — the port comes from the agent backend.
-	pluginConfig := make(map[string]interface{})
-	for k, v := range req.Config {
-		if k != "spoke_name" && k != "agent_port" {
-			pluginConfig[k] = v
-		}
-	}
+	pluginConfig := p.getPluginConfig()
 
 	request := map[string]interface{}{
 		"method":            "Initialize",
 		"plugin_name":       p.pluginName,
+		"instance_id":       instanceID,
 		"config":            pluginConfig,
 		"verify_connection": req.VerifyConnection,
 	}
@@ -338,7 +479,10 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 	if initResp.Config == nil {
 		initResp.Config = make(map[string]interface{})
 	}
+	// Persist the proxy-specific fields back into the mount config so the
+	// next Vault restart (or plugin reload) hands them to us again.
 	initResp.Config["spoke_name"] = spokeName
+	initResp.Config[proxyInstanceIDKey] = instanceID
 
 	return dbplugin.InitializeResponse{Config: initResp.Config}, nil
 }
@@ -386,6 +530,7 @@ func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) 
 	request := map[string]interface{}{
 		"method":      "NewUser",
 		"plugin_name": p.pluginName,
+		"instance_id": p.instanceID,
 		"config":      p.getPluginConfig(),
 		"username_config": map[string]interface{}{
 			"display_name": req.UsernameConfig.DisplayName,
@@ -415,6 +560,7 @@ func (p *PluginProxy) UpdateUser(ctx context.Context, req dbplugin.UpdateUserReq
 	request := map[string]interface{}{
 		"method":      "UpdateUser",
 		"plugin_name": p.pluginName,
+		"instance_id": p.instanceID,
 		"config":      p.getPluginConfig(),
 		"username":    req.Username,
 	}
@@ -441,6 +587,7 @@ func (p *PluginProxy) DeleteUser(ctx context.Context, req dbplugin.DeleteUserReq
 	request := map[string]interface{}{
 		"method":      "DeleteUser",
 		"plugin_name": p.pluginName,
+		"instance_id": p.instanceID,
 		"config":      p.getPluginConfig(),
 		"username":    req.Username,
 		"statements":  req.Statements.Commands,
@@ -454,7 +601,24 @@ func (p *PluginProxy) Type() (string, error) {
 	return p.pluginName, nil
 }
 
+// Close asks the spoke to drop the cached plugin instance, which closes its DB
+// connection. Best-effort: a failure (spoke offline, missing instance) is
+// logged but not returned, since OpenBao would do nothing useful with it
+// during mount teardown.
 func (p *PluginProxy) Close() error {
+	if p.instanceID == "" || p.spokeName == "" {
+		return nil
+	}
+	request := map[string]interface{}{
+		"method":      "Close",
+		"plugin_name": p.pluginName,
+		"instance_id": p.instanceID,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.callPlugin(ctx, request); err != nil {
+		log.Printf("[proxy] close on spoke %q (instance %s): %v", p.spokeName, p.instanceID, err)
+	}
 	return nil
 }
 
@@ -464,16 +628,13 @@ func (p *PluginProxy) callPlugin(ctx context.Context, request map[string]interfa
 		return "", err
 	}
 
-	command := fmt.Sprintf("plugin-runner %s", string(reqJSON))
-	output, err := getProxyServer().RunCommand(ctx, p.spokeName, command)
+	// Wire format is now bare JSON. The "plugin-runner <json>" prefix used by
+	// the old subprocess-per-request design is gone — the spoke daemon
+	// dispatches to a long-lived in-process plugin instance.
+	output, err := getProxyServer().RunCommand(ctx, p.spokeName, string(reqJSON))
 	if err != nil {
 		return "", err
 	}
-
-	if strings.HasPrefix(output, "Error:") {
-		return "", fmt.Errorf("spoke error: %s", output)
-	}
-
 	return output, nil
 }
 
