@@ -27,16 +27,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 func main() {
 	serverAddr := flag.String("server", "localhost:50053", "Hub gRPC address (host:port)")
 	credsDir := flag.String("credentials-dir", "/etc/openbao-spoke", "Directory containing cert.pem, key.pem, ca.pem")
 	serverName := flag.String("server-name", "", "Override the SNI/expected hub CN (defaults to the host part of -server)")
+	heartbeatInterval := flag.Duration("heartbeat-interval", 15*time.Second,
+		"How often to send a liveness heartbeat to the hub. 0 disables.")
 	flag.Parse()
 
 	pluginRunnerPath, err := findPluginRunner()
@@ -52,7 +57,16 @@ func main() {
 	spokeName := tlsCfg.Certificates[0].Leaf.Subject.CommonName
 	log.Printf("connecting to hub as spoke %q", spokeName)
 
-	conn, err := grpc.NewClient(*serverAddr, grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)))
+	conn, err := grpc.NewClient(*serverAddr,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			// Send HTTP/2 PINGs even when idle so a dead TCP session is
+			// noticed within ~Time+Timeout, not minutes.
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
 		log.Fatalf("dial: %v", err)
 	}
@@ -64,9 +78,16 @@ func main() {
 		log.Fatalf("open stream: %v", err)
 	}
 
-	// Hub uses the verified client cert CN as identity; we still send a
-	// ClientName so old log lines stay informative, but it is NOT load-bearing.
-	if err := stream.Send(&proto.AgentMessage{ClientName: spokeName, IsResponse: false}); err != nil {
+	// stream.Send is not safe for concurrent calls. Wrap it so the request
+	// handler and the heartbeat goroutine can both write without racing.
+	var sendMu sync.Mutex
+	send := func(msg *proto.AgentMessage) error {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		return stream.Send(msg)
+	}
+
+	if err := send(&proto.AgentMessage{ClientName: spokeName, IsResponse: false}); err != nil {
 		log.Fatalf("register: %v", err)
 	}
 	ack, err := stream.Recv()
@@ -74,6 +95,12 @@ func main() {
 		log.Fatalf("recv ack: %v", err)
 	}
 	log.Printf("registered: %s", ack.Output)
+
+	hbCtx, cancelHB := context.WithCancel(context.Background())
+	defer cancelHB()
+	if *heartbeatInterval > 0 {
+		go runHeartbeat(hbCtx, send, spokeName, *heartbeatInterval)
+	}
 
 	for {
 		msg, err := stream.Recv()
@@ -93,13 +120,35 @@ func main() {
 		if execErr != nil {
 			output = fmt.Sprintf("Error: %v\n%s", execErr, output)
 		}
-		if err := stream.Send(&proto.AgentMessage{
+		if err := send(&proto.AgentMessage{
 			ClientName: spokeName,
 			Output:     output,
 			IsResponse: true,
 		}); err != nil {
 			log.Printf("send response: %v", err)
 			return
+		}
+	}
+}
+
+// runHeartbeat fires an IsHeartbeat frame every interval. Hub side increments
+// its last-seen timestamp on receipt; the spoke considers itself dead when
+// the stream errors out (which Send will report and we just stop ticking).
+func runHeartbeat(ctx context.Context, send func(*proto.AgentMessage) error, spokeName string, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := send(&proto.AgentMessage{
+				ClientName:  spokeName,
+				IsHeartbeat: true,
+			}); err != nil {
+				log.Printf("heartbeat: %v", err)
+				return
+			}
 		}
 	}
 }

@@ -14,4 +14,7 @@ message AgentMessage {
   string command = 2;
   string output = 3;
   bool is_response = 4;
+  // is_heartbeat marks a no-op liveness ping from the spoke. The hub uses it
+  // to update last-seen-at without dispatching the message as a response.
+  bool is_heartbeat = 6;
 }

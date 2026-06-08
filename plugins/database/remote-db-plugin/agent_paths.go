@@ -574,12 +574,29 @@ func (b *agentBackend) pathSpokes() *framework.Path {
 }
 
 func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
-	names := ListConnectedSpokes()
+	statuses := ListConnectedSpokes()
+	now := time.Now()
+	entries := make([]map[string]any, 0, len(statuses))
+	healthyCount := 0
+	for _, s := range statuses {
+		if s.Healthy {
+			healthyCount++
+		}
+		entries = append(entries, map[string]any{
+			"name":              s.Name,
+			"connected_at_unix": s.ConnectedAt.Unix(),
+			"last_seen_unix":    s.LastSeen.Unix(),
+			"last_seen_seconds": int64(now.Sub(s.LastSeen) / time.Second),
+			"healthy":           s.Healthy,
+		})
+	}
 	return &logical.Response{
 		Data: map[string]any{
-			"connected":      names,
-			"connected_count": len(names),
-			"listener_port":  proxyServerPort(),
+			"spokes":             entries,
+			"connected_count":    len(statuses),
+			"healthy_count":      healthyCount,
+			"listener_port":      proxyServerPort(),
+			"stale_after_seconds": int64(SpokeStaleAfter / time.Second),
 		},
 	}, nil
 }
