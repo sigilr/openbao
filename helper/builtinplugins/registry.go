@@ -14,6 +14,7 @@ import (
 	credLdap "github.com/openbao/openbao/builtin/credential/ldap"
 	credRadius "github.com/openbao/openbao/builtin/credential/radius"
 	credUserpass "github.com/openbao/openbao/builtin/credential/userpass"
+	logicalAgent "github.com/openbao/openbao/builtin/logical/agent"
 	logicalKube "github.com/openbao/openbao/builtin/logical/kubernetes"
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 	logicalLDAP "github.com/openbao/openbao/builtin/logical/openldap"
@@ -90,7 +91,7 @@ func newRegistry() *registry {
 			"remote-valkey-proxy":        {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
-			"agent":      {Factory: dbRemoteDB.AgentBackendFactory},
+			"agent":      {Factory: logicalAgent.Factory},
 			"kubernetes": {Factory: logicalKube.Factory},
 			"kv":         {Factory: logicalKv.Factory},
 			"openldap":   {Factory: logicalLDAP.Factory},

@@ -429,9 +429,10 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 		return dbplugin.InitializeResponse{}, err
 	}
 
-	if proxyServerPort() == 0 {
+	if ProxyServerPort() == 0 {
 		return dbplugin.InitializeResponse{}, fmt.Errorf(
-			"proxy listener not running; run `bao agent init` on the hub before configuring database mounts")
+			"proxy listener not running; run `bao agent init` on the hub before configuring database mounts",
+		)
 	}
 
 	// Reuse the persisted instance_id when present; otherwise mint a fresh one.
@@ -487,10 +488,10 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 	return dbplugin.InitializeResponse{Config: initResp.Config}, nil
 }
 
-// proxyServerPort returns the port the proxy is bound to, or 0 if not started.
+// ProxyServerPort returns the port the proxy is bound to, or 0 if not started.
 // Used by PluginProxy.Initialize to fail fast when the operator forgot to run
 // `bao agent init`.
-func proxyServerPort() int {
+func ProxyServerPort() int {
 	proxyServerLifecycleMu.Lock()
 	defer proxyServerLifecycleMu.Unlock()
 	return proxyServerStartedPort

@@ -55,7 +55,8 @@ func main() {
 	spokeName := tlsCfg.Certificates[0].Leaf.Subject.CommonName
 	log.Printf("connecting to hub as spoke %q", spokeName)
 
-	conn, err := grpc.NewClient(*serverAddr,
+	conn, err := grpc.NewClient(
+		*serverAddr,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
@@ -66,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := proto.NewAgentServiceClient(conn)
 	stream, err := client.Connect(context.Background())

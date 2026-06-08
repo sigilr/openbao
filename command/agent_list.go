@@ -42,8 +42,10 @@ Usage: bao agent list [options]
 func (c *AgentListCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
 	return set
 }
 

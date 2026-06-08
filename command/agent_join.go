@@ -269,7 +269,7 @@ func fetchClusterInfo(baoAddr, mount, tokenID string) (*clusterInfoResp, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("cluster-info HTTP %d", resp.StatusCode)

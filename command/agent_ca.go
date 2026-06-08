@@ -23,6 +23,7 @@ var _ cli.Command = (*AgentCACommand)(nil)
 func (c *AgentCACommand) Synopsis() string {
 	return "Inspect or rotate the hub spoke-CA"
 }
+
 func (c *AgentCACommand) Help() string {
 	return strings.TrimSpace(`
 Usage: bao agent ca <subcommand> [options]
@@ -61,8 +62,10 @@ Usage: bao agent ca status [options]
 func (c *AgentCAStatusCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
 	return set
 }
 
@@ -119,11 +122,11 @@ func (c *AgentCAStatusCommand) Run(args []string) int {
 type AgentCARotateCommand struct {
 	*BaseCommand
 
-	flagMount      string
-	flagFull       bool
-	flagDNSSANs    []string
-	flagIPSANs     []string
-	flagAssumeYes  bool
+	flagMount     string
+	flagFull      bool
+	flagDNSSANs   []string
+	flagIPSANs    []string
+	flagAssumeYes bool
 }
 
 var (
@@ -132,6 +135,7 @@ var (
 )
 
 func (c *AgentCARotateCommand) Synopsis() string { return "Rotate the hub TLS cert or the spoke-CA" }
+
 func (c *AgentCARotateCommand) Help() string {
 	return strings.TrimSpace(`
 Usage: bao agent ca rotate [options]
@@ -152,16 +156,26 @@ Usage: bao agent ca rotate [options]
 func (c *AgentCARotateCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
-	f.StringVar(&StringVar{Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend."})
-	f.BoolVar(&BoolVar{Name: "full", Target: &c.flagFull, Default: false,
-		Usage: "Rotate the spoke-CA itself (destructive)."})
-	f.StringSliceVar(&StringSliceVar{Name: "hub-dns-sans", Target: &c.flagDNSSANs,
-		Default: nil, Usage: "Override DNS SANs on the new hub cert."})
-	f.StringSliceVar(&StringSliceVar{Name: "hub-ip-sans", Target: &c.flagIPSANs,
-		Default: nil, Usage: "Override IP SANs on the new hub cert."})
-	f.BoolVar(&BoolVar{Name: "yes", Target: &c.flagAssumeYes, Default: false,
-		Usage: "Skip the confirmation prompt for -full."})
+	f.StringVar(&StringVar{
+		Name: "mount", Target: &c.flagMount, Default: "agent",
+		Usage: "Mount path of the agent backend.",
+	})
+	f.BoolVar(&BoolVar{
+		Name: "full", Target: &c.flagFull, Default: false,
+		Usage: "Rotate the spoke-CA itself (destructive).",
+	})
+	f.StringSliceVar(&StringSliceVar{
+		Name: "hub-dns-sans", Target: &c.flagDNSSANs,
+		Default: nil, Usage: "Override DNS SANs on the new hub cert.",
+	})
+	f.StringSliceVar(&StringSliceVar{
+		Name: "hub-ip-sans", Target: &c.flagIPSANs,
+		Default: nil, Usage: "Override IP SANs on the new hub cert.",
+	})
+	f.BoolVar(&BoolVar{
+		Name: "yes", Target: &c.flagAssumeYes, Default: false,
+		Usage: "Skip the confirmation prompt for -full.",
+	})
 	return set
 }
 
