@@ -69,7 +69,7 @@ OpenBao plugins are out-of-process gRPC servers managed by `go-plugin`. A *secre
 
 `plugins/database/remote-db-plugin/` adds a hub-and-spoke variant of database plugins:
 
-- **`proxy.go`** runs inside the hub OpenBao process and presents itself as a normal v5 database plugin (`remote-postgres-proxy`, `remote-mysql-proxy`, etc.). On first `Initialize`, it auto-starts a gRPC server on port `50053` and persists `spoke_name` / `agent_port` back into the connection config so they survive restarts. Every plugin call (`NewUser`, `UpdateUser`, `DeleteUser`) is forwarded to the spoke identified by `spoke_name`.
+- **`proxy.go`** runs inside the hub OpenBao process and presents itself as a normal v5 database plugin (`remote-postgres-plugin`, `remote-mysql-plugin`, etc.). On first `Initialize`, it auto-starts a gRPC server on port `50053` and persists `spoke_name` / `agent_port` back into the connection config so they survive restarts. Every plugin call (`NewUser`, `UpdateUser`, `DeleteUser`) is forwarded to the spoke identified by `spoke_name`.
 - **`proto/`** — `plugin_proxy.proto` and generated `agent.pb.go` / `agent_grpc.pb.go` define the bidirectional streaming `AgentService.Connect` RPC the spoke uses to register and receive work.
 - **`spoke-agent-v2/`** — the binary that runs in the spoke cluster, dials the hub's gRPC port, and dispatches incoming requests to a local `plugin-runner`.
 - **`cmd/plugin-runner/`** — small binary the spoke-agent execs to run the *actual* built-in database plugin (postgres, mysql, redis, valkey) against the spoke-side database.

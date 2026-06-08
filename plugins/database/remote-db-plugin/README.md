@@ -63,7 +63,7 @@ spoke-1    0s ago     5s      OK
 # 5. Mount the database engine and point it at the spoke via the proxy plugin.
 $ bao secrets enable database
 $ bao write database/config/spoke-pg \
-    plugin_name=remote-postgres-proxy \
+    plugin_name=remote-postgres-plugin \
     spoke_name=spoke-1 \
     connection_url='postgresql://{{username}}:{{password}}@postgres:5432/postgres' \
     username=postgres \
@@ -97,10 +97,10 @@ $ bao read database/creds/readonly
 
 | Plugin name | Backed by |
 | --- | --- |
-| `remote-postgres-proxy` | OpenBao's built-in `postgresql-database-plugin` |
-| `remote-mysql-proxy` | `mysql-database-plugin` |
-| `remote-redis-proxy` | `valkey-database-plugin` (redis-compatible) |
-| `remote-valkey-proxy` | `valkey-database-plugin` |
+| `remote-postgres-plugin` | OpenBao's built-in `postgresql-database-plugin` |
+| `remote-mysql-plugin` | `mysql-database-plugin` |
+| `remote-redis-plugin` | `valkey-database-plugin` (redis-compatible) |
+| `remote-valkey-plugin` | `valkey-database-plugin` |
 
 Adding more is one line in `helper/builtinplugins/registry.go` plus a `case`
 in `runner/runner.go:loadPlugin` — the underlying plugin already runs
