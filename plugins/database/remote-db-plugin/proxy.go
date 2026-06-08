@@ -15,9 +15,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -60,69 +63,101 @@ func getProxyServer() *proxyServer {
 }
 
 func (s *proxyServer) Start(port int) error {
+	if !bootstrap.Global().Ready() {
+		return fmt.Errorf("hub identity not initialized; run `bao agent init` first")
+	}
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return err
 	}
-	srv := grpc.NewServer()
+	creds := credentials.NewTLS(bootstrap.Global().TLSConfig())
+	srv := grpc.NewServer(grpc.Creds(creds))
 	agentproto.RegisterAgentServiceServer(srv, s)
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			log.Printf("[proxy] gRPC server stopped: %v", err)
 		}
 	}()
-	log.Printf("[proxy] server listening on :%d", port)
+	log.Printf("[proxy] mTLS server listening on :%d", port)
 	return nil
 }
 
 func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) error {
-	var spokeName string
-	var conn *spokeConnection
+	// Identity comes from the verified client cert, NOT from msg.ClientName.
+	// This is the load-bearing security check now that bootstrap tokens have
+	// been exchanged for client certs — the wire-level claim is spoofable, the
+	// CN is not.
+	spokeName, err := spokeNameFromPeer(stream.Context())
+	if err != nil {
+		return err
+	}
+
+	conn := &spokeConnection{
+		stream: stream,
+		respCh: make(chan string, 1),
+	}
+	s.mu.Lock()
+	if old, ok := s.spokes[spokeName]; ok {
+		// A reconnection from the same spoke: drop the stale entry so the new
+		// stream is the one we forward requests on. The old stream is
+		// abandoned and will error out on its next Recv/Send.
+		_ = old
+	}
+	s.spokes[spokeName] = conn
+	s.mu.Unlock()
+
+	defer func() {
+		s.mu.Lock()
+		if cur, ok := s.spokes[spokeName]; ok && cur == conn {
+			delete(s.spokes, spokeName)
+		}
+		s.mu.Unlock()
+	}()
+
+	if err := stream.Send(&agentproto.AgentMessage{
+		ClientName: spokeName,
+		Output:     "Connected",
+		IsResponse: true,
+	}); err != nil {
+		return err
+	}
 
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
-			if spokeName != "" {
-				s.mu.Lock()
-				delete(s.spokes, spokeName)
-				s.mu.Unlock()
-			}
 			return nil
 		}
 		if err != nil {
-			if spokeName != "" {
-				s.mu.Lock()
-				delete(s.spokes, spokeName)
-				s.mu.Unlock()
-			}
 			return err
 		}
-
-		if spokeName == "" && !msg.IsResponse {
-			spokeName = msg.ClientName
-			conn = &spokeConnection{
-				stream: stream,
-				respCh: make(chan string, 1),
-			}
-			s.mu.Lock()
-			s.spokes[spokeName] = conn
-			s.mu.Unlock()
-
-			stream.Send(&agentproto.AgentMessage{
-				ClientName: spokeName,
-				Output:     "Connected",
-				IsResponse: true,
-			})
-			continue
-		}
-
-		if msg.IsResponse && conn != nil {
+		if msg.IsResponse {
 			select {
 			case conn.respCh <- msg.Output:
 			default:
 			}
 		}
 	}
+}
+
+// spokeNameFromPeer extracts the spoke identity from the verified client cert.
+// Requires the gRPC server to be configured with mTLS (RequireAndVerifyClientCert).
+func spokeNameFromPeer(ctx context.Context) (string, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("no peer info on incoming stream")
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", fmt.Errorf("connection is not TLS")
+	}
+	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return "", fmt.Errorf("no verified client cert chain")
+	}
+	leaf := tlsInfo.State.VerifiedChains[0][0]
+	if leaf.Subject.CommonName == "" {
+		return "", fmt.Errorf("client cert has no Common Name")
+	}
+	return leaf.Subject.CommonName, nil
 }
 
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {
@@ -343,10 +378,6 @@ func (p *PluginProxy) callPlugin(ctx context.Context, request map[string]interfa
 	}
 
 	return output, nil
-}
-
-func proxyShellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func proxyGetConfigString(config map[string]interface{}, key string) (string, error) {

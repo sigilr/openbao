@@ -199,6 +199,24 @@ func initCommands(ui, serverCmdUi cli.Ui, runOpts *RunOptions) map[string]cli.Co
 				BaseCommand: getBaseCommand(),
 			}, nil
 		},
+		"agent init": func() (cli.Command, error) {
+			return &AgentInitCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent join": func() (cli.Command, error) {
+			return &AgentJoinCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent token": func() (cli.Command, error) {
+			return &AgentTokenCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent token create": func() (cli.Command, error) {
+			return &AgentTokenCreateCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent token list": func() (cli.Command, error) {
+			return &AgentTokenListCommand{BaseCommand: getBaseCommand()}, nil
+		},
+		"agent token revoke": func() (cli.Command, error) {
+			return &AgentTokenRevokeCommand{BaseCommand: getBaseCommand()}, nil
+		},
 		"audit": func() (cli.Command, error) {
 			return &AuditCommand{
 				BaseCommand: getBaseCommand(),
