@@ -170,6 +170,13 @@ func (c *AgentRunCommand) Run(args []string) int {
 		return 1
 	}
 
+	// hbCtx scopes the heartbeat + renewal goroutines. We also cancel it
+	// from the sender goroutine when Send fails, so those goroutines exit
+	// promptly rather than blindly feeding messages into a drain loop while
+	// the daemon hasn't yet noticed the stream is dead.
+	hbCtx, cancelHB := context.WithCancel(context.Background())
+	defer cancelHB()
+
 	// stream.Send is not safe for concurrent calls. The previous mutex-based
 	// serialization made the heartbeat goroutine block (holding sendMu)
 	// whenever the request handlers were also sending — the same lock the
@@ -187,6 +194,12 @@ func (c *AgentRunCommand) Run(args []string) int {
 				case sendErrCh <- err:
 				default:
 				}
+				// Cancel the heartbeat/renewal context so those goroutines
+				// stop posting into sendCh — otherwise they keep firing
+				// messages that the drain below just throws away, and the
+				// hub keeps marking the spoke healthy for up to one
+				// keepalive timeout while we're already failed.
+				cancelHB()
 				// Drain the rest so producers don't block forever; we will
 				// exit shortly after the recv loop also notices.
 				for range sendCh {
@@ -219,8 +232,6 @@ func (c *AgentRunCommand) Run(args []string) int {
 	}
 	c.UI.Info(fmt.Sprintf("registered: %s", ack.Output))
 
-	hbCtx, cancelHB := context.WithCancel(context.Background())
-	defer cancelHB()
 	if c.flagHeartbeatInterval > 0 {
 		go runSpokeHeartbeat(hbCtx, send, spokeName, c.flagHeartbeatInterval, c.UI)
 	}
