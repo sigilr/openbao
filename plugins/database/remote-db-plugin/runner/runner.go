@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -106,17 +107,23 @@ func (r *PluginRunner) evictIdle(now time.Time) {
 	if r.idleTTL <= 0 {
 		return
 	}
+	type evicted struct {
+		id    string
+		entry *pluginEntry
+	}
 	r.mu.Lock()
-	var toClose []*pluginEntry
+	var toClose []evicted
 	for id, e := range r.plugins {
 		if now.Sub(e.lastUsed) > r.idleTTL {
-			toClose = append(toClose, e)
+			toClose = append(toClose, evicted{id, e})
 			delete(r.plugins, id)
 		}
 	}
 	r.mu.Unlock()
-	for _, e := range toClose {
-		_ = e.db.Close()
+	for _, ev := range toClose {
+		if err := ev.entry.db.Close(); err != nil {
+			log.Printf("[runner] idle-evict close instance %s: %v", ev.id, err)
+		}
 	}
 }
 
@@ -175,7 +182,11 @@ func (r *PluginRunner) put(instanceID string, entry *pluginEntry) {
 	if old, ok := r.plugins[instanceID]; ok {
 		// Re-Initialize for the same id: dispose of the previous instance so
 		// its DB connection is released. The new one replaces it atomically.
-		_ = old.db.Close()
+		// Log on error so leaked statements or reset-on-close issues do not
+		// silently disappear during a redo-Initialize.
+		if err := old.db.Close(); err != nil {
+			log.Printf("[runner] close prior plugin for instance %s: %v", instanceID, err)
+		}
 	}
 	entry.lastUsed = time.Now()
 	r.plugins[instanceID] = entry
