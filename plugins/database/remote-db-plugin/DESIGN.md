@@ -280,7 +280,7 @@ Day-2 operations:
 | Hub OpenBao restarts | Agent backend hydrates from storage; proxy listener restarts on the same port; existing spoke connections die and the spokes reconnect | Automatic |
 | Spoke restarts but hub keeps the old `plugin_instance_id` | First NewUser hits cache miss; runner re-Initializes from the request's config | Automatic — self-healing |
 | Bootstrap token expires | `agent/cluster-info` and `agent/sign-csr` return "token unknown or expired" | `bao agent token create` on the hub |
-| Spoke cert about to expire | `bao agent ca status` shows the expiry; current implementation requires a fresh `bao agent join` to renew | Out of scope for the current PR; CSR renewal flow is a planned follow-up |
+| Spoke cert about to expire | `bao agent run` checks expiry on a ticker (`-renew-check-every`, default 1h) and renews once the cert is past `-renew-threshold` (default 0.5, i.e. half-life). Operators can also force `bao agent renew` directly. | Automatic. Live gRPC connections stay on the old cert until they reconnect, which is why we renew well before expiry. |
 
 ---
 

@@ -84,7 +84,8 @@ $ bao read database/creds/readonly
 | --- | --- | --- |
 | `bao agent init` | hub | Generate the spoke-CA + hub TLS cert, create a bootstrap token, start the proxy gRPC listener, print the join command. |
 | `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. |
-| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS and serves DB plugin requests in-process. |
+| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, and auto-renews its own cert. |
+| `bao agent renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
 | `bao agent list` | hub | Connected spokes with last-seen and health. |
 | `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. |
 | `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
@@ -155,9 +156,13 @@ The trust bootstrap is a port of kubeadm's discovery flow. See
 
 ## Status & known limitations
 
-- Spoke cert renewal currently requires a fresh `bao agent join`. A CSR
-  renewal flow keyed off the existing client cert is a planned follow-up.
-- The DESIGN.md "Failure modes" table summarizes the rest.
+- Spoke certs renew automatically: `bao agent run` ticks every
+  `-renew-check-every` (default 1h) and submits a new CSR via the existing
+  mTLS connection when the cert is past `-renew-threshold` (default 0.5).
+  Operators can also force `bao agent renew` directly. The hub rejects any
+  CSR whose CN does not match the calling spoke's peer-cert CN, so renewal
+  cannot rebind to a different identity.
+- See DESIGN.md "Failure modes" for the rest.
 
 ## License
 
