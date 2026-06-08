@@ -43,6 +43,14 @@ const (
 	// gRPC's two-hour default and protects against silent NAT timeouts.
 	HubKeepaliveInterval = 30 * time.Second
 	HubKeepaliveTimeout  = 10 * time.Second
+
+	// MaxMessageBytes raises gRPC's default 4 MB cap. Database configs and
+	// long creation_statements / revocation_statements lists can comfortably
+	// fit under the default, but combined with verbose error messages and
+	// large CSR/cert PEMs flowing through Connect, headroom is cheap. Apply
+	// symmetrically on the server (proxy.go) and the client (agent_run.go,
+	// agent_renew.go) so neither side bottlenecks the other.
+	MaxMessageBytes = 16 * 1024 * 1024
 )
 
 // proxyServer is the singleton gRPC server that brokers requests between the
@@ -195,6 +203,8 @@ func StartProxyServer(port int) error {
 	creds := credentials.NewTLS(bootstrap.Global().TLSConfig())
 	srv := grpc.NewServer(
 		grpc.Creds(creds),
+		grpc.MaxRecvMsgSize(MaxMessageBytes),
+		grpc.MaxSendMsgSize(MaxMessageBytes),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    HubKeepaliveInterval,
 			Timeout: HubKeepaliveTimeout,

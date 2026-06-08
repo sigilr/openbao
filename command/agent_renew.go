@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/cli"
+	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"github.com/posener/complete"
 	"google.golang.org/grpc"
@@ -159,6 +160,10 @@ func RenewSpokeCert(ctx context.Context, in RenewSpokeCertInput) (*RenewSpokeCer
 
 	conn, err := grpc.NewClient(in.Server,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(remotedb.MaxMessageBytes),
+			grpc.MaxCallSendMsgSize(remotedb.MaxMessageBytes),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial hub: %w", err)

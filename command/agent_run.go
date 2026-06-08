@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/cli"
+	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	proto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/runner"
 	"github.com/posener/complete"
@@ -147,6 +148,10 @@ func (c *AgentRunCommand) Run(args []string) int {
 	conn, err := grpc.NewClient(
 		c.flagServer,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(remotedb.MaxMessageBytes),
+			grpc.MaxCallSendMsgSize(remotedb.MaxMessageBytes),
+		),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                30 * time.Second,
 			Timeout:             10 * time.Second,
