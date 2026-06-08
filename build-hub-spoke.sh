@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) AppsCode Inc.
+# SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+
 # Build OpenBao with hub init and spoke join commands
 
 set -e

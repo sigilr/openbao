@@ -1,3 +1,8 @@
+<!--
+Copyright (c) AppsCode Inc.
+SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+-->
+
 # Remote Database Plugin - Code Flow
 
 ## File Structure
