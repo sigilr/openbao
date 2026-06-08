@@ -430,8 +430,13 @@ type clusterInfoPayload struct {
 
 func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	tokenID := d.Get("token_id").(string)
-	if tokenID == "" {
-		return logical.ErrorResponse("token_id is required"), nil
+	if !bootstrap.ValidTokenID(tokenID) {
+		// Reject syntactically-bad ids before the storage lookup. The path is
+		// unauthenticated and the id space is small (~16M); cheap upfront
+		// rejection keeps storage off the hot path for brute-force probes.
+		// Pair this with a sys/quotas/rate-limit policy on agent/cluster-info
+		// (see DESIGN.md "Hardening").
+		return logical.ErrorResponse("token unknown or expired"), nil
 	}
 	t, err := readToken(ctx, req.Storage, tokenID)
 	if err != nil {
@@ -447,7 +452,9 @@ func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Reque
 		return nil, err
 	}
 	if bundle == nil {
-		return logical.ErrorResponse("hub not initialized"), nil
+		// Collapsing to the same error as token-not-found avoids leaking
+		// whether the hub itself has been initialized via this endpoint.
+		return logical.ErrorResponse("token unknown or expired"), nil
 	}
 
 	payload := clusterInfoPayload{
