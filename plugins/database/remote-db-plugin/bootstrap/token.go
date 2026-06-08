@@ -35,6 +35,14 @@ const (
 // TokenPattern matches `abcdef.0123456789abcdef`.
 var TokenPattern = regexp.MustCompile(`^([a-z0-9]{6})\.([a-z0-9]{16})$`)
 
+// TokenIDPattern matches just the id half. Used by paths that take token_id
+// as an unauthenticated query parameter, so we can reject obviously-malformed
+// input before touching storage and limit how cheap brute-force probes are.
+var TokenIDPattern = regexp.MustCompile(`^[a-z0-9]{6}$`)
+
+// ValidTokenID reports whether s is a syntactically-valid token id.
+func ValidTokenID(s string) bool { return TokenIDPattern.MatchString(s) }
+
 // Token holds the parsed halves of a bootstrap token.
 type Token struct {
 	ID     string

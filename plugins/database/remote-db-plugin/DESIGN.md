@@ -293,3 +293,30 @@ Day-2 operations:
 | Hub bao API | Standard OpenBao authentication. `agent/cluster-info` and `agent/sign-csr` are in `PathsSpecial.Unauthenticated` because they self-authenticate via the bootstrap token. |
 | Spoke-CA + hub key material | Persisted under `ca/bundle` with `SealWrapStorage`. |
 | Bootstrap tokens | Persisted under `tokens/<id>` with `SealWrapStorage`. Secret half is stored in cleartext (the JWS HMAC needs it) — seal-wrap mitigates. |
+
+### Hardening recommendations
+
+These are not enforced by the code; they are the operator-side knobs that
+keep the unauthenticated discovery surface tight.
+
+- **Rate-limit `agent/cluster-info` and `agent/sign-csr`.** Both are in
+  `PathsSpecial.Unauthenticated`. The token id space is small (~16M values),
+  and while a valid id alone leaks nothing usable (the JWS still needs the
+  64-bit secret), an unthrottled probe load can still be loud. Apply a
+  `sys/quotas/rate-limit` policy:
+
+  ```bash
+  bao write sys/quotas/rate-limit/agent-cluster-info \
+      path=agent/cluster-info rate=10 interval=1m
+  bao write sys/quotas/rate-limit/agent-sign-csr \
+      path=agent/sign-csr rate=10 interval=1m
+  ```
+
+- **Wrap or audit-scrub the `bao agent token create` response.** The token
+  appears in cleartext in the API response (operators need to see it once).
+  Enable response wrapping or scrub the response from audit devices that
+  forward elsewhere.
+
+- **Restrict `agent/bootstrap-tokens` to a small operator group** via a
+  policy attached to the token used to call `bao agent token create`. The
+  default mount has no ACL above OpenBao root.
