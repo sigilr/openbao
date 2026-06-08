@@ -27,7 +27,7 @@ import (
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMysql "github.com/openbao/openbao/plugins/database/mysql"
 	dbPostgres "github.com/openbao/openbao/plugins/database/postgresql"
-	dbRemoteDB "github.com/openbao/openbao/plugins/database/remote-db-plugin"
+	dbRemote "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	dbValkey "github.com/openbao/openbao/plugins/database/valkey"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -85,10 +85,10 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
-			"remote-postgres-plugin":      {Factory: dbRemoteDB.NewProxy("postgresql-database-plugin")},
-			"remote-mysql-plugin":         {Factory: dbRemoteDB.NewProxy("mysql-database-plugin")},
-			"remote-redis-plugin":         {Factory: dbRemoteDB.NewProxy("redis-database-plugin")},
-			"remote-valkey-plugin":        {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
+			"remote-postgres-plugin":      {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-mysql-plugin":         {Factory: dbRemote.New("mysql-database-plugin")},
+			"remote-redis-plugin":         {Factory: dbRemote.New("redis-database-plugin")},
+			"remote-valkey-plugin":        {Factory: dbRemote.New("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"agent":      {Factory: logicalAgent.Factory},
