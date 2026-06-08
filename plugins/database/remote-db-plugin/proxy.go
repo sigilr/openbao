@@ -15,13 +15,31 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/peer"
+)
+
+const (
+	// SpokeStaleAfter is the freshness threshold the hub uses to decide
+	// whether a spoke is healthy. A spoke is healthy if any message arrived
+	// (heartbeat, response, registration) within this window.
+	//
+	// Picked to be 3x the spoke's default heartbeat interval so a single
+	// dropped heartbeat (or a slow network burst) doesn't flip the state.
+	SpokeStaleAfter = 45 * time.Second
+
+	// HubKeepaliveInterval is how often the gRPC server sends an HTTP/2 PING
+	// when no data is flowing. Catches dead TCP sessions much faster than
+	// gRPC's two-hour default and protects against silent NAT timeouts.
+	HubKeepaliveInterval = 30 * time.Second
+	HubKeepaliveTimeout  = 10 * time.Second
 )
 
 // proxyServer is the singleton gRPC server that brokers requests between the
@@ -35,9 +53,25 @@ type proxyServer struct {
 }
 
 type spokeConnection struct {
-	stream agentproto.AgentService_ConnectServer
-	respCh chan string
-	mu     sync.Mutex
+	stream    agentproto.AgentService_ConnectServer
+	respCh    chan string
+	mu        sync.Mutex
+	connectedAt time.Time
+
+	lastSeenMu sync.Mutex
+	lastSeen   time.Time
+}
+
+func (c *spokeConnection) touch() {
+	c.lastSeenMu.Lock()
+	c.lastSeen = time.Now()
+	c.lastSeenMu.Unlock()
+}
+
+func (c *spokeConnection) lastSeenAt() time.Time {
+	c.lastSeenMu.Lock()
+	defer c.lastSeenMu.Unlock()
+	return c.lastSeen
 }
 
 var (
@@ -79,7 +113,20 @@ func StartProxyServer(port int) error {
 		return err
 	}
 	creds := credentials.NewTLS(bootstrap.Global().TLSConfig())
-	srv := grpc.NewServer(grpc.Creds(creds))
+	srv := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    HubKeepaliveInterval,
+			Timeout: HubKeepaliveTimeout,
+		}),
+		// Allow spoke heartbeats more frequent than the server's own ping
+		// cadence without the server tearing the connection down for "ping
+		// flood" (the default MinTime is 5m).
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	agentproto.RegisterAgentServiceServer(srv, proxyServerInstance)
 	go func() {
 		if err := srv.Serve(lis); err != nil {
@@ -101,9 +148,12 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 		return err
 	}
 
+	now := time.Now()
 	conn := &spokeConnection{
-		stream: stream,
-		respCh: make(chan string, 1),
+		stream:      stream,
+		respCh:      make(chan string, 1),
+		connectedAt: now,
+		lastSeen:    now,
 	}
 	s.mu.Lock()
 	if old, ok := s.spokes[spokeName]; ok {
@@ -139,7 +189,17 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 		if err != nil {
 			return err
 		}
-		if msg.IsResponse {
+
+		// Every received frame is liveness evidence: heartbeats, responses,
+		// even the initial registration. This is the "response acts as
+		// heartbeat" half of the design — the explicit heartbeat is only
+		// needed when the spoke is idle.
+		conn.touch()
+
+		switch {
+		case msg.IsHeartbeat:
+			// No payload to dispatch; touch() above is the whole point.
+		case msg.IsResponse:
 			select {
 			case conn.respCh <- msg.Output:
 			default:
@@ -292,20 +352,34 @@ func proxyServerPort() int {
 	return proxyServerStartedPort
 }
 
-// ListConnectedSpokes returns the names of all spokes with an open `Connect`
-// stream, sorted. Used by the `agent/spokes` backend path to power
-// `bao agent list`. The list is point-in-time and may race with a
-// disconnect, which is fine for an operator-facing view.
-func ListConnectedSpokes() []string {
+// SpokeStatus is the health snapshot used by `bao agent list`.
+type SpokeStatus struct {
+	Name        string
+	ConnectedAt time.Time
+	LastSeen    time.Time
+	Healthy     bool
+}
+
+// ListConnectedSpokes returns the health snapshot of every spoke with an open
+// Connect stream, sorted by name. Point-in-time and lock-free at the caller —
+// safe to race with disconnects.
+func ListConnectedSpokes() []SpokeStatus {
 	s := getProxyServer()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	names := make([]string, 0, len(s.spokes))
-	for n := range s.spokes {
-		names = append(names, n)
+	out := make([]SpokeStatus, 0, len(s.spokes))
+	now := time.Now()
+	for name, c := range s.spokes {
+		last := c.lastSeenAt()
+		out = append(out, SpokeStatus{
+			Name:        name,
+			ConnectedAt: c.connectedAt,
+			LastSeen:    last,
+			Healthy:     now.Sub(last) < SpokeStaleAfter,
+		})
 	}
-	sort.Strings(names)
-	return names
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
