@@ -17,4 +17,12 @@ message AgentMessage {
   // is_heartbeat marks a no-op liveness ping from the spoke. The hub uses it
   // to update last-seen-at without dispatching the message as a response.
   bool is_heartbeat = 6;
+  // request_id pairs a response with its request so the hub can have many
+  // in-flight calls per spoke. Empty for heartbeats and the initial
+  // registration handshake.
+  string request_id = 7;
+  // error carries a failure message back from the spoke. Empty on success.
+  // Lets the hub distinguish "spoke processed and returned this output" from
+  // "spoke could not process the request" without parsing the output string.
+  string error = 8;
 }

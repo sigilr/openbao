@@ -26,8 +26,6 @@ import (
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMysql "github.com/openbao/openbao/plugins/database/mysql"
 	dbPostgres "github.com/openbao/openbao/plugins/database/postgresql"
-
-	// dbRemotePostgres "github.com/openbao/openbao/plugins/database/remote-postgres"
 	dbRemoteDB "github.com/openbao/openbao/plugins/database/remote-db-plugin"
 	dbValkey "github.com/openbao/openbao/plugins/database/valkey"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
@@ -86,15 +84,10 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
-			// Old dialect-based plugins (commented for testing proxy)
-			// "remote-postgres-plugin": {Factory: dbRemoteDB.New(dbRemoteDB.PostgresDialect)},
-			// "remote-mysql-plugin":    {Factory: dbRemoteDB.New(dbRemoteDB.MySQLDialect)},
-			// "remote-valkey-plugin":   {Factory: dbRemoteDB.New(dbRemoteDB.ValkeyDialect)},
-			// New proxy-based plugins (admin's approach)
-			"remote-postgres-proxy": {Factory: dbRemoteDB.NewProxy("postgresql-database-plugin")},
-			"remote-mysql-proxy":    {Factory: dbRemoteDB.NewProxy("mysql-database-plugin")},
-			"remote-redis-proxy":    {Factory: dbRemoteDB.NewProxy("redis-database-plugin")},
-			"remote-valkey-proxy":   {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
+			"remote-postgres-proxy":      {Factory: dbRemoteDB.NewProxy("postgresql-database-plugin")},
+			"remote-mysql-proxy":         {Factory: dbRemoteDB.NewProxy("mysql-database-plugin")},
+			"remote-redis-proxy":         {Factory: dbRemoteDB.NewProxy("redis-database-plugin")},
+			"remote-valkey-proxy":        {Factory: dbRemoteDB.NewProxy("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"agent":      {Factory: dbRemoteDB.AgentBackendFactory},

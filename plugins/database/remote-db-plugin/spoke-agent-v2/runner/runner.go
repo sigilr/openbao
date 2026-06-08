@@ -1,12 +1,28 @@
 // Copyright (c) KubeVault Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package runner dispatches incoming requests from the hub to the actual
+// built-in database plugins (postgres, mysql, valkey, …) running in-process
+// inside the spoke daemon.
+//
+// PluginRunner holds a long-lived cache of `dbplugin.Database` instances
+// keyed by the hub's `instance_id`. The hub generates that id on first
+// Initialize and persists it in the database mount's config; every subsequent
+// NewUser/UpdateUser/DeleteUser carries it. This fixes the earlier design
+// where every request ran as a one-shot subprocess: state (DB connection,
+// rotated root credentials, prepared statements) is now preserved between
+// calls, which is what the dbplugin v5 contract assumes.
+//
+// On a cache miss (spoke restart with hub still holding the id), the runner
+// transparently re-Initializes from the config carried in the request so
+// callers never see the difference.
 package runner
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -15,19 +31,128 @@ import (
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 )
 
-// PluginRunner loads and executes built-in database plugins
-type PluginRunner struct{}
-
-func NewPluginRunner() *PluginRunner {
-	return &PluginRunner{}
+// PluginRunner holds the cache of long-lived plugin instances. Safe for
+// concurrent use: a sync.Mutex guards the map; once a plugin is taken out of
+// the map by load(), callers operate on it without holding the runner mutex.
+type PluginRunner struct {
+	mu      sync.Mutex
+	plugins map[string]*pluginEntry
 }
 
-// LoadPlugin creates an instance of the specified plugin
-func (r *PluginRunner) LoadPlugin(pluginName string) (dbplugin.Database, error) {
-	// Always create a new plugin instance since plugin-runner runs as one-shot
-	// and doesn't maintain state between invocations
-	var factory func() (interface{}, error)
+type pluginEntry struct {
+	pluginName string
+	db         dbplugin.Database
+}
 
+func NewPluginRunner() *PluginRunner {
+	return &PluginRunner{plugins: make(map[string]*pluginEntry)}
+}
+
+// ExecuteRequest is the single entry point called for every inbound request
+// from the hub. It parses the JSON, dispatches on `method`, and returns the
+// JSON-encoded reply.
+func (r *PluginRunner) ExecuteRequest(requestJSON string) (string, error) {
+	var req map[string]interface{}
+	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+		return "", fmt.Errorf("parse request: %w", err)
+	}
+
+	method, ok := req["method"].(string)
+	if !ok {
+		return "", fmt.Errorf("missing method")
+	}
+	instanceID, _ := req["instance_id"].(string)
+	if instanceID == "" {
+		return "", fmt.Errorf("missing instance_id")
+	}
+	pluginName, _ := req["plugin_name"].(string)
+
+	ctx := context.Background()
+
+	switch method {
+	case "Initialize":
+		return r.handleInitialize(ctx, instanceID, pluginName, req)
+	case "NewUser":
+		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleNewUser)
+	case "UpdateUser":
+		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleUpdateUser)
+	case "DeleteUser":
+		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleDeleteUser)
+	case "Close":
+		return r.handleClose(ctx, instanceID)
+	default:
+		return "", fmt.Errorf("unknown method: %s", method)
+	}
+}
+
+// --- Cache primitives -------------------------------------------------------
+
+func (r *PluginRunner) get(instanceID string) (*pluginEntry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.plugins[instanceID]
+	return e, ok
+}
+
+func (r *PluginRunner) put(instanceID string, entry *pluginEntry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if old, ok := r.plugins[instanceID]; ok {
+		// Re-Initialize for the same id: dispose of the previous instance so
+		// its DB connection is released. The new one replaces it atomically.
+		_ = old.db.Close()
+	}
+	r.plugins[instanceID] = entry
+}
+
+func (r *PluginRunner) remove(instanceID string) *pluginEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e := r.plugins[instanceID]
+	delete(r.plugins, instanceID)
+	return e
+}
+
+// withPlugin loads the cached plugin for instanceID; if the cache is cold
+// (e.g. spoke restarted), it lazy-inits from the config carried in the
+// request. This keeps the system self-healing: hub callers don't have to
+// catch and replay Initialize on cache misses.
+func (r *PluginRunner) withPlugin(
+	ctx context.Context,
+	instanceID string,
+	pluginName string,
+	req map[string]interface{},
+	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
+) (string, error) {
+	if entry, ok := r.get(instanceID); ok {
+		return handler(ctx, entry.db, req)
+	}
+
+	cfg, _ := req["config"].(map[string]interface{})
+	if cfg == nil {
+		return "", fmt.Errorf("instance %s not cached and request carries no config to re-init", instanceID)
+	}
+	plugin, err := loadPlugin(pluginName)
+	if err != nil {
+		return "", err
+	}
+	if _, err := plugin.Initialize(ctx, dbplugin.InitializeRequest{
+		Config:           cfg,
+		VerifyConnection: false,
+	}); err != nil {
+		_ = plugin.Close()
+		return "", fmt.Errorf("lazy initialize: %w", err)
+	}
+	r.put(instanceID, &pluginEntry{pluginName: pluginName, db: plugin})
+	return handler(ctx, plugin, req)
+}
+
+// --- Plugin loader ---------------------------------------------------------
+
+// loadPlugin creates a fresh plugin instance of the named type. We hold the
+// imports here so the spoke daemon binary statically links them all.
+func loadPlugin(pluginName string) (dbplugin.Database, error) {
+	var factory func() (interface{}, error)
 	switch pluginName {
 	case "postgresql-database-plugin":
 		factory = dbPostgres.New
@@ -38,258 +163,174 @@ func (r *PluginRunner) LoadPlugin(pluginName string) (dbplugin.Database, error) 
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
-
-	pluginInterface, err := factory()
+	raw, err := factory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create plugin %s: %w", pluginName, err)
+		return nil, fmt.Errorf("create plugin %s: %w", pluginName, err)
 	}
-
-	plugin, ok := pluginInterface.(dbplugin.Database)
+	db, ok := raw.(dbplugin.Database)
 	if !ok {
-		return nil, fmt.Errorf("plugin %s does not implement Database interface", pluginName)
+		return nil, fmt.Errorf("plugin %s does not implement dbplugin.Database", pluginName)
 	}
-
-	return plugin, nil
+	return db, nil
 }
 
-// ExecuteRequest handles a plugin method call
-func (r *PluginRunner) ExecuteRequest(requestJSON string) (string, error) {
-	// Parse request
-	var req map[string]interface{}
-	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
-		return "", fmt.Errorf("failed to parse request: %w", err)
-	}
+// --- Method handlers -------------------------------------------------------
 
-	pluginName, ok := req["plugin_name"].(string)
-	if !ok {
-		return "", fmt.Errorf("missing plugin_name")
-	}
-
-	method, ok := req["method"].(string)
-	if !ok {
-		return "", fmt.Errorf("missing method")
-	}
-
-	// Load plugin
-	plugin, err := r.LoadPlugin(pluginName)
-	if err != nil {
-		return "", err
-	}
-
-	ctx := context.Background()
-
-	// Execute method
-	switch method {
-	case "Initialize":
-		return r.handleInitialize(ctx, plugin, req)
-	case "NewUser":
-		return r.handleNewUser(ctx, plugin, req)
-	case "UpdateUser":
-		return r.handleUpdateUser(ctx, plugin, req)
-	case "DeleteUser":
-		return r.handleDeleteUser(ctx, plugin, req)
-	default:
-		return "", fmt.Errorf("unknown method: %s", method)
-	}
-}
-
-func (r *PluginRunner) handleInitialize(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error) {
-	config, ok := req["config"].(map[string]interface{})
+func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginName string, req map[string]interface{}) (string, error) {
+	cfg, ok := req["config"].(map[string]interface{})
 	if !ok {
 		return "", fmt.Errorf("missing config")
 	}
-
 	verifyConnection, _ := req["verify_connection"].(bool)
 
-	initReq := dbplugin.InitializeRequest{
-		Config:           config,
+	plugin, err := loadPlugin(pluginName)
+	if err != nil {
+		return "", err
+	}
+	resp, err := plugin.Initialize(ctx, dbplugin.InitializeRequest{
+		Config:           cfg,
 		VerifyConnection: verifyConnection,
-	}
-
-	resp, err := plugin.Initialize(ctx, initReq)
+	})
 	if err != nil {
-		return "", fmt.Errorf("Initialize failed: %w", err)
+		_ = plugin.Close()
+		return "", fmt.Errorf("Initialize: %w", err)
 	}
+	r.put(instanceID, &pluginEntry{pluginName: pluginName, db: plugin})
 
-	result := map[string]interface{}{
-		"config": resp.Config,
-	}
-
-	resultJSON, err := json.Marshal(result)
+	out, err := json.Marshal(map[string]interface{}{"config": resp.Config})
 	if err != nil {
-		return "", fmt.Errorf("failed to serialize response: %w", err)
+		return "", err
 	}
-
-	return string(resultJSON), nil
+	return string(out), nil
 }
 
 func (r *PluginRunner) handleNewUser(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error) {
-	// Initialize plugin if config is provided (needed because plugin-runner runs as one-shot)
-	if config, ok := req["config"].(map[string]interface{}); ok {
-		initReq := dbplugin.InitializeRequest{
-			Config:           config,
-			VerifyConnection: false,
-		}
-		if _, err := plugin.Initialize(ctx, initReq); err != nil {
-			return "", fmt.Errorf("failed to initialize plugin: %w", err)
-		}
-	}
-
 	usernameConfig, ok := req["username_config"].(map[string]interface{})
 	if !ok {
 		return "", fmt.Errorf("missing username_config")
 	}
-
-	password, ok := req["password"].(string)
-	if !ok {
-		return "", fmt.Errorf("missing password")
+	password, _ := req["password"].(string)
+	expiration, err := asInt64(req["expiration"])
+	if err != nil {
+		return "", fmt.Errorf("expiration: %w", err)
 	}
+	statements := stringSlice(req["statements"])
 
-	expirationUnix, ok := req["expiration"].(float64)
-	if !ok {
-		return "", fmt.Errorf("missing expiration")
-	}
-
-	statements, _ := req["statements"].([]interface{})
-	stmtStrings := make([]string, 0, len(statements))
-	for _, stmt := range statements {
-		if s, ok := stmt.(string); ok {
-			stmtStrings = append(stmtStrings, s)
-		}
-	}
-
-	newUserReq := dbplugin.NewUserRequest{
+	resp, err := plugin.NewUser(ctx, dbplugin.NewUserRequest{
 		UsernameConfig: dbplugin.UsernameMetadata{
-			DisplayName: getString(usernameConfig, "display_name"),
-			RoleName:    getString(usernameConfig, "role_name"),
+			DisplayName: stringField(usernameConfig, "display_name"),
+			RoleName:    stringField(usernameConfig, "role_name"),
 		},
 		Password:   password,
-		Expiration: time.Unix(int64(expirationUnix), 0),
-		Statements: dbplugin.Statements{
-			Commands: stmtStrings,
-		},
-	}
-
-	resp, err := plugin.NewUser(ctx, newUserReq)
+		Expiration: time.Unix(expiration, 0),
+		Statements: dbplugin.Statements{Commands: statements},
+	})
 	if err != nil {
-		return "", fmt.Errorf("NewUser failed: %w", err)
+		return "", fmt.Errorf("NewUser: %w", err)
 	}
-
-	result := map[string]interface{}{
-		"username": resp.Username,
-	}
-
-	resultJSON, err := json.Marshal(result)
+	out, err := json.Marshal(map[string]interface{}{"username": resp.Username})
 	if err != nil {
-		return "", fmt.Errorf("failed to serialize response: %w", err)
+		return "", err
 	}
-
-	return string(resultJSON), nil
+	return string(out), nil
 }
 
 func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error) {
-	// Initialize plugin if config is provided
-	if config, ok := req["config"].(map[string]interface{}); ok {
-		initReq := dbplugin.InitializeRequest{
-			Config:           config,
-			VerifyConnection: false,
-		}
-		if _, err := plugin.Initialize(ctx, initReq); err != nil {
-			return "", fmt.Errorf("failed to initialize plugin: %w", err)
-		}
-	}
-
 	username, ok := req["username"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing username")
 	}
+	update := dbplugin.UpdateUserRequest{Username: username}
 
-	updateReq := dbplugin.UpdateUserRequest{
-		Username: username,
-	}
-
-	if passwordData, ok := req["password"].(map[string]interface{}); ok {
-		newPassword := getString(passwordData, "new_password")
-		statements := getStringSlice(passwordData, "statements")
-
-		updateReq.Password = &dbplugin.ChangePassword{
-			NewPassword: newPassword,
-			Statements: dbplugin.Statements{
-				Commands: statements,
-			},
+	if pw, ok := req["password"].(map[string]interface{}); ok {
+		update.Password = &dbplugin.ChangePassword{
+			NewPassword: stringField(pw, "new_password"),
+			Statements:  dbplugin.Statements{Commands: stringSlice(pw["statements"])},
 		}
 	}
-
-	if expirationData, ok := req["expiration"].(map[string]interface{}); ok {
-		newExpirationUnix, _ := expirationData["new_expiration"].(float64)
-		statements := getStringSlice(expirationData, "statements")
-
-		updateReq.Expiration = &dbplugin.ChangeExpiration{
-			NewExpiration: time.Unix(int64(newExpirationUnix), 0),
-			Statements: dbplugin.Statements{
-				Commands: statements,
-			},
+	if ex, ok := req["expiration"].(map[string]interface{}); ok {
+		newExp, err := asInt64(ex["new_expiration"])
+		if err != nil {
+			return "", fmt.Errorf("expiration.new_expiration: %w", err)
+		}
+		update.Expiration = &dbplugin.ChangeExpiration{
+			NewExpiration: time.Unix(newExp, 0),
+			Statements:    dbplugin.Statements{Commands: stringSlice(ex["statements"])},
 		}
 	}
-
-	_, err := plugin.UpdateUser(ctx, updateReq)
-	if err != nil {
-		return "", fmt.Errorf("UpdateUser failed: %w", err)
+	if _, err := plugin.UpdateUser(ctx, update); err != nil {
+		return "", fmt.Errorf("UpdateUser: %w", err)
 	}
-
 	return "{}", nil
 }
 
 func (r *PluginRunner) handleDeleteUser(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error) {
-	// Initialize plugin if config is provided
-	if config, ok := req["config"].(map[string]interface{}); ok {
-		initReq := dbplugin.InitializeRequest{
-			Config:           config,
-			VerifyConnection: false,
-		}
-		if _, err := plugin.Initialize(ctx, initReq); err != nil {
-			return "", fmt.Errorf("failed to initialize plugin: %w", err)
-		}
-	}
-
 	username, ok := req["username"].(string)
 	if !ok {
 		return "", fmt.Errorf("missing username")
 	}
-
-	statements := getStringSlice(req, "statements")
-
-	deleteReq := dbplugin.DeleteUserRequest{
-		Username: username,
-		Statements: dbplugin.Statements{
-			Commands: statements,
-		},
+	if _, err := plugin.DeleteUser(ctx, dbplugin.DeleteUserRequest{
+		Username:   username,
+		Statements: dbplugin.Statements{Commands: stringSlice(req["statements"])},
+	}); err != nil {
+		return "", fmt.Errorf("DeleteUser: %w", err)
 	}
-
-	_, err := plugin.DeleteUser(ctx, deleteReq)
-	if err != nil {
-		return "", fmt.Errorf("DeleteUser failed: %w", err)
-	}
-
 	return "{}", nil
 }
 
-func getString(m map[string]interface{}, key string) string {
+func (r *PluginRunner) handleClose(_ context.Context, instanceID string) (string, error) {
+	entry := r.remove(instanceID)
+	if entry == nil {
+		// Idempotent: closing an unknown id is fine; hub may have lost track
+		// after a spoke restart.
+		return "{}", nil
+	}
+	if err := entry.db.Close(); err != nil {
+		return "", fmt.Errorf("Close: %w", err)
+	}
+	return "{}", nil
+}
+
+// --- Decode helpers --------------------------------------------------------
+
+func stringField(m map[string]interface{}, key string) string {
 	if v, ok := m[key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func getStringSlice(m map[string]interface{}, key string) []string {
-	if arr, ok := m[key].([]interface{}); ok {
-		result := make([]string, 0, len(arr))
-		for _, item := range arr {
-			if s, ok := item.(string); ok {
-				result = append(result, s)
-			}
-		}
-		return result
+func stringSlice(v interface{}) []string {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
 	}
-	return nil
+	out := make([]string, 0, len(arr))
+	for _, x := range arr {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// asInt64 coerces a JSON-decoded number to int64. encoding/json gives us
+// float64 by default; json.Number is used when the decoder is configured for
+// precise numbers. Cover both so this code works regardless of the upstream
+// decode mode.
+func asInt64(v interface{}) (int64, error) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), nil
+	case int64:
+		return n, nil
+	case int:
+		return int64(n), nil
+	case json.Number:
+		return n.Int64()
+	case nil:
+		return 0, fmt.Errorf("nil")
+	default:
+		return 0, fmt.Errorf("unsupported type %T", v)
+	}
 }
