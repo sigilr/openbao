@@ -164,7 +164,7 @@ func (c *AgentInitCommand) Run(args []string) int {
 		c.UI.Info(fmt.Sprintf("Hub identity ready (hub_endpoint=%s)", caData["hub_endpoint"]))
 	}
 
-	tokenData, hubEndpoint, caHash, err := createBootstrapToken(client, mount, c)
+	tokenData, tokenWarnings, hubEndpoint, caHash, err := createBootstrapToken(client, mount, c)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("Create token: %s", err))
 		return 2
@@ -184,6 +184,9 @@ func (c *AgentInitCommand) Run(args []string) int {
 		c.UI.Output("      -spoke-name=<choose-a-name>")
 	}
 	c.UI.Output("")
+	for _, w := range tokenWarnings {
+		c.UI.Warn("WARNING: " + w)
+	}
 	return 0
 }
 
@@ -231,7 +234,7 @@ func initOrFetchCA(client *api.Client, mount string, c *AgentInitCommand) (map[s
 	return nil, err
 }
 
-func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand) (map[string]interface{}, string, string, error) {
+func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand) (map[string]interface{}, []string, string, string, error) {
 	body := map[string]interface{}{
 		"ttl":         c.flagTokenTTL,
 		"description": c.flagDescription,
@@ -241,21 +244,21 @@ func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand)
 	}
 	resp, err := client.Logical().Write(mount+"/bootstrap-tokens", body)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", "", err
 	}
 	info, err := client.Logical().Read(mount + "/ca/info")
 	if err != nil {
-		return nil, "", "", fmt.Errorf("read ca/info: %w", err)
+		return nil, nil, "", "", fmt.Errorf("read ca/info: %w", err)
 	}
 	if info == nil {
-		return nil, "", "", errors.New("ca not initialized")
+		return nil, nil, "", "", errors.New("ca not initialized")
 	}
 	hubEndpoint, _ := info.Data["hub_endpoint"].(string)
 	caHash, _ := info.Data["ca_cert_hash"].(string)
 	if hubEndpoint == "" || caHash == "" {
-		return nil, "", "", errors.New("ca/info missing hub_endpoint or ca_cert_hash")
+		return nil, nil, "", "", errors.New("ca/info missing hub_endpoint or ca_cert_hash")
 	}
-	return resp.Data, hubEndpoint, caHash, nil
+	return resp.Data, resp.Warnings, hubEndpoint, caHash, nil
 }
 
 func isAlreadyInitialized(err error) bool {
