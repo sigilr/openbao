@@ -1,5 +1,5 @@
 // Copyright (c) AppsCode Inc.
-// SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+// SPDX-License-Identifier: MPL-2.0
 
 // Package runner dispatches incoming requests from the hub to the actual
 // built-in database plugins (postgres, mysql, valkey, …) running in-process

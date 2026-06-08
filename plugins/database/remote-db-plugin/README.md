@@ -1,6 +1,6 @@
 <!--
 Copyright (c) AppsCode Inc.
-SPDX-License-Identifier: LicenseRef-AppsCode-Free-Trial-1.0.0
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # Remote Database Plugin
@@ -169,4 +169,4 @@ The trust bootstrap is a port of kubeadm's discovery flow. See
 Copyright &copy; AppsCode Inc.
 
 Licensed under the
-[AppsCode Free Trial License 1.0.0](https://github.com/appscode/licenses/blob/1.0.0/AppsCode-Free-Trial-1.0.0.md).
+the [Mozilla Public License, v. 2.0](https://www.mozilla.org/en-US/MPL/2.0/).
