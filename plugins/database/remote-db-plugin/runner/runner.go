@@ -43,17 +43,80 @@ type PluginRunner struct {
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry
 	loading map[string]*sync.Mutex
+
+	idleTTL time.Duration // 0 disables idle eviction
 }
 
 type pluginEntry struct {
 	pluginName string
 	db         dbplugin.Database
+	lastUsed   time.Time
 }
 
+// DefaultIdleTTL is the period of inactivity after which a cached plugin
+// instance is closed and removed. Catches the case where the hub forgot to
+// send a Close (mount deletion while the spoke was offline, hub crash that
+// lost track of the instance_id, ...).
+const DefaultIdleTTL = 24 * time.Hour
+
 func NewPluginRunner() *PluginRunner {
+	return NewPluginRunnerWithTTL(DefaultIdleTTL)
+}
+
+// NewPluginRunnerWithTTL constructs a runner with a custom idle TTL. Set
+// idleTTL to 0 to disable eviction (useful for tests).
+func NewPluginRunnerWithTTL(idleTTL time.Duration) *PluginRunner {
 	return &PluginRunner{
 		plugins: make(map[string]*pluginEntry),
 		loading: make(map[string]*sync.Mutex),
+		idleTTL: idleTTL,
+	}
+}
+
+// StartIdleEvictor launches a background goroutine that closes plugins whose
+// lastUsed is older than idleTTL. Cancellable via ctx; the goroutine returns
+// when ctx is done. Safe to call once per runner; calling more than once just
+// spawns extra evictors (harmless).
+func (r *PluginRunner) StartIdleEvictor(ctx context.Context) {
+	if r.idleTTL <= 0 {
+		return
+	}
+	go func() {
+		// Check at roughly 1/4 the TTL so an idle entry is evicted within a
+		// reasonable window past the deadline, without thrashing on a
+		// short TTL.
+		tick := r.idleTTL / 4
+		if tick < time.Minute {
+			tick = time.Minute
+		}
+		t := time.NewTicker(tick)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				r.evictIdle(now)
+			}
+		}
+	}()
+}
+
+func (r *PluginRunner) evictIdle(now time.Time) {
+	if r.idleTTL <= 0 {
+		return
+	}
+	r.mu.Lock()
+	var toClose []*pluginEntry
+	for id, e := range r.plugins {
+		if now.Sub(e.lastUsed) > r.idleTTL {
+			toClose = append(toClose, e)
+			delete(r.plugins, id)
+		}
+	}
+	r.mu.Unlock()
+	for _, e := range toClose {
+		_ = e.db.Close()
 	}
 }
 
@@ -100,6 +163,9 @@ func (r *PluginRunner) get(instanceID string) (*pluginEntry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e, ok := r.plugins[instanceID]
+	if ok {
+		e.lastUsed = time.Now()
+	}
 	return e, ok
 }
 
@@ -111,6 +177,7 @@ func (r *PluginRunner) put(instanceID string, entry *pluginEntry) {
 		// its DB connection is released. The new one replaces it atomically.
 		_ = old.db.Close()
 	}
+	entry.lastUsed = time.Now()
 	r.plugins[instanceID] = entry
 }
 

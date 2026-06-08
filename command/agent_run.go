@@ -244,6 +244,11 @@ func (c *AgentRunCommand) Run(args []string) int {
 	}
 
 	r := runner.NewPluginRunner()
+	// Evict cached plugin instances that haven't been touched within the TTL.
+	// Catches mounts the hub forgot to Close (process crash, deleted while
+	// the spoke was offline). hbCtx cancels on stream teardown so the
+	// evictor exits with the daemon.
+	r.StartIdleEvictor(hbCtx)
 
 	// Worker pool bounds concurrency. Each inbound request is dispatched on
 	// a worker; the request_id flows back on the response so the hub can
