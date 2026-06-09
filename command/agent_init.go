@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/cli"
 	"github.com/openbao/openbao/api/v2"
+	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	"github.com/posener/complete"
 )
 
@@ -263,6 +264,12 @@ func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand)
 	return resp.Data, resp.Warnings, hubEndpoint, caHash, nil
 }
 
+// isAlreadyInitialized matches the canonical prefix the agent backend
+// returns from ca/init when force is not set. The constant is exported by
+// the bootstrap package so the CLI and the backend reference the same
+// source of truth instead of pattern-matching a free-floating string. It is
+// still a substring check (api.Client error formatting may prepend HTTP
+// status text), but the substring itself is no longer hardcoded here.
 func isAlreadyInitialized(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "CA already initialized")
+	return err != nil && strings.Contains(err.Error(), bootstrap.MsgCAAlreadyInitialized)
 }
