@@ -162,7 +162,14 @@ The hub enforces that the CSR's CN matches the verified peer-cert CN so
 renewal cannot rebind to a different identity. The CA caps the signed cert
 at `RenewCertMaxTTL` (90d); a `ttl_seconds == 0` request gets the default
 `RenewCertDefaultTTL` (30d), matching what `bao agent join` initially
-issues.
+issues. The initial-issue path (`agent/sign-csr`) uses the same 90d ceiling
+via the `maxSpokeCertExpiry` constant in the agent backend.
+
+CSR validation on both `sign-csr` and `RenewCert` is strict: only ECDSA or
+RSA ≥ 2048 are accepted; SANs (DNS / IP / URI / email) and `ExtraExtensions`
+cause immediate rejection; the requested CN is denylisted against
+`openbao-hub` and `openbao-spoke-ca` so a malicious spoke cannot ask for a
+cert that aliases the hub or the CA itself.
 
 Every hub-issued request carries a fresh `request_id` (12-byte hex). The hub
 keeps `inflight map[reqID]chan pendingResponse` per spoke; the dispatch
@@ -231,16 +238,28 @@ responsibilities are minimal: tag every outbound request with a stable
 
 ### Close
 
-`PluginProxy.Close()` sends `{method: "Close", instance_id}`. Spoke's
-`runner.handleClose` removes the entry and calls `db.Close()` to release the
-DB connection. Idempotent: closing an unknown id is a no-op.
+`PluginProxy.Close()` sends `{method: "Close", instance_id}`. The spoke's
+`runner.handleClose` drops the cache slot's reference; the actual
+`db.Close()` runs once the last in-flight handler releases its own
+reference. This is what makes Close safe to call while a
+NewUser/UpdateUser/DeleteUser is mid-flight on the same `instance_id` — the
+old design (close-on-remove) would have left the in-flight handler running
+against an already-closed DB connection. Close is also idempotent: the
+hub-side `PluginProxy.Close` clears `p.instanceID` after the first call so a
+second invocation short-circuits without another network round-trip, and
+closing an unknown id is a no-op on the spoke.
 
-The spoke runner also runs a background idle evictor (`runner.evictIdle`,
-default `DefaultIdleTTL = 24h`) that catches the case where Close never
-arrived — process crash mid-teardown, mount deleted while the spoke was
-offline, hub forgot the `instance_id` after a restart. Entries with an
-in-flight handler are skipped via an atomic refcount, so a long-running call
-cannot have its DB connection closed underneath it.
+The same refcount discipline makes re-`Initialize` for an already-cached id
+safe: `installOrReplace` swaps in the new entry under the lock and drops
+the slot ref on the displaced one, but its DB connection stays open until
+the last handler that took a ref before the swap releases. The spoke
+runner also runs a background idle evictor (`runner.evictIdle`, default
+`DefaultIdleTTL = 24h`) that catches the case where Close never arrived —
+process crash mid-teardown, mount deleted while the spoke was offline, hub
+forgot the `instance_id` after a restart. The evictor only drops the slot
+ref on entries whose total refcount is exactly 1 (the slot itself, no
+in-flight handler), so a long-running call cannot have its DB connection
+closed underneath it.
 
 The earlier subprocess-per-request design rebuilt the plugin (and the DB
 connection) on every call. That broke any plugin state that has to live
@@ -315,6 +334,7 @@ Day-2 operations:
 
 | Failure | What happens | Recovery |
 | --- | --- | --- |
+| Spoke daemon receives SIGINT/SIGTERM | `bao agent run` cancels the stream context, waits for in-flight workers, cancels the heartbeat/renewal goroutines, drains the send channel, and calls `runner.Shutdown` to close every cached plugin's DB connection cleanly. Exit code 0. | None — graceful exit. Restart `bao agent run` to reconnect. |
 | Spoke process killed | Hub's `Connect` returns; `failAll` releases parked waiters with an error; the spoke disappears from `bao agent list` | `bao agent run` restarts; reconnects with the same cert |
 | Spoke loop wedged (TCP alive) | gRPC PINGs still respond, but app heartbeats stop; after 45s the spoke shows `STALE` in `bao agent list` | Same — restart `bao agent run` |
 | TCP/network dropped | gRPC keepalive notices within ~40s and tears the connection down on both sides | The spoke daemon reconnects on its retry policy |
@@ -330,11 +350,12 @@ Day-2 operations:
 
 | Surface | Authenticated by |
 | --- | --- |
-| `agent/cluster-info`, `agent/sign-csr` | Bootstrap token + JWS-HS256 signature over the response payload. TLS to the OpenBao API is verified via the standard `-ca-cert`/`-tls-skip-verify` flags. |
-| Hub proxy gRPC listener | mTLS. Hub presents a cert signed by the spoke-CA; client must present a cert signed by the same CA. Spoke identity comes from the verified peer cert CN. |
+| `agent/cluster-info`, `agent/sign-csr` | Bootstrap token + JWS-HS256 signature over the response payload. TLS to the OpenBao API is verified via the standard `-ca-cert`/`-tls-skip-verify` flags. Token failures (malformed format, unknown id, expired, wrong secret, missing `signing` usage, `allowed_spoke_name` mismatch) all return the same generic `"token unknown or expired"` so a holder of one valid token cannot probe other token ids for their policy metadata; real reasons are logged server-side at WARN. |
+| Hub proxy gRPC listener | mTLS, **TLS 1.3 floor**. Hub presents a cert signed by the spoke-CA; client must present a cert signed by the same CA. Spoke identity comes from the verified peer cert CN. The hub cert is verified to chain to the configured CA on every `SetIdentity` call so a corrupted (cert, CA) pair fails up front instead of at first handshake. |
 | Hub bao API | Standard OpenBao authentication. `agent/cluster-info` and `agent/sign-csr` are in `PathsSpecial.Unauthenticated` because they self-authenticate via the bootstrap token. |
 | Spoke-CA + hub key material | Persisted under `ca/bundle` with `SealWrapStorage`. |
 | Bootstrap tokens | Persisted under `tokens/<id>` with `SealWrapStorage`. Secret half is stored in cleartext (the JWS HMAC needs it) — seal-wrap mitigates. |
+| SPKI pin verification | `subtle.ConstantTimeCompare` over the lowercase hex hash. The error returned to callers is generic; computed and expected hashes are logged locally so an attacker serving a malicious cluster-info bundle cannot grind a colliding pin via response timing. |
 
 ### Hardening recommendations
 
