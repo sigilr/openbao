@@ -87,10 +87,10 @@ $ bao read database/creds/readonly
 | `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, auto-renews its own cert, and evicts idle cached plugin instances. |
 | `bao agent renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
 | `bao agent list` | hub | Connected spokes with last-seen and health. |
-| `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. |
+| `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. Honors `-format=json|yaml` for machine consumption. |
 | `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
 | `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. Bound listener port can't change here. |
-| `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. |
+| `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. Prints a prominent stderr warning that the token is shown only once. |
 | `bao agent token list` | hub | Outstanding bootstrap tokens with expiry. |
 | `bao agent token revoke` | hub | Revoke by token id. |
 
@@ -145,15 +145,25 @@ lives under `builtin/logical/agent/`.
 The trust bootstrap is a port of kubeadm's discovery flow. See
 [DESIGN.md](DESIGN.md) for the full threat model. Highlights:
 
-- **mTLS** between hub and spoke; spoke identity comes from the verified
-  client cert CN, not from any wire field.
+- **mTLS** between hub and spoke, **TLS 1.3 floor** on the hub listener.
+  Spoke identity comes from the verified client cert CN, not from any wire
+  field.
 - **Bootstrap tokens** in seal-wrapped storage. JWS-HS256 over the
   cluster-info bundle authenticates the hub to a joining spoke before TLS is
-  established.
+  established. All token-related sign-csr failures collapse to the same
+  generic error so a holder of one valid token cannot probe other token
+  ids; real reasons land in the server log.
 - **CA-cert SPKI pin** is printed by `bao agent init` and verified by
-  `bao agent join` — defense in depth on top of the JWS check.
+  `bao agent join` with a constant-time compare — defense in depth on top
+  of the JWS check.
+- **Strict CSR validation** on both initial-issue and renew: ECDSA or RSA
+  ≥ 2048 only, no SANs, no extra X.509 extensions, reserved CNs
+  (`openbao-hub`, `openbao-spoke-ca`) refused.
 - **gRPC HTTP/2 keepalive + app-level heartbeats** so a wedged spoke is
   detected within ~45s; `bao agent list` surfaces both.
+- **Graceful shutdown**: `bao agent run` on SIGINT/SIGTERM drains in-flight
+  workers, cancels timers, flushes the send channel, and closes every
+  cached DB connection cleanly before exiting.
 
 ## Status & known limitations
 
