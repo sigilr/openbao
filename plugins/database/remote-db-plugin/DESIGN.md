@@ -54,6 +54,7 @@ hub and the spokes.
 | `proto/agent.proto` | gRPC contract. One bidi stream per spoke. |
 | `../../builtin/logical/agent/{backend,paths}.go` | The `agent/` logical backend. Operators interact with it via `bao agent ...`. |
 | `../../command/agent_{init,join,list,run,ca,token}.go` | The `bao agent ...` CLI subcommands. |
+| `TEST.md` | Step-by-step manual test plan (smoke, token security, CSR validation, renewal, CA rotation, failure modes, concurrency). |
 
 ---
 
