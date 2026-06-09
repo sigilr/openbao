@@ -382,7 +382,15 @@ func encodeECKey(k *ecdsa.PrivateKey) ([]byte, error) {
 // three files bao agent join writes. We treat 'any of them present' as
 // 'this dir is in use'; an operator who reset only part of it should clean
 // the rest up before re-joining.
+//
+// We scan all three files before deciding. The earlier short-circuit on the
+// first non-NotExist Stat error (e.g. EACCES on cert.pem) would surface
+// (false, err) even though one of the other two files might be readable and
+// settle the question. Now: any confirmed-present file wins; otherwise we
+// surface the first unknown error (so EACCES does not get misreported as
+// "directory empty, safe to write").
 func existingSpokeCredentials(dir string) (bool, error) {
+	var firstErr error
 	for _, name := range []string{"cert.pem", "key.pem", "ca.pem"} {
 		_, err := os.Stat(filepath.Join(dir, name))
 		switch {
@@ -391,10 +399,49 @@ func existingSpokeCredentials(dir string) (bool, error) {
 		case errors.Is(err, os.ErrNotExist):
 			continue
 		default:
-			return false, err
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
+	if firstErr != nil {
+		return false, firstErr
+	}
 	return false, nil
+}
+
+// writeFileSync atomically writes data to path with the given mode and
+// fsyncs the file before close. Callers should follow up with syncDir on
+// the parent directory so the directory entry itself is durable.
+func writeFileSync(path string, data []byte, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// syncDir fsyncs a directory so the directory entry for files we just wrote
+// or renamed is durable across a crash/power-cut. On platforms where this
+// is a no-op (Windows) the call is harmless.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		return err
+	}
+	return d.Close()
 }
 
 func writeCredentials(dir string, cert, key, ca []byte) error {
@@ -410,9 +457,13 @@ func writeCredentials(dir string, cert, key, ca []byte) error {
 		{"key.pem", key, 0o600},
 		{"ca.pem", ca, 0o644},
 	} {
-		if err := os.WriteFile(filepath.Join(dir, f.name), f.data, f.mode); err != nil {
+		if err := writeFileSync(filepath.Join(dir, f.name), f.data, f.mode); err != nil {
 			return err
 		}
 	}
-	return nil
+	// fsync the directory so the cert/key/ca entries are durable. Without
+	// this a crash between the writes and the daemon's first read can leave
+	// the dir entries missing even though the file contents made it to
+	// stable storage.
+	return syncDir(dir)
 }

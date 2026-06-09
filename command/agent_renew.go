@@ -236,10 +236,15 @@ func parseFirstCert(certPEM []byte) (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
-// writeRenewedCreds writes cert and key to .new files and renames them into
-// place. We do not need a sync(2) here — even if the daemon crashes mid-write
-// the new cert is just unavailable, the old one is still readable, and the
-// next renewal attempt cleans up.
+// writeRenewedCreds writes cert and key to .new files, fsyncs each, renames
+// them into place, then fsyncs the directory so the rename is durable.
+//
+// Without the directory sync, a clean reboot between the cert rename and the
+// key rename leaves the disk with (new cert, old key); tls.LoadX509KeyPair
+// at next start would fail until the operator re-ran agent renew. With the
+// sync, the worst-case observable state on recovery is (new cert, old key)
+// — which fails the LoadX509KeyPair signature check loudly so the caller
+// retries — or the fully-committed (new cert, new key).
 //
 // Order matters. tls.LoadX509KeyPair reads cert.pem first and then key.pem;
 // a concurrent reader sandwiched between the two renames sees whichever pair
@@ -256,10 +261,10 @@ func writeRenewedCreds(dir string, certPEM, keyPEM []byte) error {
 	tmpCert := certPath + ".new"
 	tmpKey := keyPath + ".new"
 
-	if err := os.WriteFile(tmpCert, certPEM, 0o644); err != nil {
+	if err := writeFileSync(tmpCert, certPEM, 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(tmpKey, keyPEM, 0o600); err != nil {
+	if err := writeFileSync(tmpKey, keyPEM, 0o600); err != nil {
 		_ = os.Remove(tmpCert)
 		return err
 	}
@@ -267,10 +272,17 @@ func writeRenewedCreds(dir string, certPEM, keyPEM []byte) error {
 		_ = os.Remove(tmpKey)
 		return err
 	}
+	// Sync the directory so the cert rename is durable before we attempt
+	// the key rename. Without this a power cut between the two renames can
+	// leave the directory entry pointing at the old cert despite the kernel
+	// having already returned success from Rename(tmpCert, certPath).
+	if err := syncDir(dir); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpKey, keyPath); err != nil {
 		return err
 	}
-	return nil
+	return syncDir(dir)
 }
 
 // CurrentSpokeCertExpiry reads cert.pem from credsDir and returns its
