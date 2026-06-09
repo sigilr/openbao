@@ -7,11 +7,13 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/cli"
@@ -20,8 +22,10 @@ import (
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/runner"
 	"github.com/posener/complete"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 )
 
 // AgentRunCommand is the long-running spoke daemon. It connects to the hub's
@@ -164,53 +168,52 @@ func (c *AgentRunCommand) Run(args []string) int {
 	}
 	defer func() { _ = conn.Close() }()
 
-	stream, err := proto.NewAgentServiceClient(conn).Connect(context.Background())
+	// streamCtx is cancellable so a SIGINT/SIGTERM (or a send failure) can
+	// unblock stream.Recv promptly instead of waiting on gRPC keepalive.
+	streamCtx, cancelStream := context.WithCancel(context.Background())
+	defer cancelStream()
+
+	stream, err := proto.NewAgentServiceClient(conn).Connect(streamCtx)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("open stream: %s", err))
 		return 1
 	}
 
-	// hbCtx scopes the heartbeat + renewal goroutines. We also cancel it
-	// from the sender goroutine when Send fails, so those goroutines exit
-	// promptly rather than blindly feeding messages into a drain loop while
-	// the daemon hasn't yet noticed the stream is dead.
+	// hbCtx scopes the heartbeat + renewal goroutines and the runner's idle
+	// evictor. Cancelled from the sender goroutine when Send fails, and from
+	// the graceful-shutdown path so those goroutines exit before we close
+	// the send channel.
 	hbCtx, cancelHB := context.WithCancel(context.Background())
 	defer cancelHB()
 
-	// stream.Send is not safe for concurrent calls. The previous mutex-based
-	// serialization made the heartbeat goroutine block (holding sendMu)
-	// whenever the request handlers were also sending — the same lock the
-	// hub uses to detect a wedged spoke. Move to a sendCh + dedicated
-	// sender goroutine so a slow Send only backs up the queue, never the
-	// heartbeat ticker. The hub side uses the same pattern (proxy.go), but
-	// it can't close its sendCh on tear-down — its senders are external
-	// goroutines that outlive the connection. Here every sender (heartbeat,
-	// renewal, request handler) is scoped to this Run() and is torn down
-	// before the deferred close(sendCh) runs, so closing is safe.
+	// stream.Send is not safe for concurrent calls. A single sender goroutine
+	// drains sendCh and calls Send; producers (heartbeat, request handlers)
+	// post through send() below. A senderWG tracks every goroutine that may
+	// call send(), so the shutdown path can wait for them before closing
+	// sendCh. Without that wait, a slow plugin call finishing after the recv
+	// loop returns would send on a closed channel and panic.
 	sendCh := make(chan *proto.AgentMessage, 64)
 	sendDone := make(chan struct{})
 	sendErrCh := make(chan error, 1)
+	var senderWG sync.WaitGroup
 	go func() {
 		defer close(sendDone)
 		for msg := range sendCh {
 			if err := stream.Send(msg); err != nil {
-				// Wrap with the failing message's metadata so the recv-loop
-				// log line names which request couldn't be delivered. This
-				// is a debugging aid; the err itself is the canonical cause.
+				// Wrap with the failing message's metadata so the log line
+				// names which request couldn't be delivered. The err itself
+				// is the canonical cause.
 				wrapped := fmt.Errorf("send failed (request_id=%q is_heartbeat=%t is_response=%t): %w",
 					msg.RequestId, msg.IsHeartbeat, msg.IsResponse, err)
 				select {
 				case sendErrCh <- wrapped:
 				default:
 				}
-				// Cancel the heartbeat/renewal context so those goroutines
-				// stop posting into sendCh — otherwise they keep firing
-				// messages that the drain below just throws away, and the
-				// hub keeps marking the spoke healthy for up to one
-				// keepalive timeout while we're already failed.
+				// Cancel hbCtx so heartbeat/renewal stop firing, and cancel
+				// streamCtx so the recv loop unblocks instead of waiting on
+				// keepalive. Drain the rest so producers don't block forever.
 				cancelHB()
-				// Drain the rest so producers don't block forever; we will
-				// exit shortly after the recv loop also notices.
+				cancelStream()
 				for range sendCh {
 				}
 				return
@@ -225,26 +228,32 @@ func (c *AgentRunCommand) Run(args []string) int {
 			return fmt.Errorf("send: stream closed")
 		}
 	}
-	defer func() {
-		close(sendCh)
-		<-sendDone
-	}()
 
 	if err := send(&proto.AgentMessage{ClientName: spokeName, IsResponse: false}); err != nil {
 		c.UI.Error(fmt.Sprintf("register: %s", err))
+		close(sendCh)
+		<-sendDone
 		return 1
 	}
 	ack, err := stream.Recv()
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("recv ack: %s", err))
+		close(sendCh)
+		<-sendDone
 		return 1
 	}
 	c.UI.Info(fmt.Sprintf("registered: %s", ack.Output))
 
 	if c.flagHeartbeatInterval > 0 {
-		go runSpokeHeartbeat(hbCtx, send, spokeName, c.flagHeartbeatInterval, c.UI)
+		senderWG.Add(1)
+		go func() {
+			defer senderWG.Done()
+			runSpokeHeartbeat(hbCtx, send, spokeName, c.flagHeartbeatInterval, c.UI)
+		}()
 	}
 	if c.flagRenewCheckEvery > 0 {
+		// Renewal opens its own short-lived RPC; it doesn't write to sendCh,
+		// so it isn't part of senderWG. hbCtx cancellation still stops it.
 		go runCertRenewal(hbCtx, RenewSpokeCertInput{
 			Server:         c.flagServer,
 			ServerName:     c.flagServerName,
@@ -255,8 +264,8 @@ func (c *AgentRunCommand) Run(args []string) int {
 	r := runner.NewPluginRunner()
 	// Evict cached plugin instances that haven't been touched within the TTL.
 	// Catches mounts the hub forgot to Close (process crash, deleted while
-	// the spoke was offline). hbCtx cancels on stream teardown so the
-	// evictor exits with the daemon.
+	// the spoke was offline). hbCtx cancels on shutdown so the evictor exits
+	// with the daemon.
 	r.StartIdleEvictor(hbCtx)
 
 	// Worker pool bounds concurrency. Each inbound request is dispatched on
@@ -264,46 +273,97 @@ func (c *AgentRunCommand) Run(args []string) int {
 	// match it to its waiter.
 	sem := make(chan struct{}, c.flagMaxConcurrency)
 
-	for {
-		msg, err := stream.Recv()
-		if err == io.EOF {
-			c.UI.Info("hub disconnected")
-			return 0
-		}
-		if err != nil {
-			c.UI.Error(fmt.Sprintf("stream error: %s", err))
-			return 1
-		}
-		select {
-		case sendErr := <-sendErrCh:
-			c.UI.Error(fmt.Sprintf("send loop: %s", sendErr))
-			return 1
-		default:
-		}
-		// Heartbeats and the initial Connected ack don't carry work.
-		if msg.Command == "" || msg.IsResponse {
-			continue
-		}
+	// Recv loop runs in a goroutine so the main goroutine can select between
+	// it and the shutdown signal. recvErr is read after recvDone closes, so
+	// no synchronization is needed.
+	recvDone := make(chan struct{})
+	var recvErr error
+	go func() {
+		defer close(recvDone)
+		for {
+			msg, err := stream.Recv()
+			if err != nil {
+				recvErr = err
+				return
+			}
+			select {
+			case sendErr := <-sendErrCh:
+				recvErr = sendErr
+				return
+			default:
+			}
+			// Heartbeats and the initial Connected ack don't carry work.
+			if msg.Command == "" || msg.IsResponse {
+				continue
+			}
 
-		sem <- struct{}{}
-		go func(m *proto.AgentMessage) {
-			defer func() { <-sem }()
-			output, execErr := r.ExecuteRequest(m.Command)
-			resp := &proto.AgentMessage{
-				ClientName: spokeName,
-				RequestId:  m.RequestId,
-				IsResponse: true,
-			}
-			if execErr != nil {
-				resp.Error = execErr.Error()
-			} else {
-				resp.Output = output
-			}
-			if err := send(resp); err != nil {
-				c.UI.Error(fmt.Sprintf("send response (req %s): %s", m.RequestId, err))
-			}
-		}(msg)
+			sem <- struct{}{}
+			senderWG.Add(1)
+			go func(m *proto.AgentMessage) {
+				defer senderWG.Done()
+				defer func() { <-sem }()
+				output, execErr := r.ExecuteRequest(m.Command)
+				resp := &proto.AgentMessage{
+					ClientName: spokeName,
+					RequestId:  m.RequestId,
+					IsResponse: true,
+				}
+				if execErr != nil {
+					resp.Error = execErr.Error()
+				} else {
+					resp.Output = output
+				}
+				if err := send(resp); err != nil {
+					c.UI.Error(fmt.Sprintf("send response (req %s): %s", m.RequestId, err))
+				}
+			}(msg)
+		}
+	}()
+
+	// Block until either SIGINT/SIGTERM or the recv loop returns on its own
+	// (stream error, EOF, send-loop failure). When a signal arrives, cancel
+	// the stream so Recv unblocks and the goroutine returns.
+	shutdownCh := MakeShutdownCh()
+	signaled := false
+	select {
+	case <-shutdownCh:
+		c.UI.Info("shutdown signal received; draining")
+		signaled = true
+		cancelStream()
+		<-recvDone
+	case <-recvDone:
 	}
+
+	// Graceful drain. Ordering:
+	//   1. senderWG.Wait — every goroutine that may still write sendCh exits.
+	//      Until this returns, closing sendCh would risk send-on-closed.
+	//   2. cancelHB — stop the renewal ticker and the runner's idle evictor.
+	//      Heartbeat is already in senderWG.
+	//   3. close(sendCh) + <-sendDone — sender drains anything buffered and
+	//      exits cleanly.
+	//   4. r.Shutdown — drops the slot ref on every cached plugin. In-flight
+	//      handlers are already done (step 1), so each db.Close runs now.
+	senderWG.Wait()
+	cancelHB()
+	close(sendCh)
+	<-sendDone
+	r.Shutdown()
+
+	if signaled {
+		return 0
+	}
+	if recvErr == nil || errors.Is(recvErr, io.EOF) {
+		c.UI.Info("hub disconnected")
+		return 0
+	}
+	if s, ok := status.FromError(recvErr); ok && s.Code() == codes.Canceled {
+		// Stream was cancelled by the send-loop after a Send failure; the
+		// real cause is in sendErrCh and was reported into recvErr.
+		c.UI.Error(fmt.Sprintf("stream cancelled: %s", recvErr))
+		return 1
+	}
+	c.UI.Error(fmt.Sprintf("stream error: %s", recvErr))
+	return 1
 }
 
 // runCertRenewal ticks on `every` and renews the spoke's client cert once it
