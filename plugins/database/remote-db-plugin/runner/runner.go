@@ -34,13 +34,13 @@ import (
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
-// concurrent use: r.mu guards `plugins` and `loading`; once a plugin is taken
-// out of `plugins` by get/load, callers operate on it without holding r.mu.
+// concurrent use: r.mu guards `plugins` and `loading`; once an entry is
+// acquired via acquire(), callers operate on its db without holding r.mu.
 //
-// `loading` carries a per-instance-id mutex used to single-flight cold-cache
-// loads — without it, two concurrent requests for the same id can both call
-// Initialize then put(), and the second put() closes the first plugin's DB
-// connection underneath whatever handler is still using it.
+// `loading` carries a per-instance-id mutex used to single-flight Initialize
+// and cold-cache loads — without it, two concurrent requests for the same id
+// can both call Initialize then install entries, then race on cleanup of the
+// displaced one.
 type PluginRunner struct {
 	mu      sync.Mutex
 	plugins map[string]*pluginEntry
@@ -51,16 +51,39 @@ type PluginRunner struct {
 	evictorActive bool // set under evictorOnce so tests can detect
 }
 
+// pluginEntry wraps one cached dbplugin.Database. The refcount has two
+// classes of holder:
+//
+//  1. The cache slot itself. While the entry is reachable via r.plugins it
+//     holds one reference. installOrReplace and remove drop this reference.
+//  2. Each in-flight handler. acquire() bumps the count under r.mu, release()
+//     drops it.
+//
+// db.Close() runs exactly once, when refs transitions to 0. This is what
+// makes Close, re-Initialize, and idle eviction safe to call while a handler
+// is mid-flight: the displaced entry stays usable for its remaining
+// handlers, and its connection is closed only after the last one releases.
 type pluginEntry struct {
 	pluginName string
 	db         dbplugin.Database
-	lastUsed   time.Time
+	lastUsed   time.Time // guarded by PluginRunner.mu
+	refs       atomic.Int32
+}
 
-	// refs is the count of in-flight handlers currently using db. evictIdle
-	// only evicts entries with refs == 0; without this an entry whose
-	// handler holds entry.db longer than idleTTL would race with Close.
-	// Bumped under r.mu by withPlugin around the handler call.
-	refs atomic.Int32
+func newPluginEntry(name string, db dbplugin.Database) *pluginEntry {
+	e := &pluginEntry{pluginName: name, db: db, lastUsed: time.Now()}
+	e.refs.Store(1) // initial reference for the cache slot
+	return e
+}
+
+// release drops one reference. If it was the last, closes the underlying db.
+// Safe to call from any goroutine; never blocks on r.mu.
+func (e *pluginEntry) release() {
+	if e.refs.Add(-1) == 0 {
+		if err := e.db.Close(); err != nil {
+			log.Printf("[runner] close plugin instance: %v", err)
+		}
+	}
 }
 
 // DefaultIdleTTL is the period of inactivity after which a cached plugin
@@ -119,28 +142,23 @@ func (r *PluginRunner) evictIdle(now time.Time) {
 	if r.idleTTL <= 0 {
 		return
 	}
-	type evicted struct {
-		id    string
-		entry *pluginEntry
-	}
 	r.mu.Lock()
-	var toClose []evicted
+	var toRelease []*pluginEntry
 	for id, e := range r.plugins {
-		if e.refs.Load() > 0 {
-			// In-flight handler. Skip — it'll bump lastUsed when it
-			// releases, or stay long enough to be picked up next tick.
-			continue
-		}
-		if now.Sub(e.lastUsed) > r.idleTTL {
-			toClose = append(toClose, evicted{id, e})
+		// refs == 1 means only the slot reference: no handler is in flight,
+		// so the slot is safe to drop. If a handler is in flight (refs > 1)
+		// the entry is skipped — the next tick will catch it after release.
+		// The lookup, refs check, and delete all happen under r.mu, which
+		// acquire() also takes, so the check is race-free against new
+		// acquirers.
+		if e.refs.Load() == 1 && now.Sub(e.lastUsed) > r.idleTTL {
 			delete(r.plugins, id)
+			toRelease = append(toRelease, e)
 		}
 	}
 	r.mu.Unlock()
-	for _, ev := range toClose {
-		if err := ev.entry.db.Close(); err != nil {
-			log.Printf("[runner] idle-evict close instance %s: %v", ev.id, err)
-		}
+	for _, e := range toRelease {
+		e.release()
 	}
 }
 
@@ -175,7 +193,7 @@ func (r *PluginRunner) ExecuteRequest(requestJSON string) (string, error) {
 	case "DeleteUser":
 		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleDeleteUser)
 	case "Close":
-		return r.handleClose(ctx, instanceID)
+		return r.handleClose(instanceID)
 	default:
 		return "", fmt.Errorf("unknown method: %s", method)
 	}
@@ -183,49 +201,70 @@ func (r *PluginRunner) ExecuteRequest(requestJSON string) (string, error) {
 
 // --- Cache primitives -------------------------------------------------------
 
-func (r *PluginRunner) get(instanceID string) (*pluginEntry, bool) {
+// acquire returns the cached entry for instanceID with refs bumped. The
+// caller MUST call entry.release() when done.
+func (r *PluginRunner) acquire(instanceID string) (*pluginEntry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e, ok := r.plugins[instanceID]
-	if ok {
-		e.lastUsed = time.Now()
+	if !ok {
+		return nil, false
 	}
-	return e, ok
+	e.refs.Add(1)
+	e.lastUsed = time.Now()
+	return e, true
 }
 
-func (r *PluginRunner) put(instanceID string, entry *pluginEntry) {
+// installOrReplace stores entry at instanceID, dropping the slot reference on
+// any previously cached entry. If a handler is still mid-flight on the
+// displaced entry, its db stays open until that handler releases; otherwise
+// db.Close runs synchronously here.
+func (r *PluginRunner) installOrReplace(instanceID string, entry *pluginEntry) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if old, ok := r.plugins[instanceID]; ok {
-		// Re-Initialize for the same id: dispose of the previous instance so
-		// its DB connection is released. The new one replaces it atomically.
-		// Log on error so leaked statements or reset-on-close issues do not
-		// silently disappear during a redo-Initialize.
-		if err := old.db.Close(); err != nil {
-			log.Printf("[runner] close prior plugin for instance %s: %v", instanceID, err)
-		}
-	}
-	entry.lastUsed = time.Now()
+	old := r.plugins[instanceID]
 	r.plugins[instanceID] = entry
+	r.mu.Unlock()
+	if old != nil {
+		old.release()
+	}
 }
 
-func (r *PluginRunner) remove(instanceID string) *pluginEntry {
+// remove drops the slot reference for instanceID. The underlying db is closed
+// when the last in-flight handler releases (or immediately, if none).
+// Returns true if an entry existed.
+func (r *PluginRunner) remove(instanceID string) bool {
+	r.mu.Lock()
+	old, ok := r.plugins[instanceID]
+	if ok {
+		delete(r.plugins, instanceID)
+	}
+	r.mu.Unlock()
+	if ok {
+		old.release()
+	}
+	return ok
+}
+
+// loadLock returns the per-instance-id mutex used to single-flight Initialize
+// and lazy re-init for the same id. Mutex objects accumulate in r.loading at
+// most one per distinct instance_id the spoke has ever served — the same
+// bound the cache itself has if the operator never deletes mounts.
+func (r *PluginRunner) loadLock(instanceID string) *sync.Mutex {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	e := r.plugins[instanceID]
-	delete(r.plugins, instanceID)
-	return e
+	m, ok := r.loading[instanceID]
+	if !ok {
+		m = &sync.Mutex{}
+		r.loading[instanceID] = m
+	}
+	return m
 }
 
-// withPlugin loads the cached plugin for instanceID; if the cache is cold
-// (e.g. spoke restarted), it lazy-inits from the config carried in the
-// request. This keeps the system self-healing: hub callers don't have to
-// catch and replay Initialize on cache misses.
-//
-// Concurrent cold-cache callers for the same id are single-flighted via
-// loadOrInit so only one plugin is constructed. The handler is invoked under
-// a refcount bump on the entry so evictIdle cannot close the plugin
-// underneath an in-flight call, even if the call runs longer than idleTTL.
+// withPlugin acquires the cached plugin for instanceID and runs handler with
+// it. On cache miss it lazy-inits from the config carried in the request;
+// concurrent cold-cache callers for the same id are single-flighted via
+// loadLock. The handler runs with refs bumped, so evictIdle, Close, and
+// re-Initialize cannot close the db underneath it.
 func (r *PluginRunner) withPlugin(
 	ctx context.Context,
 	instanceID string,
@@ -233,8 +272,9 @@ func (r *PluginRunner) withPlugin(
 	req map[string]interface{},
 	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
 ) (string, error) {
-	if entry, ok := r.get(instanceID); ok {
-		return r.runHandler(ctx, entry, req, handler)
+	if entry, ok := r.acquire(instanceID); ok {
+		defer entry.release()
+		return handler(ctx, entry.db, req)
 	}
 
 	cfg, _ := req["config"].(map[string]interface{})
@@ -245,54 +285,23 @@ func (r *PluginRunner) withPlugin(
 	if err != nil {
 		return "", err
 	}
-	return r.runHandler(ctx, entry, req, handler)
-}
-
-// runHandler invokes handler while holding a reference on entry, then bumps
-// lastUsed on release so the next eviction check sees fresh activity even if
-// the call took a long time. evictIdle skips entries with refs > 0, which is
-// what keeps a long-running handler safe.
-func (r *PluginRunner) runHandler(
-	ctx context.Context,
-	entry *pluginEntry,
-	req map[string]interface{},
-	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
-) (string, error) {
-	entry.refs.Add(1)
-	defer func() {
-		entry.refs.Add(-1)
-		r.mu.Lock()
-		entry.lastUsed = time.Now()
-		r.mu.Unlock()
-	}()
+	defer entry.release()
 	return handler(ctx, entry.db, req)
 }
 
 // loadOrInit single-flights cold-cache loads for instanceID. Callers race for
-// the per-id load mutex; the first to acquire it does the Initialize and puts
-// the result in the cache, subsequent acquirers re-check the cache and find
-// the freshly-loaded entry.
+// the per-id load mutex; the first to acquire it does the Initialize and
+// installs the result, subsequent acquirers re-check the cache and find the
+// freshly-loaded entry. Returns an entry with refs already bumped for the
+// caller (caller MUST release).
 func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName string, cfg map[string]interface{}) (*pluginEntry, error) {
-	// Find or create a load lock for this id without holding it across
-	// Initialize (which can be slow — Initialize opens a DB connection).
-	r.mu.Lock()
-	if entry, ok := r.plugins[instanceID]; ok {
-		r.mu.Unlock()
-		return entry, nil
-	}
-	loadMu, ok := r.loading[instanceID]
-	if !ok {
-		loadMu = &sync.Mutex{}
-		r.loading[instanceID] = loadMu
-	}
-	r.mu.Unlock()
-
+	loadMu := r.loadLock(instanceID)
 	loadMu.Lock()
 	defer loadMu.Unlock()
 
 	// Double-check: another caller may have populated the cache while we were
 	// queued on loadMu.
-	if entry, ok := r.get(instanceID); ok {
+	if entry, ok := r.acquire(instanceID); ok {
 		return entry, nil
 	}
 
@@ -304,25 +313,16 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 		Config:           cfg,
 		VerifyConnection: false,
 	}); err != nil {
-		_ = plugin.Close()
-		// Leave the load mutex in r.loading on failure. If we deleted it,
-		// a concurrent fresh entrant would create a new mutex and the
-		// retrying waiter (which still holds a reference to the old one)
-		// would race with them — the very duplicate-Initialize bug the
-		// single-flight design exists to prevent. Better to let every
-		// retrying caller serialize through the same mutex; the leak is
-		// bounded by the number of distinct instance ids ever served by
-		// this runner (same bound the cache itself has).
+		if cerr := plugin.Close(); cerr != nil {
+			log.Printf("[runner] close after failed initialize for instance %s: %v", instanceID, cerr)
+		}
 		return nil, fmt.Errorf("lazy initialize: %w", err)
 	}
-	entry := &pluginEntry{pluginName: pluginName, db: plugin}
-	r.put(instanceID, entry)
-	// Done loading. Future cold-misses for this id will create a fresh mutex
-	// (after the entry is later removed via Close). Without this delete the
-	// loading map would grow once per distinct id the spoke ever saw.
-	r.mu.Lock()
-	delete(r.loading, instanceID)
-	r.mu.Unlock()
+	entry := newPluginEntry(pluginName, plugin)
+	// Bump for the caller before installing, so the slot ref is not the only
+	// thing keeping the entry alive between install and the caller's defer.
+	entry.refs.Add(1)
+	r.installOrReplace(instanceID, entry)
 	return entry, nil
 }
 
@@ -362,6 +362,14 @@ func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginN
 	}
 	verifyConnection, _ := req["verify_connection"].(bool)
 
+	// Single-flight against concurrent Initialize and lazy re-init for the
+	// same id. Without this, two Initialize calls could both build a plugin
+	// and both call installOrReplace, racing on the cleanup of the displaced
+	// entry.
+	loadMu := r.loadLock(instanceID)
+	loadMu.Lock()
+	defer loadMu.Unlock()
+
 	plugin, err := loadPlugin(pluginName)
 	if err != nil {
 		return "", err
@@ -371,10 +379,12 @@ func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginN
 		VerifyConnection: verifyConnection,
 	})
 	if err != nil {
-		_ = plugin.Close()
+		if cerr := plugin.Close(); cerr != nil {
+			log.Printf("[runner] close after failed initialize for instance %s: %v", instanceID, cerr)
+		}
 		return "", fmt.Errorf("initialize: %w", err)
 	}
-	r.put(instanceID, &pluginEntry{pluginName: pluginName, db: plugin})
+	r.installOrReplace(instanceID, newPluginEntry(pluginName, plugin))
 
 	out, err := json.Marshal(map[string]interface{}{"config": resp.Config})
 	if err != nil {
@@ -388,21 +398,27 @@ func (r *PluginRunner) handleNewUser(ctx context.Context, plugin dbplugin.Databa
 	if !ok {
 		return "", fmt.Errorf("missing username_config")
 	}
-	password, _ := req["password"].(string)
 	expiration, err := asInt64(req["expiration"])
 	if err != nil {
 		return "", fmt.Errorf("expiration: %w", err)
 	}
-	statements := stringSlice(req["statements"])
+	credType, err := parseCredentialType(req["credential_type"])
+	if err != nil {
+		return "", err
+	}
 
 	resp, err := plugin.NewUser(ctx, dbplugin.NewUserRequest{
 		UsernameConfig: dbplugin.UsernameMetadata{
 			DisplayName: stringField(usernameConfig, "display_name"),
 			RoleName:    stringField(usernameConfig, "role_name"),
 		},
-		Password:   password,
-		Expiration: time.Unix(expiration, 0),
-		Statements: dbplugin.Statements{Commands: statements},
+		CredentialType:     credType,
+		Password:           stringField(req, "password"),
+		PublicKey:          []byte(stringField(req, "public_key")),
+		Subject:            stringField(req, "subject"),
+		Expiration:         time.Unix(expiration, 0),
+		Statements:         dbplugin.Statements{Commands: stringSlice(req["statements"])},
+		RollbackStatements: dbplugin.Statements{Commands: stringSlice(req["rollback_statements"])},
 	})
 	if err != nil {
 		return "", fmt.Errorf("NewUser: %w", err)
@@ -419,12 +435,22 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 	if !ok {
 		return "", fmt.Errorf("missing username")
 	}
-	update := dbplugin.UpdateUserRequest{Username: username}
+	credType, err := parseCredentialType(req["credential_type"])
+	if err != nil {
+		return "", err
+	}
+	update := dbplugin.UpdateUserRequest{Username: username, CredentialType: credType}
 
 	if pw, ok := req["password"].(map[string]interface{}); ok {
 		update.Password = &dbplugin.ChangePassword{
 			NewPassword: stringField(pw, "new_password"),
 			Statements:  dbplugin.Statements{Commands: stringSlice(pw["statements"])},
+		}
+	}
+	if pk, ok := req["public_key"].(map[string]interface{}); ok {
+		update.PublicKey = &dbplugin.ChangePublicKey{
+			NewPublicKey: []byte(stringField(pk, "new_public_key")),
+			Statements:   dbplugin.Statements{Commands: stringSlice(pk["statements"])},
 		}
 	}
 	if ex, ok := req["expiration"].(map[string]interface{}); ok {
@@ -457,17 +483,31 @@ func (r *PluginRunner) handleDeleteUser(ctx context.Context, plugin dbplugin.Dat
 	return "{}", nil
 }
 
-func (r *PluginRunner) handleClose(_ context.Context, instanceID string) (string, error) {
-	entry := r.remove(instanceID)
-	if entry == nil {
-		// Idempotent: closing an unknown id is fine; hub may have lost track
-		// after a spoke restart.
-		return "{}", nil
-	}
-	if err := entry.db.Close(); err != nil {
-		return "", fmt.Errorf("close: %w", err)
-	}
+// handleClose drops the slot reference for the instance. The actual db.Close
+// runs once the last in-flight handler releases — Close is therefore safe to
+// invoke even while a NewUser/UpdateUser/DeleteUser is mid-flight on the same
+// instance_id. Idempotent: closing an unknown id is a no-op.
+func (r *PluginRunner) handleClose(instanceID string) (string, error) {
+	r.remove(instanceID)
 	return "{}", nil
+}
+
+// Shutdown drops the slot reference on every cached plugin. Each db.Close()
+// runs once any in-flight handler holding the same entry releases (the
+// refcount discipline guarantees exactly one close). Safe to call once on
+// daemon teardown; further requests on this runner are racy after Shutdown
+// returns. Idempotent.
+func (r *PluginRunner) Shutdown() {
+	r.mu.Lock()
+	entries := make([]*pluginEntry, 0, len(r.plugins))
+	for _, e := range r.plugins {
+		entries = append(entries, e)
+	}
+	r.plugins = make(map[string]*pluginEntry)
+	r.mu.Unlock()
+	for _, e := range entries {
+		e.release()
+	}
 }
 
 // --- Decode helpers --------------------------------------------------------
@@ -511,5 +551,24 @@ func asInt64(v interface{}) (int64, error) {
 		return 0, fmt.Errorf("nil")
 	default:
 		return 0, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+// parseCredentialType decodes the wire form (one of "password",
+// "rsa_private_key", "client_certificate", or absent/empty) into the SDK
+// enum. Absence defaults to CredentialTypePassword to match the SDK's
+// zero-value semantics, so an older hub that does not send the field still
+// works.
+func parseCredentialType(v interface{}) (dbplugin.CredentialType, error) {
+	s, _ := v.(string)
+	switch s {
+	case "", "password":
+		return dbplugin.CredentialTypePassword, nil
+	case "rsa_private_key":
+		return dbplugin.CredentialTypeRSAPrivateKey, nil
+	case "client_certificate":
+		return dbplugin.CredentialTypeClientCertificate, nil
+	default:
+		return 0, fmt.Errorf("unsupported credential_type: %q", s)
 	}
 }
