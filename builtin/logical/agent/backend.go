@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
@@ -83,6 +84,10 @@ const (
 
 	defaultTokenTTL        = 24 * time.Hour
 	defaultSpokeCertExpiry = 30 * 24 * time.Hour
+	// maxSpokeCertExpiry caps the cert validity an operator can request via
+	// sign-csr. Mirrors bootstrap.RenewCertMaxTTL on the renewal RPC so the
+	// initial-issue and renew paths agree on the upper bound.
+	maxSpokeCertExpiry = 90 * 24 * time.Hour
 
 	usageSigning        = "signing"
 	usageAuthentication = "authentication"
@@ -90,6 +95,12 @@ const (
 
 type agentBackend struct {
 	*framework.Backend
+	// caMu serializes ca/init, ca/rotate, and ca/update-endpoint against each
+	// other. Without it two concurrent ca/init calls both pass the
+	// "existing==nil" check, both generate a CA, and the last writer wins —
+	// any spoke that fetched cluster-info between the two writes would hold
+	// a ca.pem whose private key is no longer the hub's.
+	caMu sync.Mutex
 }
 
 // --- Storage models ---------------------------------------------------------
@@ -141,6 +152,12 @@ func (t *tokenStorage) hasUsage(want string) bool {
 // proxy gRPC server reads, then brings up the listener. Called on backend
 // init so a restarted OpenBao is immediately ready to receive spoke
 // connections without waiting for a database mount to fire.
+//
+// Listener errors (bad stored endpoint, port already in use) are logged but
+// do not fail the backend init: the admin paths (ca/update-endpoint, ca/info,
+// bootstrap-tokens/*) must stay reachable so the operator can fix the state
+// in-band. Returning an error here would brick the agent mount entirely,
+// including the very path that fixes the endpoint.
 func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) error {
 	bundle, err := readCA(ctx, s)
 	if err != nil {
@@ -157,11 +174,16 @@ func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 	}
 	port, err := portFromEndpoint(bundle.HubEndpoint)
 	if err != nil {
-		// Older state may have an endpoint without a port; log via the backend's
-		// usual error path by returning so the operator sees it on next request.
-		return fmt.Errorf("stored hub_endpoint %q has no parseable port: %w", bundle.HubEndpoint, err)
+		b.Logger().Error("agent: stored hub_endpoint cannot be parsed; proxy listener not started — admin paths remain reachable so the endpoint can be fixed via agent/ca/update-endpoint",
+			"hub_endpoint", bundle.HubEndpoint, "err", err)
+		return nil
 	}
-	return remotedb.StartProxyServer(port)
+	if err := remotedb.StartProxyServer(port); err != nil {
+		b.Logger().Error("agent: proxy listener failed to start; admin paths remain reachable",
+			"port", port, "err", err)
+		return nil
+	}
+	return nil
 }
 
 // portFromEndpoint extracts the port from "host:port". The hub endpoint is

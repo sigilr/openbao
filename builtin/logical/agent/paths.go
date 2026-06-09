@@ -62,6 +62,15 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	ipSANs := d.Get("hub_ip_sans").([]string)
 	force := d.Get("force").(bool)
 
+	// Serialize against other CA-mutating paths (ca/init, ca/rotate,
+	// ca/update-endpoint) so the read-check-write block sees a stable view
+	// of storage. Without this, two concurrent ca/init calls both pass the
+	// existing==nil check and both write a CA — the second overwrites the
+	// first, orphaning any spoke that already fetched the first via
+	// cluster-info.
+	b.caMu.Lock()
+	defer b.caMu.Unlock()
+
 	existing, err := readCA(ctx, req.Storage)
 	if err != nil {
 		return nil, err
@@ -201,6 +210,9 @@ func (b *agentBackend) pathCAUpdateEndpoint() *framework.Path {
 // restart, so we reject endpoint values whose port differs from the running
 // listener's.
 func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	b.caMu.Lock()
+	defer b.caMu.Unlock()
+
 	bundle, err := readCA(ctx, req.Storage)
 	if err != nil {
 		return nil, err
@@ -297,6 +309,9 @@ func (b *agentBackend) pathCARotate() *framework.Path {
 }
 
 func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+	b.caMu.Lock()
+	defer b.caMu.Unlock()
+
 	bundle, err := readCA(ctx, req.Storage)
 	if err != nil {
 		return nil, err
@@ -434,17 +449,22 @@ func (b *agentBackend) handleTokenCreate(ctx context.Context, req *logical.Reque
 		return nil, err
 	}
 	now := time.Now()
+	// Resolve ExpirationUnix once: a negative ttl means "never expires", any
+	// non-negative ttl is offset from now. Computing now.Add(ttl) and then
+	// overwriting was both confusing and broken for negative inputs — Add
+	// produced a past timestamp that the caller saw before the override.
+	var expirationUnix int64
+	if ttl > 0 {
+		expirationUnix = now.Add(ttl).Unix()
+	}
 	rec := &tokenStorage{
 		ID:               tok.ID,
 		Secret:           tok.Secret,
-		ExpirationUnix:   now.Add(ttl).Unix(),
+		ExpirationUnix:   expirationUnix,
 		AllowedSpokeName: allowedName,
 		Description:      description,
 		Usages:           usages,
 		CreatedUnix:      now.Unix(),
-	}
-	if ttl < 0 {
-		rec.ExpirationUnix = 0
 	}
 	if err := writeToken(ctx, req.Storage, rec); err != nil {
 		return nil, err
@@ -650,6 +670,12 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	ttl := time.Duration(d.Get("ttl").(int)) * time.Second
 	if ttl <= 0 {
 		ttl = defaultSpokeCertExpiry
+	}
+	// Cap at the same maximum the renew RPC enforces. Without this a
+	// bootstrap-authenticated caller could request a 100-year cert and the
+	// hub would happily sign it.
+	if ttl > maxSpokeCertExpiry {
+		ttl = maxSpokeCertExpiry
 	}
 	if spokeName == "" || csrPEM == "" || rawTok == "" {
 		return logical.ErrorResponse("token, spoke_name, csr_pem are all required"), nil
