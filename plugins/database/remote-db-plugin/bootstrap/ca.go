@@ -26,6 +26,13 @@ const (
 	// proxy port.
 	HubCertOrganization = "openbao-hub"
 
+	// MsgCAAlreadyInitialized is the canonical prefix the agent backend
+	// returns when ca/init is called without force on an already-initialized
+	// mount. Both the backend and the CLI (`bao agent init` idempotence
+	// check) reference this constant so the CLI does not pattern-match
+	// against a free-floating string literal.
+	MsgCAAlreadyInitialized = "CA already initialized"
+
 	caCertValidity   = 10 * 365 * 24 * time.Hour // 10 years
 	hubCertValidity  = 365 * 24 * time.Hour      // 1 year
 	spokeCertDefault = 30 * 24 * time.Hour       // 30 days
