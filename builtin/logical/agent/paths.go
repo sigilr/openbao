@@ -633,6 +633,16 @@ func (b *agentBackend) pathSignCSR() *framework.Path {
 	}
 }
 
+// genericTokenAuthError is what the unauthenticated agent/sign-csr endpoint
+// returns for every failure mode that depends on the token itself: malformed
+// format, unknown id, expired, wrong secret, missing usage, wrong
+// allowed_spoke_name. A single message keeps an attacker (or even a holder
+// of one valid token probing for others' metadata) from distinguishing
+// "wrong secret" from "wrong usage" from "wrong spoke restriction" — the
+// last two would otherwise leak per-token policy across the token space.
+// The real reason is logged server-side so operators can still diagnose.
+const genericTokenAuthError = "token unknown or expired"
+
 func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	rawTok := d.Get("token").(string)
 	spokeName := d.Get("spoke_name").(string)
@@ -647,26 +657,36 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 
 	parsedTok, err := bootstrap.ParseToken(rawTok)
 	if err != nil {
-		return logical.ErrorResponse(err.Error()), nil
+		b.Logger().Warn("agent/sign-csr: malformed token", "err", err)
+		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 
 	t, err := readToken(ctx, req.Storage, parsedTok.ID)
 	if err != nil {
 		return nil, err
 	}
-	if t == nil || t.expired() {
-		return logical.ErrorResponse("token unknown or expired"), nil
+	if t == nil {
+		b.Logger().Warn("agent/sign-csr: unknown token id", "token_id", parsedTok.ID)
+		return logical.ErrorResponse(genericTokenAuthError), nil
+	}
+	if t.expired() {
+		b.Logger().Warn("agent/sign-csr: expired token", "token_id", parsedTok.ID)
+		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 	if !bootstrap.ConstantTimeEqualSecret(t.Secret, parsedTok.Secret) {
-		return logical.ErrorResponse("token unknown or expired"), nil
+		b.Logger().Warn("agent/sign-csr: bad token secret", "token_id", parsedTok.ID)
+		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 	if !t.hasUsage(usageSigning) {
-		return logical.ErrorResponse("token does not have the 'signing' usage"), nil
+		b.Logger().Warn("agent/sign-csr: token missing 'signing' usage", "token_id", parsedTok.ID)
+		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 	if t.AllowedSpokeName != "" && t.AllowedSpokeName != spokeName {
-		return logical.ErrorResponse(fmt.Sprintf(
-			"token is restricted to spoke %q", t.AllowedSpokeName,
-		)), nil
+		b.Logger().Warn("agent/sign-csr: token allowed_spoke_name mismatch",
+			"token_id", parsedTok.ID,
+			"allowed_spoke_name", t.AllowedSpokeName,
+			"requested_spoke_name", spokeName)
+		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 
 	bundle, err := readCA(ctx, req.Storage)
