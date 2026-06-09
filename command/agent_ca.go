@@ -60,7 +60,11 @@ Usage: bao agent ca status [options]
 }
 
 func (c *AgentCAStatusCommand) Flags() *FlagSets {
-	set := c.flagSet(FlagSetHTTP)
+	// FlagSetOutputFormat brings in the shared `-format` flag so this command
+	// honors `-format=json` like the rest of the bao CLI. With format != table
+	// we round-trip the raw ca/info data through OutputData; with format=table
+	// (the default) we keep the human-friendly key/value layout below.
+	set := c.flagSet(FlagSetHTTP | FlagSetOutputFormat)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
 		Name: "mount", Target: &c.flagMount, Default: "agent",
@@ -92,6 +96,13 @@ func (c *AgentCAStatusCommand) Run(args []string) int {
 		return 2
 	}
 	d := resp.Data
+
+	// Honor -format=json|yaml by handing the raw map to the shared formatter.
+	// The default "table" format keeps the human-friendly key/value layout
+	// below, which is more useful at the terminal than the generic map dump.
+	if format := Format(c.UI); format != "" && format != "table" {
+		return OutputData(c.UI, d)
+	}
 
 	caNotAfter := asUnix(d["ca_not_after"])
 	hubNotAfter := asUnix(d["hub_cert_not_after"])

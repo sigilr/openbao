@@ -110,6 +110,13 @@ func (c *AgentListCommand) Run(args []string) int {
 		if connectedAt > 0 {
 			uptime = shortDuration(time.Since(time.Unix(connectedAt, 0)))
 		}
+		// Guard against future timestamps: a clock skew (or a NTP step
+		// between the hub computing now-lastSeen and the CLI rendering it)
+		// can briefly produce a negative value, which would render as
+		// "-3s ago" and looks broken. Clamp to "0s ago" in that case.
+		if lastSeenSecs < 0 {
+			lastSeenSecs = 0
+		}
 		c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %s",
 			name,
 			fmt.Sprintf("%ds ago", lastSeenSecs),

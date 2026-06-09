@@ -145,6 +145,15 @@ func (c *AgentTokenCreateCommand) Run(args []string) int {
 	id, _ := resp.Data["id"].(string)
 	exp := asUnix(resp.Data["expiration_unix"])
 
+	// Warn on stderr BEFORE the token so an operator scrolling shell history
+	// or a pipeline grepping for "token:" still sees the secrecy notice.
+	// The backend also attaches a Warning to the response; surface that too
+	// in case a future backend message diverges.
+	c.UI.Warn("This token is shown ONCE. Copy it now — it cannot be retrieved later.")
+	c.UI.Warn("Treat it as a credential: do not paste into logs, chat, or audit-forwarded transcripts.")
+	for _, w := range resp.Warnings {
+		c.UI.Warn(w)
+	}
 	c.UI.Output(fmt.Sprintf("token:           %s", tok))
 	c.UI.Output(fmt.Sprintf("id:              %s", id))
 	if exp > 0 {

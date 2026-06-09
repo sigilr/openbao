@@ -4,6 +4,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -347,8 +348,22 @@ func signCSR(client *api.Client, mount, hubCAPEM, token, spokeName string, csrPE
 	if certPEM == "" || caPEM == "" {
 		return nil, fmt.Errorf("sign-csr missing cert_pem or ca_cert_pem")
 	}
-	if hubCAPEM != "" && strings.TrimSpace(caPEM) != strings.TrimSpace(hubCAPEM) {
-		return nil, fmt.Errorf("hub returned a different CA via sign-csr than via cluster-info")
+	if hubCAPEM != "" {
+		// Parse both PEMs and compare DER bytes. A line-ending or whitespace
+		// difference (re-encoded by an intermediate proxy, normalized by an
+		// OpenBao client, etc.) would falsely fail a string compare even
+		// when the underlying certificate is byte-identical.
+		signCA, err := bootstrap.ParseCert([]byte(caPEM))
+		if err != nil {
+			return nil, fmt.Errorf("parse ca_cert_pem from sign-csr: %w", err)
+		}
+		discoveryCA, err := bootstrap.ParseCert([]byte(hubCAPEM))
+		if err != nil {
+			return nil, fmt.Errorf("parse ca_cert_pem from cluster-info: %w", err)
+		}
+		if !bytes.Equal(signCA.Raw, discoveryCA.Raw) {
+			return nil, fmt.Errorf("hub returned a different CA via sign-csr than via cluster-info")
+		}
 	}
 	return &signResp{CertPEM: []byte(certPEM), CACertPEM: []byte(caPEM)}, nil
 }
