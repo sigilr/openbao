@@ -661,9 +661,13 @@ func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) 
 			"display_name": req.UsernameConfig.DisplayName,
 			"role_name":    req.UsernameConfig.RoleName,
 		},
-		"password":   req.Password,
-		"expiration": req.Expiration.Unix(),
-		"statements": req.Statements.Commands,
+		"credential_type":     req.CredentialType.String(),
+		"password":            req.Password,
+		"public_key":          string(req.PublicKey),
+		"subject":             req.Subject,
+		"expiration":          req.Expiration.Unix(),
+		"statements":          req.Statements.Commands,
+		"rollback_statements": req.RollbackStatements.Commands,
 	}
 
 	response, err := p.callPlugin(ctx, request)
@@ -683,17 +687,25 @@ func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) 
 
 func (p *PluginProxy) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (dbplugin.UpdateUserResponse, error) {
 	request := map[string]interface{}{
-		"method":      "UpdateUser",
-		"plugin_name": p.pluginName,
-		"instance_id": p.instanceID,
-		"config":      p.getPluginConfig(),
-		"username":    req.Username,
+		"method":          "UpdateUser",
+		"plugin_name":     p.pluginName,
+		"instance_id":     p.instanceID,
+		"config":          p.getPluginConfig(),
+		"username":        req.Username,
+		"credential_type": req.CredentialType.String(),
 	}
 
 	if req.Password != nil {
 		request["password"] = map[string]interface{}{
 			"new_password": req.Password.NewPassword,
 			"statements":   req.Password.Statements.Commands,
+		}
+	}
+
+	if req.PublicKey != nil {
+		request["public_key"] = map[string]interface{}{
+			"new_public_key": string(req.PublicKey.NewPublicKey),
+			"statements":     req.PublicKey.Statements.Commands,
 		}
 	}
 
@@ -776,12 +788,17 @@ func proxyGetConfigString(config map[string]interface{}, key string) (string, er
 }
 
 func (p *PluginProxy) getPluginConfig() map[string]interface{} {
-	// Return config without proxy-specific fields
-	pluginConfig := make(map[string]interface{})
+	// Strip proxy-only fields. These are persisted into the mount config by
+	// the hub so that they survive plugin reload, but the spoke must hand
+	// the real built-in plugin a config that contains only its own fields
+	// (postgres/mysql/… reject unknown keys via their schema validation).
+	pluginConfig := make(map[string]interface{}, len(p.config))
 	for k, v := range p.config {
-		if k != "spoke_name" && k != "agent_port" {
-			pluginConfig[k] = v
+		switch k {
+		case "spoke_name", "agent_port", proxyInstanceIDKey:
+			continue
 		}
+		pluginConfig[k] = v
 	}
 	return pluginConfig
 }
