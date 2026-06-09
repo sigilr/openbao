@@ -192,6 +192,11 @@ func (r *PluginRunner) ExecuteRequest(requestJSON string) (string, error) {
 		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleUpdateUser)
 	case "DeleteUser":
 		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleDeleteUser)
+	case "Type":
+		// The hub currently answers Type locally from p.pluginName and never
+		// dispatches it; this branch exists so a future code path that does
+		// route Type through the wire does not get "unknown method" back.
+		return r.withPlugin(ctx, instanceID, pluginName, req, r.handleType)
 	case "Close":
 		return r.handleClose(instanceID)
 	default:
@@ -278,7 +283,11 @@ func (r *PluginRunner) withPlugin(
 	}
 
 	cfg, _ := req["config"].(map[string]interface{})
-	if cfg == nil {
+	if len(cfg) == 0 {
+		// Empty / missing config would let the built-in plugin's Initialize
+		// silently apply its zero-value defaults and connect to whatever DSN
+		// that resolves to. Refuse and surface to the hub; an operator
+		// editing the mount config can fix it where it's actually stored.
 		return "", fmt.Errorf("instance %s not cached and request carries no config to re-init", instanceID)
 	}
 	entry, err := r.loadOrInit(ctx, instanceID, pluginName, cfg)
@@ -309,6 +318,14 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 	if err != nil {
 		return nil, err
 	}
+	// VerifyConnection is deliberately false here. Cache-miss self-heal runs
+	// long after the operator's original Initialize, so the original
+	// verify_connection setting isn't available (NewUser/UpdateUser/DeleteUser
+	// don't carry it on the wire). Forcing true would surface as a spurious
+	// NewUser failure if the DB is briefly unreachable at re-init time, even
+	// though the original mount was configured with verify_connection=false;
+	// forcing false matches the safer default the operator would pick if
+	// they had to re-configure the mount during an outage.
 	if _, err := plugin.Initialize(ctx, dbplugin.InitializeRequest{
 		Config:           cfg,
 		VerifyConnection: false,
@@ -316,6 +333,18 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 		if cerr := plugin.Close(); cerr != nil {
 			log.Printf("[runner] close after failed initialize for instance %s: %v", instanceID, cerr)
 		}
+		// Drop the load mutex so a permanently-failing instance_id does not
+		// leak one mutex per attempt across the spoke's lifetime. The cost
+		// of a future concurrent retry attempting duplicate Initialize is
+		// minor: each caller gets its own plugin, installOrReplace cleans
+		// up the loser via the slot refcount, and either both succeed
+		// (caller wins, the second one is reaped) or both fail (caller
+		// gets the same error). Keeping the mutex only mattered while put()
+		// could close an in-flight plugin, which the slot/handler refcount
+		// rewrite already prevents.
+		r.mu.Lock()
+		delete(r.loading, instanceID)
+		r.mu.Unlock()
 		return nil, fmt.Errorf("lazy initialize: %w", err)
 	}
 	entry := newPluginEntry(pluginName, plugin)
@@ -323,6 +352,12 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 	// thing keeping the entry alive between install and the caller's defer.
 	entry.refs.Add(1)
 	r.installOrReplace(instanceID, entry)
+	// Drop the load mutex on success too; future cache misses for this id
+	// (after a Close + re-mount, say) create a fresh mutex. Without this the
+	// loading map grows once per distinct id the spoke has ever seen.
+	r.mu.Lock()
+	delete(r.loading, instanceID)
+	r.mu.Unlock()
 	return entry, nil
 }
 
@@ -467,6 +502,18 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 		return "", fmt.Errorf("UpdateUser: %w", err)
 	}
 	return "{}", nil
+}
+
+func (r *PluginRunner) handleType(_ context.Context, plugin dbplugin.Database, _ map[string]interface{}) (string, error) {
+	name, err := plugin.Type()
+	if err != nil {
+		return "", fmt.Errorf("Type: %w", err)
+	}
+	out, err := json.Marshal(map[string]interface{}{"type": name})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 func (r *PluginRunner) handleDeleteUser(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error) {
