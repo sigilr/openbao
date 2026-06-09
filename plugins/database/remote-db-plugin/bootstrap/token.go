@@ -95,9 +95,26 @@ func readRand(buf []byte) (int, bool) {
 	return n, err == nil && n == len(buf)
 }
 
-// ConstantTimeEqualSecret compares two token secrets without leaking timing.
+// ConstantTimeEqualSecret compares two token secrets without leaking timing,
+// including the length-mismatch case. subtle.ConstantTimeCompare returns 0
+// quickly when len(a) != len(b), which would let a remote caller distinguish
+// "wrong-length secret" from "right-length, wrong content" via response
+// timing. Pad both inputs into a fixed-size buffer and fold a constant-time
+// length-equal flag into the result so any of (a != b, len(a) != len(b),
+// either side longer than TokenSecretLen) returns false in the same time
+// envelope as a right-length-wrong-content compare.
 func ConstantTimeEqualSecret(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	var pa, pb [TokenSecretLen]byte
+	copy(pa[:], a)
+	copy(pb[:], b)
+	contentEq := subtle.ConstantTimeCompare(pa[:], pb[:])
+	lenEq := subtle.ConstantTimeEq(int32(len(a)), int32(len(b)))
+	// Either side larger than the buffer would truncate-and-match in the
+	// content compare; reject so we never silently accept a longer string
+	// whose first TokenSecretLen bytes happen to match.
+	aFits := subtle.ConstantTimeLessOrEq(len(a), TokenSecretLen)
+	bFits := subtle.ConstantTimeLessOrEq(len(b), TokenSecretLen)
+	return contentEq&lenEq&aFits&bFits == 1
 }
 
 // --- Detached JWS (HS256) -----------------------------------------------------
