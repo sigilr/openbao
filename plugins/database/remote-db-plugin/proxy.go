@@ -291,6 +291,17 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 					case sendErrCh <- err:
 					default:
 					}
+					// Close conn.done so parked RunCommand callers (waiting
+					// on respCh / sendCh / done) unblock immediately
+					// instead of sitting for ~40s until gRPC keepalive
+					// notices the broken stream. The recv-loop defer also
+					// closes done with the same guarded select, so a double
+					// close is impossible.
+					select {
+					case <-conn.done:
+					default:
+						close(conn.done)
+					}
 					return
 				}
 			case <-conn.done:
@@ -410,12 +421,23 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 	}
 	ca := &bootstrap.CABundle{CertPEM: caCertPEM, KeyPEM: caKeyPEM}
 
-	ttl := time.Duration(req.TtlSeconds) * time.Second
+	// Compute the cap in seconds and clamp BEFORE multiplying by time.Second.
+	// time.Duration(req.TtlSeconds) * time.Second overflows int64 around
+	// TtlSeconds ≈ 9.2e9 and silently produces a negative duration that
+	// then falls through to the "ttl <= 0 → default" branch — a 100-year
+	// request would become a 30-day cert with no error to the caller.
+	const renewCertMaxSeconds = int64(RenewCertMaxTTL / time.Second)
+	if req.TtlSeconds < 0 {
+		return nil, fmt.Errorf("ttl_seconds must be non-negative (got %d)", req.TtlSeconds)
+	}
+	var ttl time.Duration
 	switch {
-	case ttl <= 0:
+	case req.TtlSeconds == 0:
 		ttl = RenewCertDefaultTTL
-	case ttl > RenewCertMaxTTL:
+	case req.TtlSeconds >= renewCertMaxSeconds:
 		ttl = RenewCertMaxTTL
+	default:
+		ttl = time.Duration(req.TtlSeconds) * time.Second
 	}
 	certPEM, err := ca.SignSpokeCSR(csrDER, peerCN, ttl)
 	if err != nil {
@@ -563,7 +585,20 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 	// This is the handle the spoke uses to cache its long-lived dbplugin
 	// instance. Stable across plugin reloads so the spoke does not
 	// re-Initialize (re-open a DB connection) on every call.
-	instanceID, _ := req.Config[proxyInstanceIDKey].(string)
+	//
+	// A wrong-type value (e.g. the storage round-trip turned it from string
+	// to json.Number for some reason) silently used to mint a new id and
+	// orphan the spoke's cached plugin. Log loudly so operators see it.
+	var instanceID string
+	if v, present := req.Config[proxyInstanceIDKey]; present {
+		s, ok := v.(string)
+		if !ok {
+			log.Printf("[proxy] %s in mount config is %T, expected string; minting a fresh id (the spoke's previously cached plugin instance will be orphaned and idle-evicted)",
+				proxyInstanceIDKey, v)
+		} else {
+			instanceID = s
+		}
+	}
 	if instanceID == "" {
 		instanceID, err = newRequestID() // 12-byte hex is plenty unique here
 		if err != nil {
@@ -742,6 +777,12 @@ func (p *PluginProxy) Type() (string, error) {
 // connection. Best-effort: a failure (spoke offline, missing instance) is
 // logged but not returned, since OpenBao would do nothing useful with it
 // during mount teardown.
+//
+// Idempotent: a second call short-circuits at the guard below. Without the
+// instanceID reset the second call would send another round-trip to the
+// spoke, which would respond "instance_id not found" (the first Close
+// already evicted it) and we would log a spurious error on every shutdown
+// path that calls Close twice.
 func (p *PluginProxy) Close() error {
 	if p.instanceID == "" || p.spokeName == "" {
 		return nil
@@ -756,6 +797,7 @@ func (p *PluginProxy) Close() error {
 	if _, err := p.callPlugin(ctx, request); err != nil {
 		log.Printf("[proxy] close on spoke %q (instance %s): %v", p.spokeName, p.instanceID, err)
 	}
+	p.instanceID = ""
 	return nil
 }
 
