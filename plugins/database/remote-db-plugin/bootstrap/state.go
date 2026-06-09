@@ -38,6 +38,12 @@ func Global() *HubState { return globalHubState }
 // backend on `agent/ca/init` and again on CA rotation. Safe to call before any
 // gRPC connection arrives; the proxy listener reads via TLSConfig callbacks
 // every handshake.
+//
+// Verifies the hub cert chains to the supplied CA before publishing the new
+// identity. A storage corruption or operator misuse that paired the hub cert
+// from one CA with the public cert of a different CA would otherwise only
+// surface on the first incoming TLS handshake — too late to recover without
+// touching every spoke.
 func (s *HubState) SetIdentity(ca *CABundle, hub *HubServerCert) error {
 	if ca == nil || hub == nil {
 		return fmt.Errorf("nil CA or hub cert")
@@ -49,6 +55,13 @@ func (s *HubState) SetIdentity(ca *CABundle, hub *HubServerCert) error {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(ca.CertPEM) {
 		return fmt.Errorf("ca PEM did not yield any usable certs")
+	}
+	leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+	if err != nil {
+		return fmt.Errorf("parse hub leaf cert: %w", err)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool}); err != nil {
+		return fmt.Errorf("hub cert does not chain to the supplied spoke CA: %w", err)
 	}
 
 	s.mu.Lock()
@@ -109,9 +122,12 @@ func (s *HubState) TLSConfig() *tls.Config {
 				ClientAuth:   tls.RequireAndVerifyClientCert,
 				ClientCAs:    s.clientCAPool,
 				Certificates: []tls.Certificate{*s.hubTLSCert},
-				MinVersion:   tls.VersionTLS12,
+				// TLS 1.3 floor: this is a brand-new, closed hub↔spoke
+				// ecosystem where both sides run the same bao binary, so
+				// there is no compatibility cost to refusing 1.2.
+				MinVersion: tls.VersionTLS13,
 			}, nil
 		},
-		MinVersion: tls.VersionTLS12,
+		MinVersion: tls.VersionTLS13,
 	}
 }
