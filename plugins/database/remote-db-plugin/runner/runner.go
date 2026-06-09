@@ -524,7 +524,7 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 func (r *PluginRunner) handleType(_ context.Context, plugin dbplugin.Database, _ map[string]interface{}) (string, error) {
 	name, err := plugin.Type()
 	if err != nil {
-		return "", fmt.Errorf("Type: %w", err)
+		return "", fmt.Errorf("plugin Type: %w", err)
 	}
 	out, err := json.Marshal(map[string]interface{}{"type": name})
 	if err != nil {
