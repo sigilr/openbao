@@ -11,7 +11,10 @@ more `bao agent run` daemons (**the spokes**) that run the actual built-in
 database plugins in-process against locally-reachable databases.
 
 See [DESIGN.md](DESIGN.md) for the architecture, wire protocol, trust
-bootstrap, and request lifecycle. This file is the operator quick start.
+bootstrap, and request lifecycle. [TEST.md](TEST.md) walks through every
+manual scenario in the PR's test plan (smoke, token security, CSR
+validation, renewal, CA rotation, failure modes, concurrency). This file is
+the operator quick start.
 
 ## Quick start
 
