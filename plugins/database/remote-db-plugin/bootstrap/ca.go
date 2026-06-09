@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -15,6 +16,19 @@ import (
 	"net"
 	"time"
 )
+
+// minRSABits is the floor for any RSA public key presented in a CSR. ECDSA
+// curves are accepted regardless of curve size — Go's x509 already rejects
+// anything below P-224.
+const minRSABits = 2048
+
+// reservedSpokeCNs lists CNs that may never appear as a spoke identity.
+// Signing one would let a malicious spoke present a cert that aliases the
+// hub itself or the CA, allowing identity confusion at the mTLS layer.
+var reservedSpokeCNs = map[string]struct{}{
+	"openbao-hub":      {},
+	"openbao-spoke-ca": {},
+}
 
 const (
 	// SpokeCertOrganization is the O= value put into every issued spoke cert.
@@ -124,6 +138,13 @@ func (ca *CABundle) IssueHubServerCert(dnsNames []string, ipSANs []string) (*Hub
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:    dnsNames,
 		IPAddresses: parseIPs(ipSANs),
+		// Make the leaf's non-CA status explicit. Without
+		// BasicConstraintsValid=true the BasicConstraints extension is
+		// omitted entirely, and some non-Go verifiers will then accept a
+		// leaf-without-BC as a CA. We don't ever want this cert to chain
+		// further.
+		BasicConstraintsValid: true,
+		IsCA:                  false,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
@@ -144,6 +165,15 @@ func (ca *CABundle) IssueHubServerCert(dnsNames []string, ipSANs []string) (*Hub
 // SignSpokeCSR verifies a spoke-submitted CSR, enforces the requested CN, and
 // returns a signed client cert valid for `validity`. The CN is the
 // authoritative spoke identity used by the proxy gRPC server.
+//
+// We treat the CSR as fully untrusted input:
+//   - the public key algorithm is pinned (ECDSA, or RSA >= 2048),
+//   - the CN is checked AND denylisted against reserved names so a malicious
+//     spoke cannot ask for a cert that aliases the hub or the CA itself,
+//   - any SANs (DNS / IP / URI / email) or extra X.509 extensions cause
+//     immediate rejection. We do not copy these into the issued cert today,
+//     so they are inert — but a future edit that does start copying them
+//     would silently turn this hole on.
 func (ca *CABundle) SignSpokeCSR(csrDER []byte, expectedCN string, validity time.Duration) ([]byte, error) {
 	csr, err := x509.ParseCertificateRequest(csrDER)
 	if err != nil {
@@ -155,6 +185,31 @@ func (ca *CABundle) SignSpokeCSR(csrDER []byte, expectedCN string, validity time
 	if csr.Subject.CommonName != expectedCN {
 		return nil, fmt.Errorf("CSR CN %q does not match expected %q",
 			csr.Subject.CommonName, expectedCN)
+	}
+	if _, reserved := reservedSpokeCNs[expectedCN]; reserved {
+		return nil, fmt.Errorf("CN %q is reserved; cannot issue spoke cert with this identity", expectedCN)
+	}
+	switch pub := csr.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		// Any P-curve. We use P-256 ourselves; the curve check belongs to
+		// Go's x509 parser which already rejects pathologically small curves.
+	case *rsa.PublicKey:
+		if bits := pub.N.BitLen(); bits < minRSABits {
+			return nil, fmt.Errorf("CSR RSA key is %d bits; require >= %d", bits, minRSABits)
+		}
+	default:
+		return nil, fmt.Errorf("CSR public key algorithm %T is not supported", csr.PublicKey)
+	}
+	if len(csr.DNSNames) > 0 || len(csr.IPAddresses) > 0 ||
+		len(csr.URIs) > 0 || len(csr.EmailAddresses) > 0 {
+		return nil, fmt.Errorf("CSR must not include SANs")
+	}
+	if len(csr.ExtraExtensions) > 0 {
+		// csr.Extensions reflects everything parsed (incl. the SAN extension
+		// covered above). ExtraExtensions is the explicit "smuggle these
+		// through" channel — BasicConstraints, EKU, etc. — that a future
+		// edit that copies it into the template would honor. Refuse outright.
+		return nil, fmt.Errorf("CSR must not include extra X.509 extensions")
 	}
 
 	caCert, caKey, err := ca.parse()
@@ -180,6 +235,11 @@ func (ca *CABundle) SignSpokeCSR(csrDER []byte, expectedCN string, validity time
 		NotAfter:    time.Now().Add(validity),
 		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		// Explicit non-CA leaf. See IssueHubServerCert for the rationale —
+		// the BC extension must be present and IsCA must be false so no
+		// non-Go verifier can mis-interpret this as a sub-CA.
+		BasicConstraintsValid: true,
+		IsCA:                  false,
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, csr.PublicKey, caKey)
@@ -192,18 +252,18 @@ func (ca *CABundle) SignSpokeCSR(csrDER []byte, expectedCN string, validity time
 // parse decodes the CA cert + key from PEM. Cached lazily would be nicer, but
 // the CA is touched at most once per join, so we keep this stateless.
 func (ca *CABundle) parse() (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	certBlock, _ := pem.Decode(ca.CertPEM)
-	if certBlock == nil {
-		return nil, nil, fmt.Errorf("ca cert PEM is empty or malformed")
+	certBlock, err := decodeSinglePEM(ca.CertPEM, "CERTIFICATE")
+	if err != nil {
+		return nil, nil, fmt.Errorf("ca cert: %w", err)
 	}
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse ca cert: %w", err)
 	}
 
-	keyBlock, _ := pem.Decode(ca.KeyPEM)
-	if keyBlock == nil {
-		return nil, nil, fmt.Errorf("ca key PEM is empty or malformed")
+	keyBlock, err := decodeSinglePEM(ca.KeyPEM, "EC PRIVATE KEY")
+	if err != nil {
+		return nil, nil, fmt.Errorf("ca key: %w", err)
 	}
 	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
 	if err != nil {
@@ -214,16 +274,53 @@ func (ca *CABundle) parse() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 
 // ParseCert returns the parsed leaf cert from a PEM-encoded chain (first block).
 func ParseCert(certPEM []byte) (*x509.Certificate, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, fmt.Errorf("certificate PEM is empty or malformed")
+	block, err := decodeSinglePEM(certPEM, "CERTIFICATE")
+	if err != nil {
+		return nil, err
 	}
 	return x509.ParseCertificate(block.Bytes)
 }
 
+// decodeSinglePEM decodes a PEM blob and asserts that
+//  1. there is exactly one block (no trailing junk), and
+//  2. its Type matches expectedType.
+//
+// pem.Decode by itself silently skips trailing data and accepts any Type,
+// which would let an attacker piggyback a second block (e.g. a fake CA after
+// a legit cert) or substitute an unrelated block type for the same bytes
+// (e.g. "EC PRIVATE KEY" disguised as "PUBLIC KEY").
+func decodeSinglePEM(data []byte, expectedType string) (*pem.Block, error) {
+	block, rest := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("PEM decode returned no block")
+	}
+	if block.Type != expectedType {
+		return nil, fmt.Errorf("PEM block type %q, want %q", block.Type, expectedType)
+	}
+	// Trailing whitespace / line endings around the block are normal; trailing
+	// non-whitespace is another block we did not expect.
+	for _, b := range rest {
+		if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+			return nil, fmt.Errorf("trailing data after PEM block")
+		}
+	}
+	return block, nil
+}
+
+// randSerial returns a 128-bit positive integer for use as a cert serial.
+// rand.Int returns values in [0, max), so a zero result is rare but possible
+// — RFC 5280 §4.1.2.2 requires positive serials, and strict verifiers reject
+// zero. Bump zero to one rather than looping; the probability is 1 in 2^128.
 func randSerial() (*big.Int, error) {
 	max := new(big.Int).Lsh(big.NewInt(1), 128)
-	return rand.Int(rand.Reader, max)
+	n, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return nil, err
+	}
+	if n.Sign() == 0 {
+		n.SetInt64(1)
+	}
+	return n, nil
 }
 
 func parseIPs(s []string) []net.IP {
