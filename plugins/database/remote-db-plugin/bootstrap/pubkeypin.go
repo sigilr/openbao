@@ -5,9 +5,11 @@ package bootstrap
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -26,14 +28,23 @@ func HashCert(cert *x509.Certificate) string {
 }
 
 // VerifyPin checks that cert matches a pin produced by HashCert.
+//
+// The byte compare is constant-time. The hash itself isn't a secret, but
+// pin verification runs against attacker-controlled `pin` values during
+// `bao agent join` — a string `!=` compare leaks which prefix bytes
+// matched, letting a malicious cluster-info server grind a colliding pin
+// one byte at a time. The error returned to callers is generic; the
+// computed hash (which would hand the grinder the answer outright) is
+// logged locally instead.
 func VerifyPin(cert *x509.Certificate, pin string) error {
 	if !strings.HasPrefix(pin, PinPrefix) {
 		return fmt.Errorf("pin %q missing %q prefix", pin, PinPrefix)
 	}
 	expected := strings.ToLower(strings.TrimPrefix(pin, PinPrefix))
 	actual := strings.TrimPrefix(HashCert(cert), PinPrefix)
-	if expected != actual {
-		return fmt.Errorf("hub CA cert SPKI hash %s does not match pin %s", actual, expected)
+	if subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) != 1 {
+		log.Printf("[bootstrap] SPKI pin mismatch: expected %s, computed %s", expected, actual)
+		return fmt.Errorf("hub CA cert SPKI hash does not match pin")
 	}
 	return nil
 }
