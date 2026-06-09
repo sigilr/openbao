@@ -278,7 +278,7 @@ func (r *PluginRunner) withPlugin(
 	handler func(ctx context.Context, plugin dbplugin.Database, req map[string]interface{}) (string, error),
 ) (string, error) {
 	if entry, ok := r.acquire(instanceID); ok {
-		defer entry.release()
+		defer r.releaseHandler(entry)
 		return handler(ctx, entry.db, req)
 	}
 
@@ -294,8 +294,22 @@ func (r *PluginRunner) withPlugin(
 	if err != nil {
 		return "", err
 	}
-	defer entry.release()
+	defer r.releaseHandler(entry)
 	return handler(ctx, entry.db, req)
+}
+
+// releaseHandler drops a handler's reference on entry, bumping lastUsed
+// FIRST so an evictor that races between the bump and the refcount
+// decrement sees refs > 1 (handler still held) and skips. Without the
+// bump-first ordering, a long-running handler that returns just before
+// the evictor wakes up would have its entry torn down on the very next
+// tick using a lastUsed timestamp from acquire() time — possibly hours
+// ago for a slow plugin call.
+func (r *PluginRunner) releaseHandler(entry *pluginEntry) {
+	r.mu.Lock()
+	entry.lastUsed = time.Now()
+	r.mu.Unlock()
+	entry.release()
 }
 
 // loadOrInit single-flights cold-cache loads for instanceID. Callers race for
@@ -447,10 +461,12 @@ func (r *PluginRunner) handleNewUser(ctx context.Context, plugin dbplugin.Databa
 			DisplayName: stringField(usernameConfig, "display_name"),
 			RoleName:    stringField(usernameConfig, "role_name"),
 		},
-		CredentialType:     credType,
-		Password:           stringField(req, "password"),
-		PublicKey:          []byte(stringField(req, "public_key")),
-		Subject:            stringField(req, "subject"),
+		CredentialType: credType,
+		Password:       stringField(req, "password"),
+		PublicKey:      []byte(stringField(req, "public_key")),
+		Subject:        stringField(req, "subject"),
+		// expiration is Unix seconds: proxy.go sends req.Expiration.Unix(),
+		// so the wire value is seconds since the epoch (not milliseconds).
 		Expiration:         time.Unix(expiration, 0),
 		Statements:         dbplugin.Statements{Commands: stringSlice(req["statements"])},
 		RollbackStatements: dbplugin.Statements{Commands: stringSlice(req["rollback_statements"])},
@@ -494,6 +510,7 @@ func (r *PluginRunner) handleUpdateUser(ctx context.Context, plugin dbplugin.Dat
 			return "", fmt.Errorf("expiration.new_expiration: %w", err)
 		}
 		update.Expiration = &dbplugin.ChangeExpiration{
+			// Unix seconds; see handleNewUser.
 			NewExpiration: time.Unix(newExp, 0),
 			Statements:    dbplugin.Statements{Commands: stringSlice(ex["statements"])},
 		}

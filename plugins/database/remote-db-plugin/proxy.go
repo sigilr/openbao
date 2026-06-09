@@ -252,16 +252,24 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	conn := newSpokeConnection(stream)
 
 	// Reconnect handling: if the same spoke already had a stream open, cancel
-	// the old one so it doesn't leak. Connect handler returns on Recv error
-	// and the cleanup defer drops the map entry.
+	// the old one so it doesn't leak. Order matters — install the NEW conn
+	// first, then tear down the old. A concurrent RunCommand reader that
+	// arrives in this window now sees the new conn immediately; the previous
+	// order ("close old, then assign new") left a brief slot where the same
+	// reader saw the old conn with done already closed and returned a
+	// transient "spoke disconnected" even though the fresh stream was one
+	// mutex acquisition away. The old Connect goroutine's cleanup defer
+	// uses an identity check (`cur == conn`) so it does not remove the new
+	// entry from the map.
 	s.mu.Lock()
-	if old, ok := s.spokes[spokeName]; ok {
+	old, hadOld := s.spokes[spokeName]
+	s.spokes[spokeName] = conn
+	s.mu.Unlock()
+	if hadOld {
 		log.Printf("[proxy] spoke %q reconnected; tearing down old stream", spokeName)
 		close(old.done)
 		old.failAll(fmt.Sprintf("spoke %q reconnected", spokeName))
 	}
-	s.spokes[spokeName] = conn
-	s.mu.Unlock()
 
 	defer func() {
 		s.mu.Lock()
@@ -538,13 +546,15 @@ func New(pluginName string) func() (interface{}, error) {
 }
 
 // secretSensitiveKeys lists config map keys whose values must be masked in
-// any error returned from the spoke. The list mirrors what the built-in
-// database plugins treat as sensitive (password, username when used as part
-// of credentials rotation, private_key for client-cert auth, etc.). Extra
-// keys are cheap to mask — better to over-redact than to leak.
+// any error returned from the spoke. Note we deliberately do NOT include
+// "username" here: the operator-configured root username often appears in
+// legitimate non-sensitive plugin output ("user X already exists"), and
+// masking it everywhere by global substring replace makes those messages
+// unreadable. The credential channel (connection_url) is masked as a
+// whole, which already covers the most common path where the username
+// appears alongside the password.
 var secretSensitiveKeys = []string{
 	"password",
-	"username",
 	"private_key",
 	"client_key",
 	"tls_key",
