@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	logicalRelay "github.com/openbao/openbao/v2/builtin/logical/relay"
+	dbHazelcast "github.com/openbao/openbao/v2/plugins/database/hazelcast"
 	dbRemote "github.com/openbao/openbao/v2/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -81,6 +82,7 @@ func newRegistry() *registry {
 			"mysql-legacy-database-plugin": {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 
 			"cassandra-database-plugin":  {Factory: dbCass.New},
+			"hazelcast-database-plugin":  {Factory: dbHazelcast.New},
 			"influxdb-database-plugin":   {Factory: dbInflux.New},
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
@@ -91,6 +93,7 @@ func newRegistry() *registry {
 			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-hazelcast-plugin":    {Factory: dbRemote.New("hazelcast-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
