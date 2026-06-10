@@ -102,6 +102,45 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'mssql-database-plugin',
+    displayName: 'Microsoft SQL Server',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'contained_db', group: 'pluginConfig' },
+      { attr: 'max_open_connections', group: 'pluginConfig' },
+      { attr: 'max_idle_connections', group: 'pluginConfig' },
+      { attr: 'max_connection_lifetime', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
+    value: 'remote-mssql-plugin',
+    displayName: 'Microsoft SQL Server (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'contained_db', group: 'pluginConfig' },
+      { attr: 'max_open_connections', group: 'pluginConfig' },
+      { attr: 'max_idle_connections', group: 'pluginConfig' },
+      { attr: 'max_connection_lifetime', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +156,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'mssql-database-plugin': [],
+    'remote-mssql-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +171,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'mssql-database-plugin': ['creation_statements', 'revocation_statements'],
+    'remote-mssql-plugin': ['creation_statements', 'revocation_statements'],
   },
 };
 
