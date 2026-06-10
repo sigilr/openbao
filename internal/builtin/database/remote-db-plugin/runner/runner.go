@@ -38,6 +38,7 @@ import (
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
+	dbKafka "github.com/openbao/openbao/v2/plugins/database/kafka"
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
@@ -407,6 +408,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "kafka-database-plugin":
+		factory = dbKafka.New
 	case "elasticsearch-database-plugin":
 		factory = dbES.New
 	case "mongodb-database-plugin":
