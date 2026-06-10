@@ -102,6 +102,48 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'elasticsearch-database-plugin',
+    displayName: 'Elasticsearch',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'ca_path', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'use_old_xpack', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
+    value: 'remote-elasticsearch-plugin',
+    displayName: 'Elasticsearch (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'use_old_xpack', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +159,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'elasticsearch-database-plugin': [],
+    'remote-elasticsearch-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +174,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'elasticsearch-database-plugin': ['creation_statements'],
+    'remote-elasticsearch-plugin': ['creation_statements'],
   },
 };
 

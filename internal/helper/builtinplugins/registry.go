@@ -17,6 +17,7 @@ import (
 	credRadius "github.com/openbao/openbao/v2/internal/builtin/credential/radius"
 	credUserpass "github.com/openbao/openbao/v2/internal/builtin/credential/userpass"
 	dbCass "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
+	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMysql "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
@@ -80,17 +81,19 @@ func newRegistry() *registry {
 			"mysql-rds-database-plugin":    {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 			"mysql-legacy-database-plugin": {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 
-			"cassandra-database-plugin":  {Factory: dbCass.New},
-			"influxdb-database-plugin":   {Factory: dbInflux.New},
-			"postgresql-database-plugin": {Factory: dbPostgres.New},
-			"redis-database-plugin":      {Factory: dbValkey.New},
-			"valkey-database-plugin":     {Factory: dbValkey.New},
-			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
-			"remote-influxdb-plugin":     {Factory: dbRemote.New("influxdb-database-plugin")},
-			"remote-mysql-plugin":        {Factory: dbRemote.New("mysql-database-plugin")},
-			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
-			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
-			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"cassandra-database-plugin":     {Factory: dbCass.New},
+			"elasticsearch-database-plugin": {Factory: dbES.New},
+			"influxdb-database-plugin":      {Factory: dbInflux.New},
+			"postgresql-database-plugin":    {Factory: dbPostgres.New},
+			"redis-database-plugin":         {Factory: dbValkey.New},
+			"valkey-database-plugin":        {Factory: dbValkey.New},
+			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
+			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},
+			"remote-mysql-plugin":           {Factory: dbRemote.New("mysql-database-plugin")},
+			"remote-postgres-plugin":        {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
+			"remote-valkey-plugin":          {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
