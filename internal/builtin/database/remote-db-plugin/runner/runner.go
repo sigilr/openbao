@@ -33,6 +33,7 @@ import (
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
+	dbWeaviate "github.com/openbao/openbao/v2/internal/builtin/database/weaviate"
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "weaviate-database-plugin":
+		factory = dbWeaviate.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
