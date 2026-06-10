@@ -227,7 +227,10 @@ spellcheck:
 	@echo "==> Spell checking website..."
 	go tool -modfile=tools/go.mod misspell -w -source=text website/content
 
-.PHONY: bin default prep test vet bootstrap fmt fmtcheck ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
+rabbitmq-database-plugin:
+	@CGO_ENABLED=0 go build -o bin/rabbitmq-database-plugin ./plugins/database/rabbitmq/rabbitmq-database-plugin
+
+.PHONY: bin default prep test vet bootstrap fmt fmtcheck rabbitmq-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
 
 .NOTPARALLEL: ember-dist ember-dist-dev
 
