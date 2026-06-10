@@ -370,11 +370,13 @@ func TestPredict_Plugins(t *testing.T) {
 				"remote-postgres-plugin",
 				"remote-redis-plugin",
 				"remote-valkey-plugin",
+				"remote-zookeeper-plugin",
 				"ssh",
 				"totp",
 				"transit",
 				"userpass",
 				"valkey-database-plugin",
+				"zookeeper-database-plugin",
 			},
 		},
 	}

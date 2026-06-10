@@ -33,6 +33,7 @@ import (
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
+	dbZK "github.com/openbao/openbao/v2/internal/builtin/database/zookeeper"
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "zookeeper-database-plugin":
+		factory = dbZK.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

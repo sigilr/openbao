@@ -3889,7 +3889,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"postgresql-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
 				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
-				"test-plugin", "valkey-database-plugin",
+				"remote-zookeeper-plugin", "test-plugin", "valkey-database-plugin",
+				"zookeeper-database-plugin",
 			},
 		}); diff != nil {
 			t.Fatal(strings.Join(diff, "\n"))
@@ -3920,7 +3921,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"postgresql-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
 				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
-				"test-plugin", "valkey-database-plugin",
+				"remote-zookeeper-plugin", "test-plugin", "valkey-database-plugin",
+				"zookeeper-database-plugin",
 			},
 			"detailed": []map[string]any{{
 				"name":               "approle",
@@ -4019,6 +4021,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"type":               "database",
 				"version":            "v2.0.0+builtin.bao",
 			}, {
+				"name":               "remote-zookeeper-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
 				"sha256":  "31",
 				"builtin": false,
 				"name":    "test-plugin",
@@ -4026,6 +4034,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version": "v1.2.3",
 			}, {
 				"name":               "valkey-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "zookeeper-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

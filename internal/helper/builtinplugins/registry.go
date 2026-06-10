@@ -22,6 +22,7 @@ import (
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRemote "github.com/openbao/openbao/v2/internal/builtin/database/remote-db-plugin"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
+	dbZK "github.com/openbao/openbao/v2/internal/builtin/database/zookeeper"
 	logicalKube "github.com/openbao/openbao/v2/internal/builtin/logical/kubernetes"
 	logicalKv "github.com/openbao/openbao/v2/internal/builtin/logical/kv"
 	logicalLDAP "github.com/openbao/openbao/v2/internal/builtin/logical/openldap"
@@ -85,12 +86,14 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
+			"zookeeper-database-plugin":  {Factory: dbZK.New},
 			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-influxdb-plugin":     {Factory: dbRemote.New("influxdb-database-plugin")},
 			"remote-mysql-plugin":        {Factory: dbRemote.New("mysql-database-plugin")},
 			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-zookeeper-plugin":    {Factory: dbRemote.New("zookeeper-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
