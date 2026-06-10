@@ -23,6 +23,7 @@ import (
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMysql "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
+	dbNeo4j "github.com/openbao/openbao/v2/internal/builtin/database/neo4j"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/v2/internal/builtin/database/remote-db-plugin"
@@ -87,6 +88,7 @@ func newRegistry() *registry {
 			"cassandra-database-plugin":     {Factory: dbCass.New},
 			"elasticsearch-database-plugin": {Factory: dbES.New},
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
+			"neo4j-database-plugin":      {Factory: dbNeo4j.New},
 			"mongodb-database-plugin":       {Factory: dbMongo.New},
 			"mssql-database-plugin":         {Factory: dbMSSQL.New},
 			"oracle-database-plugin":        {Factory: dbOracle.New},
@@ -105,6 +107,7 @@ func newRegistry() *registry {
 			"remote-rabbitmq-plugin":        {Factory: dbRemote.New("rabbitmq-database-plugin")},
 			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":          {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-neo4j-plugin":        {Factory: dbRemote.New("neo4j-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
