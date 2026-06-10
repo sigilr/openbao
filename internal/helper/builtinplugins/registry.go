@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	logicalRelay "github.com/openbao/openbao/v2/builtin/logical/relay"
+	dbES "github.com/openbao/openbao/v2/plugins/database/elasticsearch"
 	dbRemote "github.com/openbao/openbao/v2/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -80,17 +81,19 @@ func newRegistry() *registry {
 			"mysql-rds-database-plugin":    {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 			"mysql-legacy-database-plugin": {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 
-			"cassandra-database-plugin":  {Factory: dbCass.New},
-			"influxdb-database-plugin":   {Factory: dbInflux.New},
-			"postgresql-database-plugin": {Factory: dbPostgres.New},
-			"redis-database-plugin":      {Factory: dbValkey.New},
-			"valkey-database-plugin":     {Factory: dbValkey.New},
-			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
-			"remote-influxdb-plugin":     {Factory: dbRemote.New("influxdb-database-plugin")},
-			"remote-mysql-plugin":        {Factory: dbRemote.New("mysql-database-plugin")},
-			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
-			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
-			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"cassandra-database-plugin":     {Factory: dbCass.New},
+			"elasticsearch-database-plugin": {Factory: dbES.New},
+			"influxdb-database-plugin":      {Factory: dbInflux.New},
+			"postgresql-database-plugin":    {Factory: dbPostgres.New},
+			"redis-database-plugin":         {Factory: dbValkey.New},
+			"valkey-database-plugin":        {Factory: dbValkey.New},
+			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
+			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},
+			"remote-mysql-plugin":           {Factory: dbRemote.New("mysql-database-plugin")},
+			"remote-postgres-plugin":        {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
+			"remote-valkey-plugin":          {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
