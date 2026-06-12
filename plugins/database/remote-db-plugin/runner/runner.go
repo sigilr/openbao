@@ -27,6 +27,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
+	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
 	dbPostgres "github.com/openbao/openbao/plugins/database/postgresql"
 	dbValkey "github.com/openbao/openbao/plugins/database/valkey"
@@ -396,6 +398,10 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbMySQL.New(dbMySQL.DefaultUserNameTemplate)
 	case "valkey-database-plugin", "redis-database-plugin":
 		factory = dbValkey.New
+	case "cassandra-database-plugin":
+		factory = dbCassandra.New
+	case "influxdb-database-plugin":
+		factory = dbInflux.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

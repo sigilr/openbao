@@ -72,7 +72,7 @@ go test -race -count=1 ./plugins/database/remote-db-plugin/runner/...
 # register/deliver under the race detector.
 go test -race -count=1 ./plugins/database/remote-db-plugin/...
 
-# Registry / wiring sanity. Exercises the plugin catalog so the four
+# Registry / wiring sanity. Exercises the plugin catalog so all six
 # remote-*-plugin names resolve.
 go test -race -count=1 \
     ./helper/builtinplugins/... \
