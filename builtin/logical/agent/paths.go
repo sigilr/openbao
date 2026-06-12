@@ -226,14 +226,16 @@ func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.
 		newPort, err := portFromEndpoint(newEndpoint)
 		if err != nil {
 			return logical.ErrorResponse(fmt.Sprintf(
-				"hub_endpoint must be host:port (%v)", err)), nil
+				"hub_endpoint must be host:port (%v)", err,
+			)), nil
 		}
 		runningPort := remotedb.ProxyServerPort()
 		if runningPort != 0 && runningPort != newPort {
 			return logical.ErrorResponse(fmt.Sprintf(
 				"hub_endpoint port %d does not match the running listener on :%d; "+
 					"changing the listen port requires a process restart",
-				newPort, runningPort)), nil
+				newPort, runningPort,
+			)), nil
 		}
 		bundle.HubEndpoint = newEndpoint
 	}
@@ -667,15 +669,23 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	rawTok := d.Get("token").(string)
 	spokeName := d.Get("spoke_name").(string)
 	csrPEM := d.Get("csr_pem").(string)
-	ttl := time.Duration(d.Get("ttl").(int)) * time.Second
-	if ttl <= 0 {
+	// Clamp BEFORE multiplying by time.Second. time.Duration(seconds) *
+	// time.Second overflows int64 around seconds ≈ 9.2e9 and silently
+	// produces a negative duration that then falls through to the
+	// "ttl <= 0 → default" branch — a 100-year request would become a
+	// 30-day cert with no error to the caller. Same overflow trap the
+	// proxy.RenewCert RPC already avoids; mirror the pattern so the
+	// initial-issue and renew paths agree on behavior at the edges.
+	rawTTLSeconds := d.Get("ttl").(int)
+	const maxSpokeCertExpirySeconds = int(maxSpokeCertExpiry / time.Second)
+	var ttl time.Duration
+	switch {
+	case rawTTLSeconds <= 0:
 		ttl = defaultSpokeCertExpiry
-	}
-	// Cap at the same maximum the renew RPC enforces. Without this a
-	// bootstrap-authenticated caller could request a 100-year cert and the
-	// hub would happily sign it.
-	if ttl > maxSpokeCertExpiry {
+	case rawTTLSeconds >= maxSpokeCertExpirySeconds:
 		ttl = maxSpokeCertExpiry
+	default:
+		ttl = time.Duration(rawTTLSeconds) * time.Second
 	}
 	if spokeName == "" || csrPEM == "" || rawTok == "" {
 		return logical.ErrorResponse("token, spoke_name, csr_pem are all required"), nil
