@@ -64,7 +64,7 @@ go test -race -count=1 ./plugins/database/remote-db-plugin/bootstrap/...
 # Runner cache discipline: slot/handler refcount, single-flighted cold-miss,
 # Close-while-handler-in-flight, idle eviction, failed-Initialize cleanup,
 # Shutdown closes every cached plugin. Uses a stubDB injected via the
-# loadPluginFunc seam, so no postgres/mysql/valkey binary is required.
+# loadPluginFunc seam, so no real DB binary is required.
 go test -race -count=1 ./plugins/database/remote-db-plugin/runner/...
 
 # Proxy stream primitives: request_id register/deliver/cancel, failAll
