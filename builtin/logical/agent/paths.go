@@ -28,12 +28,12 @@ func (b *agentBackend) pathCAInit() *framework.Path {
 				Description: "host:port the proxy gRPC listener will advertise to spokes.",
 			},
 			"hub_dns_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "DNS names to include as SANs on the hub TLS cert.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "DNS names to include as SANs on the hub TLS cert. Comma-separated or repeated.",
 			},
 			"hub_ip_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "IPs to include as SANs on the hub TLS cert.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "IPs to include as SANs on the hub TLS cert. Comma-separated or repeated.",
 			},
 			"force": {
 				Type:        framework.TypeBool,
@@ -187,12 +187,12 @@ func (b *agentBackend) pathCAUpdateEndpoint() *framework.Path {
 				Description: "New host:port advertised to spokes. Port must match the listening port.",
 			},
 			"hub_dns_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "Replace DNS SANs on the hub TLS cert.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Replace DNS SANs on the hub TLS cert. Comma-separated or repeated.",
 			},
 			"hub_ip_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "Replace IP SANs on the hub TLS cert.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Replace IP SANs on the hub TLS cert. Comma-separated or repeated.",
 			},
 		},
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -295,12 +295,12 @@ func (b *agentBackend) pathCARotate() *framework.Path {
 				Description: "If true, rotate the spoke-CA itself (invalidates all spoke certs).",
 			},
 			"hub_dns_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "Override DNS SANs on the new hub cert; defaults to existing.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Override DNS SANs on the new hub cert; defaults to existing. Comma-separated or repeated.",
 			},
 			"hub_ip_sans": {
-				Type:        framework.TypeStringSlice,
-				Description: "Override IP SANs on the new hub cert; defaults to existing.",
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Override IP SANs on the new hub cert; defaults to existing. Comma-separated or repeated.",
 			},
 		},
 		Operations: map[logical.Operation]framework.OperationHandler{
