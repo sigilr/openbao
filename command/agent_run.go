@@ -464,6 +464,10 @@ func loadSpokeTLS(credsDir, serverName, serverAddr string) (*tls.Config, error) 
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
 		ServerName:   serverName,
-		MinVersion:   tls.VersionTLS12,
+		// Match the hub's floor (bootstrap/state.go pins TLS 1.3). Both sides
+		// ship in the same bao binary, so there's no compatibility cost; the
+		// asymmetric 1.2 floor here only mattered if a spoke ever talked to a
+		// non-bao server, which it shouldn't.
+		MinVersion: tls.VersionTLS13,
 	}, nil
 }
