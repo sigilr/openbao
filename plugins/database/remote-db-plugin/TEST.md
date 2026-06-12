@@ -61,6 +61,17 @@ primitives and protocol logic.
 # Bootstrap primitives: token format, JWS-HS256, SPKI pin, CA + CSR signing.
 go test -race -count=1 ./plugins/database/remote-db-plugin/bootstrap/...
 
+# Runner cache discipline: slot/handler refcount, single-flighted cold-miss,
+# Close-while-handler-in-flight, idle eviction, failed-Initialize cleanup,
+# Shutdown closes every cached plugin. Uses a stubDB injected via the
+# loadPluginFunc seam, so no postgres/mysql/valkey binary is required.
+go test -race -count=1 ./plugins/database/remote-db-plugin/runner/...
+
+# Proxy stream primitives: request_id register/deliver/cancel, failAll
+# unblocks every waiter, touch/lastSeenAt freshness, concurrent
+# register/deliver under the race detector.
+go test -race -count=1 ./plugins/database/remote-db-plugin/...
+
 # Registry / wiring sanity. Exercises the plugin catalog so the four
 # remote-*-plugin names resolve.
 go test -race -count=1 \
@@ -401,14 +412,22 @@ or run in a separate test directory. Confirms the warning text appears.
 ### `agent/ca/update-endpoint`
 
 ```bash
+# Comma-separated form. hub_dns_sans / hub_ip_sans are TypeCommaStringSlice
+# so a single value is split into multiple SANs; repeated key=value pairs
+# also work for operators who prefer that shape.
 bao write agent/ca/update-endpoint \
     hub_endpoint=127.0.0.1:50053 \
     hub_dns_sans=localhost,hub.example.com
 bao agent ca status -format=json | jq -r '.hub_dns_sans[]'
+
+# Sanity-check the cert the listener actually presents.
+echo | openssl s_client -connect 127.0.0.1:50053 -servername localhost 2>/dev/null \
+    | openssl x509 -noout -ext subjectAltName
 ```
 
-Expect `localhost` and `hub.example.com`. The running spoke is unaffected
-(it has its own pinned `-server`).
+Expect two separate DNS SANs (`localhost`, `hub.example.com`) in both the
+status output and the live cert — not a single SAN `"localhost,hub.example.com"`.
+The running spoke is unaffected (it has its own pinned `-server`).
 
 ### CA mutation serialization
 
@@ -499,6 +518,33 @@ bao agent join … -credentials-dir=$TESTDIR/spoke
 # → "$TESTDIR/spoke already contains spoke credentials. Pass -force …"
 ```
 
+### Half-rotated credentials (chain verify at startup)
+
+Simulate a credentials directory whose `cert.pem` and `ca.pem` belong to
+different CAs (e.g. partial re-join, partial restore from backup). The
+spoke must refuse to start, not fail opaquely at first gRPC handshake.
+
+```bash
+# Snapshot the good credentials first.
+cp -a "$TESTDIR/spoke" "$TESTDIR/spoke.bad"
+
+# Replace ca.pem with one from an unrelated CA.
+openssl ecparam -name prime256v1 -genkey -noout -out "$TESTDIR/bad-ca.key"
+openssl req -x509 -new -key "$TESTDIR/bad-ca.key" -days 1 \
+    -subj '/CN=unrelated-ca' -out "$TESTDIR/spoke.bad/ca.pem"
+
+# bao agent run must reject this directory at startup.
+bao agent run -server=127.0.0.1:50053 -credentials-dir="$TESTDIR/spoke.bad"
+# → "tls: spoke cert in $TESTDIR/spoke.bad does not chain to ca.pem: …"
+# Exit code != 0.
+
+# bao agent renew must do the same — both paths share loadSpokeTLS.
+bao agent renew -server=127.0.0.1:50053 -credentials-dir="$TESTDIR/spoke.bad"
+# → same error.
+
+rm -rf "$TESTDIR/spoke.bad"
+```
+
 ### Bricked endpoint (hydration must not block admin)
 
 Corrupt the persisted endpoint via raw API:
@@ -561,6 +607,8 @@ A condensed view for the PR description's checklist:
 | Area | Command / scenario | Expected |
 | --- | --- | --- |
 | Unit — bootstrap | `go test -race ./.../bootstrap/...` | green |
+| Unit — runner | `go test -race ./.../runner/...` | green (stubDB-backed cache discipline tests) |
+| Unit — proxy primitives | `go test -race ./plugins/database/remote-db-plugin/...` | green |
 | Unit — wiring | `go test -race ./helper/builtinplugins/... ./vault/... ./command/...` | green |
 | Smoke E2E | init → join → run → list → enable database → creds | spoke healthy; cred returned |
 | Token secrecy | `bao agent token create` | stderr warning before token |
@@ -573,8 +621,9 @@ A condensed view for the PR description's checklist:
 | Renewal — TTL cap | `-ttl=8760h` | issued cert ≤ 90d |
 | CA — `-format=json` | `bao agent ca status -format=json` | valid JSON |
 | CA — hub rotate | `bao agent ca rotate` | `ca_cert_hash` unchanged, spoke stays healthy |
-| CA — update-endpoint | `bao write agent/ca/update-endpoint hub_dns_sans=…` | new SANs in `ca/info` |
+| CA — update-endpoint (CSV) | `bao write agent/ca/update-endpoint hub_dns_sans=a,b` | two distinct SANs in `ca/info` *and* in the live listener cert |
 | Failure — spoke restart | kill `bao agent run`, restart | cache-miss self-heal, next creds OK |
 | Failure — SIGTERM | Ctrl+C the spoke | exit 0, no leaked sockets |
 | Failure — duplicate dir | join into populated dir without `-force` | refused |
+| Failure — half-rotated creds | swap ca.pem for an unrelated CA, restart spoke | `bao agent run` refuses at startup with "does not chain to ca.pem" |
 | Concurrency | 20× parallel `db/creds/readonly` | roughly slowest single, not 20× |

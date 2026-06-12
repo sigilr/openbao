@@ -92,7 +92,7 @@ $ bao read database/creds/readonly
 | `bao agent list` | hub | Connected spokes with last-seen and health. |
 | `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. Honors `-format=json|yaml` for machine consumption. |
 | `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
-| `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. Bound listener port can't change here. |
+| `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. `hub_dns_sans` / `hub_ip_sans` accept either a comma-separated value or repeated key=value pairs. Bound listener port can't change here. |
 | `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. Prints a prominent stderr warning that the token is shown only once. |
 | `bao agent token list` | hub | Outstanding bootstrap tokens with expiry. |
 | `bao agent token revoke` | hub | Revoke by token id. |
@@ -148,14 +148,21 @@ lives under `builtin/logical/agent/`.
 The trust bootstrap is a port of kubeadm's discovery flow. See
 [DESIGN.md](DESIGN.md) for the full threat model. Highlights:
 
-- **mTLS** between hub and spoke, **TLS 1.3 floor** on the hub listener.
-  Spoke identity comes from the verified client cert CN, not from any wire
-  field.
+- **mTLS** between hub and spoke, **TLS 1.3 floor** on both sides. Spoke
+  identity comes from the verified client cert CN, not from any wire field.
+  `bao agent run` verifies its local cert chains to the bundled `ca.pem`
+  at startup — a half-rotated credentials directory fails fast with a
+  clear error instead of an opaque TLS handshake later — mirroring the
+  hub's chain-check on `SetIdentity`.
 - **Bootstrap tokens** in seal-wrapped storage. JWS-HS256 over the
   cluster-info bundle authenticates the hub to a joining spoke before TLS is
-  established. All token-related sign-csr failures collapse to the same
+  established. All token-related `sign-csr` failures collapse to the same
   generic error so a holder of one valid token cannot probe other token
-  ids; real reasons land in the server log.
+  ids; real reasons land in the server log. The token check evaluates
+  every per-field test (secret, expiry, usage, allowed_spoke_name) against
+  a placeholder when the id is unknown, so "unknown id" pays the same HMAC
+  cost as "wrong secret" — closing a timing oracle that would otherwise
+  let a valid-token holder enumerate live ids.
 - **CA-cert SPKI pin** is printed by `bao agent init` and verified by
   `bao agent join` with a constant-time compare — defense in depth on top
   of the JWS check.

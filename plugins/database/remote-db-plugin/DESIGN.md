@@ -112,7 +112,14 @@ its `ClientCAs` pool.
 `bao agent run -server=<hub:50053> -credentials-dir=...` (`command/agent_run.go`):
 
 1. Load credentials. Spoke identity = `cert.Leaf.Subject.CommonName`.
-2. Dial the hub's gRPC port with mTLS + gRPC HTTP/2 keepalive.
+   Verify the leaf chains to the bundled `ca.pem` before dialing — a
+   half-rotated credentials directory (fresh `cert.pem`, stale `ca.pem`
+   from before a CA rotation, or vice versa) fails here with a clear
+   "spoke cert in <dir> does not chain to ca.pem" instead of an opaque
+   TLS handshake error at first gRPC dial. Mirrors the hub-side
+   chain-check in `bootstrap.SetIdentity`.
+2. Dial the hub's gRPC port with mTLS + gRPC HTTP/2 keepalive. Both
+   sides pin a **TLS 1.3 floor**.
 3. Open the `AgentService.Connect` bidi stream; send a registration frame.
 4. Goroutine A: tick a heartbeat (`IsHeartbeat=true`) every
    `-heartbeat-interval`.
@@ -170,7 +177,10 @@ CSR validation on both `sign-csr` and `RenewCert` is strict: only ECDSA or
 RSA ≥ 2048 are accepted; SANs (DNS / IP / URI / email) and `ExtraExtensions`
 cause immediate rejection; the requested CN is denylisted against
 `openbao-hub` and `openbao-spoke-ca` so a malicious spoke cannot ask for a
-cert that aliases the hub or the CA itself.
+cert that aliases the hub or the CA itself. Both entry points decode the
+PEM envelope via the shared `bootstrap.DecodeCSRPEM` helper, so trailing
+data and block-type substitution are rejected the same way regardless of
+which path the CSR arrives on.
 
 Every hub-issued request carries a fresh `request_id` (12-byte hex). The hub
 keeps `inflight map[reqID]chan pendingResponse` per spoke; the dispatch
@@ -344,6 +354,7 @@ Day-2 operations:
 | Bootstrap token expires | `agent/cluster-info` and `agent/sign-csr` return "token unknown or expired" | `bao agent token create` on the hub |
 | Spoke cert about to expire | `bao agent run` checks expiry on a ticker (`-renew-check-every`, default 1h) and renews once the cert is past `-renew-threshold` (default 0.5, i.e. half-life). Operators can also force `bao agent renew` directly. | Automatic. Live gRPC connections stay on the old cert until they reconnect, which is why we renew well before expiry. |
 | Two daemons sharing one `-credentials-dir` | Same peer-cert CN, so the hub's reconnect logic kicks whichever connected first off the Connect stream every time the other connects. `bao agent list` shows the spoke flipping in and out and neither daemon makes useful progress. | `bao agent join` refuses to overwrite a non-empty credentials dir without `-force`; operators get a clear error pointing at the actual misconfiguration before they hit it at runtime. |
+| Spoke credentials inconsistent (cert.pem from one CA + ca.pem from another, e.g. a half-completed re-join or a partial restore from backup) | `bao agent run` and `bao agent renew` `loadSpokeTLS` runs `leaf.Verify` against the bundled CA pool at startup and returns `spoke cert in <dir> does not chain to ca.pem` before gRPC ever dials. | Re-run `bao agent join` with `-force` to refresh the directory atomically; ca.pem and cert.pem come back paired. |
 
 ---
 
@@ -351,8 +362,8 @@ Day-2 operations:
 
 | Surface | Authenticated by |
 | --- | --- |
-| `agent/cluster-info`, `agent/sign-csr` | Bootstrap token + JWS-HS256 signature over the response payload. TLS to the OpenBao API is verified via the standard `-ca-cert`/`-tls-skip-verify` flags. Token failures (malformed format, unknown id, expired, wrong secret, missing `signing` usage, `allowed_spoke_name` mismatch) all return the same generic `"token unknown or expired"` so a holder of one valid token cannot probe other token ids for their policy metadata; real reasons are logged server-side at WARN. |
-| Hub proxy gRPC listener | mTLS, **TLS 1.3 floor**. Hub presents a cert signed by the spoke-CA; client must present a cert signed by the same CA. Spoke identity comes from the verified peer cert CN. The hub cert is verified to chain to the configured CA on every `SetIdentity` call so a corrupted (cert, CA) pair fails up front instead of at first handshake. |
+| `agent/cluster-info`, `agent/sign-csr` | Bootstrap token + JWS-HS256 signature over the response payload. TLS to the OpenBao API is verified via the standard `-ca-cert`/`-tls-skip-verify` flags. Token failures (malformed format, unknown id, expired, wrong secret, missing `signing` usage, `allowed_spoke_name` mismatch) all return the same generic `"token unknown or expired"` so a holder of one valid token cannot probe other token ids for their policy metadata; real reasons are logged server-side at WARN. `handleSignCSR` additionally evaluates every per-token check (secret HMAC, expiry, usage, allowed_spoke_name) against a placeholder when the id is unknown, so "unknown id" pays the same per-field cost as "known id, wrong secret" — closing the timing oracle between those two branches. Storage-read latency may still differ slightly between hit and miss; pair with the `sys/quotas/rate-limit` policies under "Hardening recommendations" to make brute-force timing impractical. |
+| Hub proxy gRPC listener | mTLS, **TLS 1.3 floor on both sides** (`bao agent run` pins TLS 1.3 in its client config too). Hub presents a cert signed by the spoke-CA; client must present a cert signed by the same CA. Spoke identity comes from the verified peer cert CN. The hub cert is verified to chain to the configured CA on every `SetIdentity` call so a corrupted (cert, CA) pair fails up front instead of at first handshake. `loadSpokeTLS` does the symmetric check on the spoke side: the local cert is verified to chain to the bundled `ca.pem` before gRPC dials, so a half-rotated credentials directory fails at startup rather than at handshake time. |
 | Hub bao API | Standard OpenBao authentication. `agent/cluster-info` and `agent/sign-csr` are in `PathsSpecial.Unauthenticated` because they self-authenticate via the bootstrap token. |
 | Spoke-CA + hub key material | Persisted under `ca/bundle` with `SealWrapStorage`. |
 | Bootstrap tokens | Persisted under `tokens/<id>` with `SealWrapStorage`. Secret half is stored in cleartext (the JWS HMAC needs it) — seal-wrap mitigates. |
