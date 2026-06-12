@@ -727,7 +727,12 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	usageOK := checkTok.hasUsage(usageSigning)
 	spokeOK := checkTok.AllowedSpokeName == "" || checkTok.AllowedSpokeName == spokeName
 
-	if !(exists && secretEq && notExpired && usageOK && spokeOK) {
+	// Combine the per-field checks via a named ok before negating so the
+	// positive "all required signals" form stays readable. Inlining
+	// !(A && B && ...) trips staticcheck QF1001 (De Morgan rewrite); the
+	// rewritten || form reads worse in security-sensitive code.
+	ok := exists && secretEq && notExpired && usageOK && spokeOK
+	if !ok {
 		b.Logger().Warn("agent/sign-csr: token auth failed",
 			"token_id", parsedTok.ID,
 			"exists", exists,
