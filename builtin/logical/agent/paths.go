@@ -6,7 +6,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"strings"
 	"time"
@@ -734,7 +733,7 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	}
 	ca := &bootstrap.CABundle{CertPEM: bundle.CACertPEM, KeyPEM: bundle.CAKeyPEM}
 
-	csrDER, err := pemDecodeCSR(csrPEM)
+	csrDER, err := bootstrap.DecodeCSRPEM([]byte(csrPEM))
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
@@ -790,19 +789,4 @@ func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _
 			"stale_after_seconds": int64(remotedb.SpokeStaleAfter / time.Second),
 		},
 	}, nil
-}
-
-func pemDecodeCSR(csrPEM string) ([]byte, error) {
-	csrPEM = strings.TrimSpace(csrPEM)
-	if !strings.HasPrefix(csrPEM, "-----BEGIN") {
-		return nil, fmt.Errorf("csr_pem is not PEM-encoded")
-	}
-	block, _ := pem.Decode([]byte(csrPEM))
-	if block == nil {
-		return nil, fmt.Errorf("csr_pem could not be decoded")
-	}
-	if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
-		return nil, fmt.Errorf("unexpected PEM block %q", block.Type)
-	}
-	return block.Bytes, nil
 }

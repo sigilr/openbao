@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -421,7 +420,7 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 		return nil, fmt.Errorf("csr_pem is required")
 	}
 
-	csrDER, err := decodeCSRPEM(req.CsrPem)
+	csrDER, err := bootstrap.DecodeCSRPEM(req.CsrPem)
 	if err != nil {
 		return nil, err
 	}
@@ -466,20 +465,6 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 		CertPem:   certPEM,
 		CaCertPem: caCertPEM,
 	}, nil
-}
-
-// decodeCSRPEM is the same decode used by agent/sign-csr. The function lives
-// here so the gRPC RPC can be self-contained without depending on the agent
-// backend (which imports this package).
-func decodeCSRPEM(csrPEM []byte) ([]byte, error) {
-	block, _ := pem.Decode(csrPEM)
-	if block == nil {
-		return nil, fmt.Errorf("csr_pem is not PEM-encoded")
-	}
-	if block.Type != "CERTIFICATE REQUEST" && block.Type != "NEW CERTIFICATE REQUEST" {
-		return nil, fmt.Errorf("unexpected PEM block %q", block.Type)
-	}
-	return block.Bytes, nil
 }
 
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {

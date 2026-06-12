@@ -283,19 +283,26 @@ func ParseCert(certPEM []byte) (*x509.Certificate, error) {
 
 // decodeSinglePEM decodes a PEM blob and asserts that
 //  1. there is exactly one block (no trailing junk), and
-//  2. its Type matches expectedType.
+//  2. its Type matches one of expectedTypes.
 //
 // pem.Decode by itself silently skips trailing data and accepts any Type,
 // which would let an attacker piggyback a second block (e.g. a fake CA after
 // a legit cert) or substitute an unrelated block type for the same bytes
 // (e.g. "EC PRIVATE KEY" disguised as "PUBLIC KEY").
-func decodeSinglePEM(data []byte, expectedType string) (*pem.Block, error) {
+func decodeSinglePEM(data []byte, expectedTypes ...string) (*pem.Block, error) {
 	block, rest := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("PEM decode returned no block")
 	}
-	if block.Type != expectedType {
-		return nil, fmt.Errorf("PEM block type %q, want %q", block.Type, expectedType)
+	matched := false
+	for _, t := range expectedTypes {
+		if block.Type == t {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return nil, fmt.Errorf("PEM block type %q, want one of %q", block.Type, expectedTypes)
 	}
 	// Trailing whitespace / line endings around the block are normal; trailing
 	// non-whitespace is another block we did not expect.
@@ -305,6 +312,22 @@ func decodeSinglePEM(data []byte, expectedType string) (*pem.Block, error) {
 		}
 	}
 	return block, nil
+}
+
+// DecodeCSRPEM returns the DER bytes of a PEM-encoded PKCS#10 CSR. Accepts
+// both "CERTIFICATE REQUEST" and the legacy "NEW CERTIFICATE REQUEST" block
+// types. Uses the same strict single-block decode as the rest of the
+// package, so trailing data or block-type substitution is rejected outright.
+//
+// Shared between agent/sign-csr (the unauthenticated bootstrap path) and
+// proxy.RenewCert (the mTLS-authenticated renewal RPC) so both entry points
+// stay aligned on what counts as a valid CSR envelope.
+func DecodeCSRPEM(csrPEM []byte) ([]byte, error) {
+	block, err := decodeSinglePEM(csrPEM, "CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST")
+	if err != nil {
+		return nil, fmt.Errorf("csr_pem: %w", err)
+	}
+	return block.Bytes, nil
 }
 
 // randSerial returns a 128-bit positive integer for use as a cert serial.
