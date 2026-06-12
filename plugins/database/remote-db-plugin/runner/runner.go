@@ -329,7 +329,7 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 		return entry, nil
 	}
 
-	plugin, err := loadPlugin(pluginName)
+	plugin, err := loadPluginFunc(pluginName)
 	if err != nil {
 		return nil, err
 	}
@@ -377,6 +377,13 @@ func (r *PluginRunner) loadOrInit(ctx context.Context, instanceID, pluginName st
 }
 
 // --- Plugin loader ---------------------------------------------------------
+
+// loadPluginFunc is the indirection through which the runner builds plugin
+// instances. Production code points it at loadPlugin (the statically-linked
+// switch below). Tests swap it with a stub that returns a fake
+// dbplugin.Database, so the cache discipline can be exercised without an
+// actual postgres/mysql/valkey binary or DB.
+var loadPluginFunc = loadPlugin
 
 // loadPlugin creates a fresh plugin instance of the named type. We hold the
 // imports here so the spoke daemon binary statically links them all.
@@ -428,7 +435,7 @@ func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginN
 		r.mu.Unlock()
 	}()
 
-	plugin, err := loadPlugin(pluginName)
+	plugin, err := loadPluginFunc(pluginName)
 	if err != nil {
 		return "", err
 	}
