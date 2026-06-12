@@ -251,9 +251,10 @@ func (r *PluginRunner) remove(instanceID string) bool {
 }
 
 // loadLock returns the per-instance-id mutex used to single-flight Initialize
-// and lazy re-init for the same id. Mutex objects accumulate in r.loading at
-// most one per distinct instance_id the spoke has ever served — the same
-// bound the cache itself has if the operator never deletes mounts.
+// and lazy re-init for the same id. Both single-flight call sites delete
+// their entry from r.loading on the way out (success or failure), so the
+// map's size at rest is the number of concurrent in-flight loads, not the
+// number of distinct instance_ids ever served.
 func (r *PluginRunner) loadLock(instanceID string) *sync.Mutex {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -414,10 +415,18 @@ func (r *PluginRunner) handleInitialize(ctx context.Context, instanceID, pluginN
 	// Single-flight against concurrent Initialize and lazy re-init for the
 	// same id. Without this, two Initialize calls could both build a plugin
 	// and both call installOrReplace, racing on the cleanup of the displaced
-	// entry.
+	// entry. Drop the per-id load mutex when done (on both success and
+	// failure) so r.loading does not accumulate one entry per distinct
+	// instance_id ever Initialized — matches loadOrInit's discipline so the
+	// two single-flight paths are symmetric.
 	loadMu := r.loadLock(instanceID)
 	loadMu.Lock()
-	defer loadMu.Unlock()
+	defer func() {
+		loadMu.Unlock()
+		r.mu.Lock()
+		delete(r.loading, instanceID)
+		r.mu.Unlock()
+	}()
 
 	plugin, err := loadPlugin(pluginName)
 	if err != nil {
