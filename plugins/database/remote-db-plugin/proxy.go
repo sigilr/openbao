@@ -321,10 +321,21 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	// Initial ack. We push it through sendCh like everything else so the
 	// sender goroutine catches any early error. (Earlier code dropped the
 	// send error here entirely.)
-	conn.sendCh <- &agentproto.AgentMessage{
+	//
+	// Select on <-conn.done for symmetry with every other producer on this
+	// channel. The buffer is large enough today that a bare send wouldn't
+	// block, but a future capacity tweak (or, more plausibly, a path that
+	// queues frames before the Connect handler reaches this line) would
+	// leave the initial-ack send as the only producer that can wedge if
+	// the stream tore down between newSpokeConnection and here.
+	select {
+	case conn.sendCh <- &agentproto.AgentMessage{
 		ClientName: spokeName,
 		Output:     "Connected",
 		IsResponse: true,
+	}:
+	case <-conn.done:
+		return fmt.Errorf("spoke %q: stream torn down before initial ack", spokeName)
 	}
 
 	for {
