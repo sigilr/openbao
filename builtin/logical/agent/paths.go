@@ -661,6 +661,14 @@ func (b *agentBackend) pathSignCSR() *framework.Path {
 // of one valid token probing for others' metadata) from distinguishing
 // "wrong secret" from "wrong usage" from "wrong spoke restriction" — the
 // last two would otherwise leak per-token policy across the token space.
+//
+// handleSignCSR additionally evaluates every per-token check against a
+// placeholder when the id is unknown, so "unknown id" pays the same HMAC +
+// per-field work as "known id, wrong secret". The storage read itself can
+// still differ slightly between hit and miss depending on the backend; pair
+// with a sys/quotas/rate-limit policy on agent/sign-csr to make brute-force
+// timing impractical even against a backend with a measurable miss/hit gap.
+//
 // The real reason is logged server-side so operators can still diagnose.
 const genericTokenAuthError = "token unknown or expired"
 
@@ -700,26 +708,33 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	if err != nil {
 		return nil, err
 	}
-	if t == nil {
-		b.Logger().Warn("agent/sign-csr: unknown token id", "token_id", parsedTok.ID)
-		return logical.ErrorResponse(genericTokenAuthError), nil
+	// Always run every per-token check below against a non-nil record so
+	// "unknown token id" takes the same code path as "known id, wrong
+	// secret/usage/spoke". Without this, a single early-return on
+	// t == nil leaks via timing: a remote caller with one valid token
+	// could distinguish "another id you don't know" from any other
+	// failure mode and grind the 16M id space for live ids. The check
+	// values themselves go nowhere if the token didn't exist (the
+	// secret can never match the zero-byte placeholder), but the work
+	// of evaluating them is paid in both branches.
+	exists := t != nil
+	checkTok := t
+	if checkTok == nil {
+		checkTok = &tokenStorage{}
 	}
-	if t.expired() {
-		b.Logger().Warn("agent/sign-csr: expired token", "token_id", parsedTok.ID)
-		return logical.ErrorResponse(genericTokenAuthError), nil
-	}
-	if !bootstrap.ConstantTimeEqualSecret(t.Secret, parsedTok.Secret) {
-		b.Logger().Warn("agent/sign-csr: bad token secret", "token_id", parsedTok.ID)
-		return logical.ErrorResponse(genericTokenAuthError), nil
-	}
-	if !t.hasUsage(usageSigning) {
-		b.Logger().Warn("agent/sign-csr: token missing 'signing' usage", "token_id", parsedTok.ID)
-		return logical.ErrorResponse(genericTokenAuthError), nil
-	}
-	if t.AllowedSpokeName != "" && t.AllowedSpokeName != spokeName {
-		b.Logger().Warn("agent/sign-csr: token allowed_spoke_name mismatch",
+	secretEq := bootstrap.ConstantTimeEqualSecret(checkTok.Secret, parsedTok.Secret)
+	notExpired := !checkTok.expired()
+	usageOK := checkTok.hasUsage(usageSigning)
+	spokeOK := checkTok.AllowedSpokeName == "" || checkTok.AllowedSpokeName == spokeName
+
+	if !(exists && secretEq && notExpired && usageOK && spokeOK) {
+		b.Logger().Warn("agent/sign-csr: token auth failed",
 			"token_id", parsedTok.ID,
-			"allowed_spoke_name", t.AllowedSpokeName,
+			"exists", exists,
+			"secret_eq", secretEq,
+			"not_expired", notExpired,
+			"usage_ok", usageOK,
+			"spoke_ok", spokeOK,
 			"requested_spoke_name", spokeName)
 		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
