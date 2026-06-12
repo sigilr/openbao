@@ -456,6 +456,17 @@ func loadSpokeTLS(credsDir, serverName, serverAddr string) (*tls.Config, error) 
 		return nil, fmt.Errorf("%s did not yield any CA certs", caPath)
 	}
 
+	// Verify the leaf chains to the bundled ca.pem before we hand it to gRPC.
+	// A credentials directory left half-rotated (cert.pem from a fresh join,
+	// ca.pem from the prior CA) would otherwise only surface as an opaque
+	// TLS handshake error at the first gRPC dial — long after the operator
+	// has left the terminal. Catch it here so `bao agent run` (and `bao
+	// agent renew`) fail at startup with a clear cause. Mirrors the
+	// hub-side check in bootstrap/state.go SetIdentity.
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
+		return nil, fmt.Errorf("spoke cert in %s does not chain to ca.pem: %w", credsDir, err)
+	}
+
 	if serverName == "" {
 		host, _, _ := strings.Cut(serverAddr, ":")
 		serverName = host
