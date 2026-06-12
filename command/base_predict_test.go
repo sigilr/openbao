@@ -364,6 +364,8 @@ func TestPredict_Plugins(t *testing.T) {
 				"rabbitmq",
 				"radius",
 				"redis-database-plugin",
+				"remote-cassandra-plugin",
+				"remote-influxdb-plugin",
 				"remote-mysql-plugin",
 				"remote-postgres-plugin",
 				"remote-redis-plugin",

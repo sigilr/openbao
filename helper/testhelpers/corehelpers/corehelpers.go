@@ -178,8 +178,10 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"postgresql-database-plugin",
 			"redis-database-plugin",
 			"valkey-database-plugin",
-			"remote-postgres-plugin",
+			"remote-cassandra-plugin",
+			"remote-influxdb-plugin",
 			"remote-mysql-plugin",
+			"remote-postgres-plugin",
 			"remote-redis-plugin",
 			"remote-valkey-plugin",
 		}
