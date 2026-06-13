@@ -535,7 +535,7 @@ openssl req -x509 -new -key "$TESTDIR/bad-ca.key" -days 1 \
 
 # bao agent run must reject this directory at startup.
 bao agent run -server=127.0.0.1:50053 -credentials-dir="$TESTDIR/spoke.bad"
-# → "tls: spoke cert in $TESTDIR/spoke.bad does not chain to ca.pem: …"
+# → "tls: spoke cert in $TESTDIR/spoke.bad failed verification: x509: certificate signed by unknown authority"
 # Exit code != 0.
 
 # bao agent renew must do the same — both paths share loadSpokeTLS.
@@ -625,5 +625,5 @@ A condensed view for the PR description's checklist:
 | Failure — spoke restart | kill `bao agent run`, restart | cache-miss self-heal, next creds OK |
 | Failure — SIGTERM | Ctrl+C the spoke | exit 0, no leaked sockets |
 | Failure — duplicate dir | join into populated dir without `-force` | refused |
-| Failure — half-rotated creds | swap ca.pem for an unrelated CA, restart spoke | `bao agent run` refuses at startup with "does not chain to ca.pem" |
+| Failure — half-rotated creds | swap ca.pem for an unrelated CA, restart spoke | `bao agent run` refuses at startup with "failed verification: x509: certificate signed by unknown authority" |
 | Concurrency | 20× parallel `db/creds/readonly` | roughly slowest single, not 20× |

@@ -114,10 +114,14 @@ its `ClientCAs` pool.
 1. Load credentials. Spoke identity = `cert.Leaf.Subject.CommonName`.
    Verify the leaf chains to the bundled `ca.pem` before dialing — a
    half-rotated credentials directory (fresh `cert.pem`, stale `ca.pem`
-   from before a CA rotation, or vice versa) fails here with a clear
-   "spoke cert in <dir> does not chain to ca.pem" instead of an opaque
-   TLS handshake error at first gRPC dial. Mirrors the hub-side
-   chain-check in `bootstrap.SetIdentity`.
+   from before a CA rotation, or vice versa), an expired cert, or a
+   cert with the wrong EKU fails here with "spoke cert in <dir> failed
+   verification: <specific x509 cause>" instead of an opaque TLS
+   handshake error at first gRPC dial. The wrapped error names the
+   exact x509 cause (unknown authority, expired, KU mismatch, etc.)
+   so operators don't have to guess between "wrong ca.pem" and
+   "cert.pem expired, run join again". Mirrors the hub-side chain-check
+   in `bootstrap.SetIdentity`.
 2. Dial the hub's gRPC port with mTLS + gRPC HTTP/2 keepalive. Both
    sides pin a **TLS 1.3 floor**.
 3. Open the `AgentService.Connect` bidi stream; send a registration frame.
@@ -354,7 +358,7 @@ Day-2 operations:
 | Bootstrap token expires | `agent/cluster-info` and `agent/sign-csr` return "token unknown or expired" | `bao agent token create` on the hub |
 | Spoke cert about to expire | `bao agent run` checks expiry on a ticker (`-renew-check-every`, default 1h) and renews once the cert is past `-renew-threshold` (default 0.5, i.e. half-life). Operators can also force `bao agent renew` directly. | Automatic. Live gRPC connections stay on the old cert until they reconnect, which is why we renew well before expiry. |
 | Two daemons sharing one `-credentials-dir` | Same peer-cert CN, so the hub's reconnect logic kicks whichever connected first off the Connect stream every time the other connects. `bao agent list` shows the spoke flipping in and out and neither daemon makes useful progress. | `bao agent join` refuses to overwrite a non-empty credentials dir without `-force`; operators get a clear error pointing at the actual misconfiguration before they hit it at runtime. |
-| Spoke credentials inconsistent (cert.pem from one CA + ca.pem from another, e.g. a half-completed re-join or a partial restore from backup) | `bao agent run` and `bao agent renew` `loadSpokeTLS` runs `leaf.Verify` against the bundled CA pool at startup and returns `spoke cert in <dir> does not chain to ca.pem` before gRPC ever dials. | Re-run `bao agent join` with `-force` to refresh the directory atomically; ca.pem and cert.pem come back paired. |
+| Spoke credentials inconsistent (cert.pem from one CA + ca.pem from another, expired cert, KU mismatch, e.g. a half-completed re-join or a partial restore from backup) | `bao agent run` and `bao agent renew` `loadSpokeTLS` runs `leaf.Verify` against the bundled CA pool at startup and returns `spoke cert in <dir> failed verification: <x509 cause>` before gRPC ever dials — the wrapped cause names the specific failure (unknown authority, expired, etc.). | Re-run `bao agent join` with `-force` to refresh the directory atomically; ca.pem and cert.pem come back paired. |
 
 ---
 

@@ -464,7 +464,12 @@ func loadSpokeTLS(credsDir, serverName, serverAddr string) (*tls.Config, error) 
 	// agent renew`) fail at startup with a clear cause. Mirrors the
 	// hub-side check in bootstrap/state.go SetIdentity.
 	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return nil, fmt.Errorf("spoke cert in %s does not chain to ca.pem: %w", credsDir, err)
+		// The underlying err from x509.Verify already names the specific
+		// cause (expired, not yet valid, KU mismatch, unknown authority).
+		// Wrap with where to look, not a guess at why — "does not chain"
+		// reads as "your ca.pem is wrong" even when the actual problem is
+		// "your cert.pem expired, run bao agent join again".
+		return nil, fmt.Errorf("spoke cert in %s failed verification: %w", credsDir, err)
 	}
 
 	if serverName == "" {
