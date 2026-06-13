@@ -3883,7 +3883,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"cassandra-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"postgresql-database-plugin", "redis-database-plugin",
-				"remote-mysql-plugin", "remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
+				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
+				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
 		}); diff != nil {
@@ -3913,7 +3914,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"cassandra-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"postgresql-database-plugin", "redis-database-plugin",
-				"remote-mysql-plugin", "remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
+				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
+				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
 			"detailed": []map[string]any{{
@@ -3972,6 +3974,18 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "redis-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-cassandra-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-influxdb-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",
