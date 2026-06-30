@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -98,6 +99,12 @@ type spokeConnection struct {
 
 	lastSeenMu sync.Mutex
 	lastSeen   time.Time
+	// certNotAfter is the NotAfter of the spoke's verified mTLS client (leaf)
+	// cert. Captured at connect and refreshed by RenewCert, which renews the
+	// cert in place over this same live stream (the spoke does not reconnect),
+	// so a value captured only at connect time would go stale after a renewal.
+	// Guarded by lastSeenMu; zero when unknown.
+	certNotAfter time.Time
 }
 
 func newSpokeConnection(stream agentproto.AgentService_ConnectServer) *spokeConnection {
@@ -122,6 +129,18 @@ func (c *spokeConnection) lastSeenAt() time.Time {
 	c.lastSeenMu.Lock()
 	defer c.lastSeenMu.Unlock()
 	return c.lastSeen
+}
+
+func (c *spokeConnection) setCertNotAfter(t time.Time) {
+	c.lastSeenMu.Lock()
+	c.certNotAfter = t
+	c.lastSeenMu.Unlock()
+}
+
+func (c *spokeConnection) certNotAfterAt() time.Time {
+	c.lastSeenMu.Lock()
+	defer c.lastSeenMu.Unlock()
+	return c.certNotAfter
 }
 
 // register parks a waiter for the given request_id.
@@ -243,12 +262,18 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	// This is the load-bearing security check now that bootstrap tokens have
 	// been exchanged for client certs — the wire-level claim is spoofable, the
 	// CN is not.
-	spokeName, err := spokeNameFromPeer(stream.Context())
+	leaf, err := spokeLeafFromPeer(stream.Context())
 	if err != nil {
 		return err
 	}
+	spokeName := leaf.Subject.CommonName
+	if spokeName == "" {
+		return fmt.Errorf("client cert has no Common Name")
+	}
 
 	conn := newSpokeConnection(stream)
+	// Record the leaf's expiry so the hub can surface per-spoke cert expiry.
+	conn.setCertNotAfter(leaf.NotAfter)
 
 	// Reconnect handling: if the same spoke already had a stream open, cancel
 	// the old one so it doesn't leak. Order matters — install the NEW conn
@@ -369,21 +394,31 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	}
 }
 
-// spokeNameFromPeer extracts the spoke identity from the verified client cert.
-// Requires the gRPC server to be configured with mTLS (RequireAndVerifyClientCert).
-func spokeNameFromPeer(ctx context.Context) (string, error) {
+// spokeLeafFromPeer returns the verified client (leaf) cert of the incoming
+// mTLS connection. Requires the gRPC server to be configured with mTLS
+// (RequireAndVerifyClientCert).
+func spokeLeafFromPeer(ctx context.Context) (*x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return "", fmt.Errorf("no peer info on incoming stream")
+		return nil, fmt.Errorf("no peer info on incoming stream")
 	}
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok {
-		return "", fmt.Errorf("connection is not TLS")
+		return nil, fmt.Errorf("connection is not TLS")
 	}
 	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
-		return "", fmt.Errorf("no verified client cert chain")
+		return nil, fmt.Errorf("no verified client cert chain")
 	}
-	leaf := tlsInfo.State.VerifiedChains[0][0]
+	return tlsInfo.State.VerifiedChains[0][0], nil
+}
+
+// spokeNameFromPeer extracts the spoke identity from the verified client cert.
+// Requires the gRPC server to be configured with mTLS (RequireAndVerifyClientCert).
+func spokeNameFromPeer(ctx context.Context) (string, error) {
+	leaf, err := spokeLeafFromPeer(ctx)
+	if err != nil {
+		return "", err
+	}
 	if leaf.Subject.CommonName == "" {
 		return "", fmt.Errorf("client cert has no Common Name")
 	}
@@ -461,10 +496,39 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 	if err != nil {
 		return nil, err
 	}
+
+	// Renewal happens in place over the live stream — the spoke does not
+	// reconnect — so refresh the connection's recorded expiry from the cert we
+	// just signed. Otherwise `agent/spokes` would keep reporting the old
+	// NotAfter until the spoke happens to reconnect. Best-effort: if the spoke
+	// has no live connection or the cert fails to parse, leave the old value.
+	if newNotAfter, perr := certNotAfterFromPEM(certPEM); perr == nil {
+		s.mu.RLock()
+		conn, ok := s.spokes[peerCN]
+		s.mu.RUnlock()
+		if ok {
+			conn.setCertNotAfter(newNotAfter)
+		}
+	}
+
 	return &agentproto.RenewCertResponse{
 		CertPem:   certPEM,
 		CaCertPem: caCertPEM,
 	}, nil
+}
+
+// certNotAfterFromPEM parses the first CERTIFICATE block of a PEM bundle and
+// returns its NotAfter.
+func certNotAfterFromPEM(certPEM []byte) (time.Time, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return time.Time{}, fmt.Errorf("no PEM block in cert")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return cert.NotAfter, nil
 }
 
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {
@@ -668,6 +732,9 @@ type SpokeStatus struct {
 	ConnectedAt time.Time
 	LastSeen    time.Time
 	Healthy     bool
+	// CertNotAfter is the spoke's current mTLS client-cert expiry. Zero when
+	// unknown (e.g. no verified peer cert was captured).
+	CertNotAfter time.Time
 }
 
 // ListConnectedSpokes returns the health snapshot of every spoke with an open
@@ -682,10 +749,11 @@ func ListConnectedSpokes() []SpokeStatus {
 	for name, c := range s.spokes {
 		last := c.lastSeenAt()
 		out = append(out, SpokeStatus{
-			Name:        name,
-			ConnectedAt: c.connectedAt,
-			LastSeen:    last,
-			Healthy:     now.Sub(last) < SpokeStaleAfter,
+			Name:         name,
+			ConnectedAt:  c.connectedAt,
+			LastSeen:     last,
+			Healthy:      now.Sub(last) < SpokeStaleAfter,
+			CertNotAfter: c.certNotAfterAt(),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

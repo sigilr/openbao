@@ -60,8 +60,8 @@ $ bao agent list
 Listener: :50053
 Connected: 1 total, 1 healthy (stale after 45s)
 
-NAME       LAST SEEN  UPTIME  HEALTH
-spoke-1    0s ago     5s      OK
+NAME       LAST SEEN  UPTIME  CERT EXP  HEALTH
+spoke-1    0s ago     5s      29d       OK
 
 # 5. Mount the database engine and point it at the spoke via the proxy plugin.
 $ bao secrets enable database
@@ -89,7 +89,7 @@ $ bao read database/creds/readonly
 | `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. Refuses to overwrite an existing directory without `-force`. |
 | `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, auto-renews its own cert, and evicts idle cached plugin instances. |
 | `bao agent renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
-| `bao agent list` | hub | Connected spokes with last-seen and health. |
+| `bao agent list` | hub | Connected spokes with last-seen, health, and client-cert expiry (`CERT EXP`). `bao read agent/spokes` exposes the same as `cert_not_after` (Unix seconds) per spoke. |
 | `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. Honors `-format=json|yaml` for machine consumption. |
 | `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
 | `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. `hub_dns_sans` / `hub_ip_sans` accept either a comma-separated value or repeated key=value pairs. Bound listener port can't change here. |
@@ -184,7 +184,9 @@ The trust bootstrap is a port of kubeadm's discovery flow. See
   mTLS connection when the cert is past `-renew-threshold` (default 0.5).
   Operators can also force `bao agent renew` directly. The hub rejects any
   CSR whose CN does not match the calling spoke's peer-cert CN, so renewal
-  cannot rebind to a different identity.
+  cannot rebind to a different identity. The hub records each spoke's current
+  client-cert `NotAfter` (captured at connect, refreshed in place on renewal)
+  and exposes it via `bao agent list` / `agent/spokes` `cert_not_after`.
 - See DESIGN.md "Failure modes" for the rest.
 
 ## License

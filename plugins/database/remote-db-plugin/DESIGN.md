@@ -175,7 +175,10 @@ renewal cannot rebind to a different identity. The CA caps the signed cert
 at `RenewCertMaxTTL` (90d); a `ttl_seconds == 0` request gets the default
 `RenewCertDefaultTTL` (30d), matching what `bao agent join` initially
 issues. The initial-issue path (`agent/sign-csr`) uses the same 90d ceiling
-via the `maxSpokeCertExpiry` constant in the agent backend.
+via the `maxSpokeCertExpiry` constant in the agent backend. After signing, the
+hub re-records the renewed `NotAfter` on the live `spokeConnection` so
+`agent/spokes` reports the fresh expiry without waiting for a reconnect (see
+"Per-spoke client-cert expiry").
 
 CSR validation on both `sign-csr` and `RenewCert` is strict: only ECDSA or
 RSA ≥ 2048 are accepted; SANs (DNS / IP / URI / email) and `ExtraExtensions`
@@ -209,9 +212,27 @@ Two complementary liveness layers:
 Listener: :50153
 Connected: 1 total, 1 healthy (stale after 45s)
 
-NAME       LAST SEEN  UPTIME  HEALTH
-demo       0s ago     11s     OK
+NAME       LAST SEEN  UPTIME  CERT EXP  HEALTH
+demo       0s ago     11s     29d       OK
 ```
+
+### Per-spoke client-cert expiry
+
+The hub terminates each spoke's mTLS stream, so it already holds the verified
+client (leaf) certificate. `Connect` records `leaf.NotAfter` on the
+`spokeConnection` (`certNotAfter`, guarded by the same mutex as `lastSeen`), and
+`ListConnectedSpokes()` surfaces it as `SpokeStatus.CertNotAfter`. The backend
+`agent/spokes` path exposes it as `cert_not_after` (Unix seconds, `0` when the
+hub never captured a verified peer cert), alongside `ca_not_after` /
+`hub_cert_not_after` from `agent/ca/info`. The `CERT EXP` column above is this
+value rendered as a relative duration.
+
+Because cert renewal happens **in place over the live stream** — the spoke does
+not reconnect (see the renewal note below) — a value captured only at connect
+time would go stale after a renewal. So `RenewCert` re-records the connection's
+`certNotAfter` from the cert it just signed, under the same lock. The downstream
+KubeVault hub operator reads `cert_not_after` per spoke to populate
+`VaultAgent.status.certExpiry` for the bootstrap (`bao agent join`) flow.
 
 ---
 

@@ -792,13 +792,21 @@ func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _
 		if s.Healthy {
 			healthyCount++
 		}
-		entries = append(entries, map[string]any{
+		entry := map[string]any{
 			"name":              s.Name,
 			"connected_at_unix": s.ConnectedAt.Unix(),
 			"last_seen_unix":    s.LastSeen.Unix(),
 			"last_seen_seconds": int64(now.Sub(s.LastSeen) / time.Second),
 			"healthy":           s.Healthy,
-		})
+		}
+		// Per-spoke mTLS client-cert expiry (Unix seconds), like ca_not_after.
+		// Zero when the hub never captured a verified peer cert.
+		if !s.CertNotAfter.IsZero() {
+			entry["cert_not_after"] = s.CertNotAfter.Unix()
+		} else {
+			entry["cert_not_after"] = int64(0)
+		}
+		entries = append(entries, entry)
 	}
 	return &logical.Response{
 		Data: map[string]any{

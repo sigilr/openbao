@@ -4,9 +4,22 @@
 package remotedb
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
+	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 )
 
 // These tests cover the in-process primitives the gRPC handler relies on —
@@ -164,6 +177,169 @@ func TestSpokeStatusHealthyFreshness(t *testing.T) {
 	if staleHealthy {
 		t.Fatalf("a last-seen older than SpokeStaleAfter should be unhealthy")
 	}
+}
+
+func TestCertNotAfterFromPEM(t *testing.T) {
+	ca, err := bootstrap.GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrDER := newTestCSR(t, "spoke-parse")
+	certPEM, err := ca.SignSpokeCSR(csrDER, "spoke-parse", 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := certNotAfterFromPEM(certPEM)
+	if err != nil {
+		t.Fatalf("certNotAfterFromPEM: %v", err)
+	}
+	// Cross-check against a direct parse of the same PEM.
+	block, _ := pem.Decode(certPEM)
+	want, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(want.NotAfter) {
+		t.Errorf("NotAfter = %s, want %s", got, want.NotAfter)
+	}
+
+	// Garbage in → error, zero out.
+	if _, err := certNotAfterFromPEM([]byte("not a pem")); err == nil {
+		t.Error("expected error for non-PEM input")
+	}
+}
+
+// TestListConnectedSpokes_ReportsCertNotAfter asserts the read model surfaces
+// the per-spoke cert expiry captured on the connection, and reports zero when
+// no verified peer cert was ever recorded (defensive "no peer cert" path).
+func TestListConnectedSpokes_ReportsCertNotAfter(t *testing.T) {
+	s := getProxyServer()
+
+	withCert := newSpokeConnection(nil)
+	exp := time.Now().Add(72 * time.Hour).Truncate(time.Second)
+	withCert.setCertNotAfter(exp)
+
+	noCert := newSpokeConnection(nil) // never recorded a cert → zero
+
+	s.mu.Lock()
+	s.spokes["spoke-with-cert"] = withCert
+	s.spokes["spoke-no-cert"] = noCert
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.spokes, "spoke-with-cert")
+		delete(s.spokes, "spoke-no-cert")
+		s.mu.Unlock()
+	}()
+
+	byName := map[string]SpokeStatus{}
+	for _, st := range ListConnectedSpokes() {
+		byName[st.Name] = st
+	}
+
+	if got := byName["spoke-with-cert"].CertNotAfter; !got.Equal(exp) {
+		t.Errorf("CertNotAfter = %s, want %s", got, exp)
+	}
+	if got := byName["spoke-no-cert"].CertNotAfter; !got.IsZero() {
+		t.Errorf("expected zero CertNotAfter for spoke with no peer cert, got %s", got)
+	}
+}
+
+// TestRenewCert_UpdatesCertNotAfter exercises the in-place renewal path: after
+// a RenewCert call over the live stream (no reconnect), the connection's
+// reported expiry must reflect the freshly signed cert.
+func TestRenewCert_UpdatesCertNotAfter(t *testing.T) {
+	ca, err := bootstrap.GenerateCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub, err := ca.IssueHubServerCert([]string{"hub.local"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bootstrap.Global().SetIdentity(ca, hub); err != nil {
+		t.Fatal(err)
+	}
+
+	const cn = "spoke-renew"
+
+	// Initial spoke cert: a short TTL so the renewed value is clearly distinct.
+	initialPEM, err := ca.SignSpokeCSR(newTestCSR(t, cn), cn, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := parseCertPEM(t, initialPEM)
+
+	// Register the live connection, seeded with the connect-time expiry.
+	s := getProxyServer()
+	conn := newSpokeConnection(nil)
+	conn.setCertNotAfter(leaf.NotAfter)
+	s.mu.Lock()
+	s.spokes[cn] = conn
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.spokes, cn)
+		s.mu.Unlock()
+	}()
+
+	// mTLS peer context carrying the verified leaf — what spokeNameFromPeer reads.
+	ctx := peer.NewContext(context.Background(), &peer.Peer{
+		AuthInfo: credentials.TLSInfo{
+			State: tls.ConnectionState{
+				VerifiedChains: [][]*x509.Certificate{{leaf}},
+			},
+		},
+	})
+
+	// Renew with a longer TTL so NotAfter strictly advances.
+	resp, err := s.RenewCert(ctx, &agentproto.RenewCertRequest{
+		CsrPem:     pemEncodeCSR(t, newTestCSR(t, cn)),
+		TtlSeconds: int64((30 * 24 * time.Hour) / time.Second),
+	})
+	if err != nil {
+		t.Fatalf("RenewCert: %v", err)
+	}
+
+	want := parseCertPEM(t, resp.CertPem).NotAfter
+	if got := conn.certNotAfterAt(); !got.Equal(want) {
+		t.Errorf("after RenewCert certNotAfter = %s, want %s (renewed cert)", got, want)
+	}
+	if !want.After(leaf.NotAfter) {
+		t.Fatalf("test setup: renewed NotAfter %s did not advance past initial %s", want, leaf.NotAfter)
+	}
+}
+
+func newTestCSR(t *testing.T, cn string) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificateRequest(rand.Reader,
+		&x509.CertificateRequest{Subject: pkix.Name{CommonName: cn}}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+func pemEncodeCSR(t *testing.T, der []byte) []byte {
+	t.Helper()
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+}
+
+func parseCertPEM(t *testing.T, certPEM []byte) *x509.Certificate {
+	t.Helper()
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		t.Fatal("no PEM block in cert")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
 }
 
 func newTestID(i int) string {

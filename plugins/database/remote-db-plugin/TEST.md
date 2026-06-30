@@ -184,7 +184,19 @@ Operator shell:
 bao agent list
 ```
 
-Expect: `Connected: 1 total, 1 healthy`, and a row `spoke-1   0s ago …  OK`.
+Expect: `Connected: 1 total, 1 healthy`, and a row
+`spoke-1   0s ago … <CERT EXP>  OK`. The `CERT EXP` column shows the spoke's
+client-cert expiry as a relative duration (e.g. `29d`). The machine-readable
+form is `bao read agent/spokes`, where each spoke entry carries
+`cert_not_after` (Unix seconds) equal to the spoke's current client-cert
+`NotAfter`:
+
+```bash
+bao read -format=json agent/spokes | jq '.data.spokes[] | {name, cert_not_after}'
+# cross-check against the on-disk cert:
+date -d "@$(bao read -format=json agent/spokes | jq '.data.spokes[0].cert_not_after')" -u
+openssl x509 -in $TESTDIR/spoke/cert.pem -noout -enddate
+```
 
 ### Mount a remote-postgres-plugin
 
@@ -351,6 +363,10 @@ restart `bao agent run` with `-renew-threshold=0.01`. The next tick (within
   spoke cert).
 - `openssl x509 -in $TESTDIR/spoke/cert.pem -noout -dates` shows a fresh
   `notAfter`.
+- `bao read agent/spokes` reports the **updated** `cert_not_after` for the
+  spoke, matching the new on-disk `notAfter`. Renewal happens in place over
+  the live stream (no reconnect), so the hub re-records the expiry on
+  `RenewCert` — the reported value moves forward without restarting the spoke.
 
 ### TTL cap (90d)
 
@@ -619,6 +635,7 @@ A condensed view for the PR description's checklist:
 | CSR — CN mismatch on RenewCert | hand-crafted CSR via grpcurl | `"does not match authenticated spoke"` |
 | Renewal — auto | short cert + low threshold | new `notAfter` within a tick |
 | Renewal — TTL cap | `-ttl=8760h` | issued cert ≤ 90d |
+| Spoke cert expiry | `bao read agent/spokes` while connected | `cert_not_after` == client-cert `NotAfter`; updates after `RenewCert` (no reconnect) |
 | CA — `-format=json` | `bao agent ca status -format=json` | valid JSON |
 | CA — hub rotate | `bao agent ca rotate` | `ca_cert_hash` unchanged, spoke stays healthy |
 | CA — update-endpoint (CSV) | `bao write agent/ca/update-endpoint hub_dns_sans=a,b` | two distinct SANs in `ca/info` *and* in the live listener cert |

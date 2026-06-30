@@ -92,7 +92,7 @@ func (c *AgentListCommand) Run(args []string) int {
 
 	rawSpokes, _ := resp.Data["spokes"].([]interface{})
 	c.UI.Output("")
-	c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %s", "NAME", "LAST SEEN", "UPTIME", "HEALTH"))
+	c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %-10s  %s", "NAME", "LAST SEEN", "UPTIME", "CERT EXP", "HEALTH"))
 	for _, s := range rawSpokes {
 		m, ok := s.(map[string]interface{})
 		if !ok {
@@ -101,6 +101,7 @@ func (c *AgentListCommand) Run(args []string) int {
 		name := str(m["name"])
 		lastSeenSecs := asUnix(m["last_seen_seconds"])
 		connectedAt := asUnix(m["connected_at_unix"])
+		certNotAfter := asUnix(m["cert_not_after"])
 		health, _ := m["healthy"].(bool)
 		healthStr := "OK"
 		if !health {
@@ -110,6 +111,16 @@ func (c *AgentListCommand) Run(args []string) int {
 		if connectedAt > 0 {
 			uptime = shortDuration(time.Since(time.Unix(connectedAt, 0)))
 		}
+		// Cert expiry as a relative duration ("12d", "expired", or "-" when
+		// the hub never captured the spoke's client cert).
+		certExp := "-"
+		if certNotAfter > 0 {
+			if d := time.Until(time.Unix(certNotAfter, 0)); d > 0 {
+				certExp = shortDuration(d)
+			} else {
+				certExp = "expired"
+			}
+		}
 		// Guard against future timestamps: a clock skew (or a NTP step
 		// between the hub computing now-lastSeen and the CLI rendering it)
 		// can briefly produce a negative value, which would render as
@@ -117,10 +128,11 @@ func (c *AgentListCommand) Run(args []string) int {
 		if lastSeenSecs < 0 {
 			lastSeenSecs = 0
 		}
-		c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %s",
+		c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %-10s  %s",
 			name,
 			fmt.Sprintf("%ds ago", lastSeenSecs),
 			uptime,
+			certExp,
 			healthStr))
 	}
 	return 0
