@@ -580,6 +580,75 @@ The mount stays usable in degraded mode; operators fix it in-band.
 
 ---
 
+## Namespaced lease revocation
+
+Confirm a lease created in an OpenBao **namespace** revokes correctly over the proxy —
+the case the KubeVault hub-spoke tenant-isolation design flagged (per-tenant mounts at
+`<org-id>/k8s.<spoke>.…`). The proxy carries **no** `X-Vault-Namespace`; correctness comes
+from the per-config `plugin_instance_id` (namespace-unique) plus OpenBao resolving the
+namespace above the plugin layer. See DESIGN.md → *Namespaces and lease revocation*.
+
+```bash
+# A namespace to stand in for a tenant org.
+bao namespace create org-acme
+
+# Mount the SAME remote plugin inside the namespace. Its config mints its OWN
+# plugin_instance_id, distinct from the root mount configured earlier.
+bao secrets enable -namespace=org-acme database
+bao write -namespace=org-acme database/config/spoke-pg \
+    plugin_name=remote-postgres-plugin \
+    spoke_name=spoke-1 \
+    connection_url='postgresql://{{username}}:{{password}}@127.0.0.1:5432/postgres?sslmode=disable' \
+    username=postgres \
+    password=secret \
+    allowed_roles='readonly'
+bao write -namespace=org-acme database/roles/readonly \
+    db_name=spoke-pg \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';" \
+    default_ttl=10m
+
+# The two mounts must hold DIFFERENT instance ids (no cross-namespace collision).
+bao read -namespace=org-acme -field=plugin_instance_id database/config/spoke-pg
+bao read                     -field=plugin_instance_id database/config/spoke-pg
+# → two distinct 24-hex values.
+
+# Issue a credential in the namespace and confirm the role landed in Postgres.
+CRED=$(bao read -namespace=org-acme -format=json database/creds/readonly)
+LEASE=$(echo "$CRED" | jq -r .lease_id)
+DBUSER=$(echo "$CRED" | jq -r .data.username)
+docker exec openbao-test-pg psql -U postgres -c '\du' | grep "$DBUSER"   # present
+
+# Force-revoke by prefix INSIDE the namespace — the path the operator uses for
+# SecretAccessRequest teardown (sys/leases/revoke-force/<prefix> + X-Vault-Namespace).
+bao lease revoke -namespace=org-acme -force -prefix database/creds/readonly
+# equivalently: bao write -namespace=org-acme -f sys/leases/revoke-force/database/creds/readonly
+
+# The spoke dropped the DB user (spoke log shows DeleteUser for the namespaced
+# mount's instance_id); the lease is gone from the namespace.
+docker exec openbao-test-pg psql -U postgres -c '\du' | grep "$DBUSER" || echo "revoked: user dropped"
+bao list -namespace=org-acme sys/leases/lookup/database/creds/readonly 2>&1 | grep -q "$LEASE" && echo "LEASE STILL PRESENT (fail)" || echo "lease cleared"
+```
+
+Cache-miss variant (force-revoke after a spoke restart still reaches the DB):
+
+```bash
+# Issue a fresh cred, then restart the spoke so the hub holds an instance_id the
+# spoke no longer has cached.
+CRED=$(bao read -namespace=org-acme -format=json database/creds/readonly)
+DBUSER=$(echo "$CRED" | jq -r .data.username)
+# In the spoke pane: Ctrl+C `bao agent run`, then start it again.
+bao lease revoke -namespace=org-acme -force -prefix database/creds/readonly
+# Spoke log: "cache miss … re-Initialize from request config" then DeleteUser.
+docker exec openbao-test-pg psql -U postgres -c '\du' | grep "$DBUSER" || echo "revoked after restart: user dropped"
+```
+
+Expected: distinct instance ids per namespace; the namespaced force-revoke drops the
+Postgres user and clears the lease; the restart variant self-heals and still drops the
+user. No `X-Vault-Namespace` appears on the gRPC wire (the proxy only ever sends
+`instance_id`).
+
+---
+
 ## Concurrency
 
 Confirm many in-flight `db/creds/readonly` reads do not serialize on a
@@ -609,6 +678,7 @@ time seq 1 50 | xargs -P 50 -I{} bao read database/creds/readonly >/dev/null
 ## Cleanup
 
 ```bash
+bao namespace delete org-acme 2>/dev/null || true
 docker rm -f openbao-test-pg
 # Stop the hub and spoke panes (Ctrl+C each).
 rm -rf "$TESTDIR"
@@ -640,6 +710,7 @@ A condensed view for the PR description's checklist:
 | CA — hub rotate | `bao agent ca rotate` | `ca_cert_hash` unchanged, spoke stays healthy |
 | CA — update-endpoint (CSV) | `bao write agent/ca/update-endpoint hub_dns_sans=a,b` | two distinct SANs in `ca/info` *and* in the live listener cert |
 | Failure — spoke restart | kill `bao agent run`, restart | cache-miss self-heal, next creds OK |
+| Namespaced revocation | mount in `org-acme`, issue cred, `bao lease revoke -namespace=org-acme -force -prefix …` | distinct `instance_id` per namespace; DB user dropped; lease cleared; no `X-Vault-Namespace` on the wire |
 | Failure — SIGTERM | Ctrl+C the spoke | exit 0, no leaked sockets |
 | Failure — duplicate dir | join into populated dir without `-force` | refused |
 | Failure — half-rotated creds | swap ca.pem for an unrelated CA, restart spoke | `bao agent run` refuses at startup with "failed verification: x509: certificate signed by unknown authority" |

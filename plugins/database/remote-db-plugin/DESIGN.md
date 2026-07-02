@@ -305,6 +305,48 @@ call re-Initializes from the stale config.
 
 ---
 
+## Namespaces and lease revocation
+
+OpenBao namespaces isolate mounts, leases, and policies into independent trees, so a hub
+can carry the same `remote-<db>-plugin` in many namespaces — e.g. a per-tenant layout
+where a spoke's mounts live at `<org-id>/k8s.<spoke>.<type>.<ns>.<name>` instead of the
+root `k8s.<spoke>.…` (the KubeVault operator's tenant-namespace design). The proxy needs
+**no namespace awareness of its own**, for two reasons:
+
+1. **Addressing is by `instance_id`, which is namespace-unique.** `plugin_instance_id` is
+   minted per connection config (`database/config/<name>`) and persisted in that config's
+   storage, which is itself namespaced. Two mounts in two namespaces are two distinct
+   config objects and therefore hold two distinct ids — even when they point at the same
+   physical database. The spoke caches and dispatches strictly by `instance_id`, so a call
+   for `<org-a>`'s mount can never reach `<org-b>`'s cached plugin. Operators must let the
+   plugin mint the id — never hand-set a fixed `plugin_instance_id` across mounts (the
+   KubeVault operator does this by omitting the field, letting `Initialize` mint and
+   persist it).
+
+2. **Namespace resolution happens above the plugin layer.** OpenBao's expiration/lease
+   manager resolves the namespace *before* it calls the plugin. When a caller revokes in a
+   namespace — `bao lease revoke -namespace=<org-id> <lease>`,
+   `sys/leases/revoke-prefix/<prefix>`, or force-revoke `sys/leases/revoke-force/<prefix>`
+   with `X-Vault-Namespace: <org-id>` — OpenBao finds the lease inside that namespace,
+   loads the owning mount, and invokes the plugin's `DeleteUser` with that mount's
+   `instance_id`. `PluginProxy.DeleteUser` forwards
+   `{method:"DeleteUser", instance_id, config, username, statements}`; the spoke drops the
+   database user via the plugin identified by `instance_id`.
+
+Force-revoke is robust across a spoke restart: `DeleteUser` — like every method — carries
+the connection `config`, so a cache miss self-heals via the runner's lazy re-Initialize
+before the delete runs (see *Request lifecycle* and the failure table). **No
+`X-Vault-Namespace` needs to cross the gRPC wire**: the namespace has already selected the
+lease and the `instance_id` before the request is built.
+
+This confirms the open question raised in the KubeVault hub-spoke tenant-isolation design
+(`design/tenant-namespace-hub-spoke-design.md` §11 / §8.5): namespaced lease revocation is
+handled correctly, and the operator's approach of issuing the revoke through the
+namespaced Vault-API client is the sanctioned path — the proxy transports it
+transparently. No proxy change is required.
+
+---
+
 ## Operator workflow
 
 ```
@@ -376,6 +418,7 @@ Day-2 operations:
 | TCP/network dropped | gRPC keepalive notices within ~40s and tears the connection down on both sides | The spoke daemon reconnects on its retry policy |
 | Hub OpenBao restarts | Agent backend hydrates from storage; proxy listener restarts on the same port; existing spoke connections die and the spokes reconnect | Automatic |
 | Spoke restarts but hub keeps the old `plugin_instance_id` | First NewUser hits cache miss; runner re-Initializes from the request's config | Automatic — self-healing |
+| Force-revoke of a namespaced lease (`revoke-force`/`revoke-prefix` with `X-Vault-Namespace`) | OpenBao resolves the lease inside the namespace and calls the owning mount's plugin `DeleteUser` by `instance_id`; the proxy forwards it and the spoke drops the DB user (self-healing on a cache miss). No namespace crosses the gRPC wire. | Automatic — see *Namespaces and lease revocation* |
 | Bootstrap token expires | `agent/cluster-info` and `agent/sign-csr` return "token unknown or expired" | `bao agent token create` on the hub |
 | Spoke cert about to expire | `bao agent run` checks expiry on a ticker (`-renew-check-every`, default 1h) and renews once the cert is past `-renew-threshold` (default 0.5, i.e. half-life). Operators can also force `bao agent renew` directly. | Automatic. Live gRPC connections stay on the old cert until they reconnect, which is why we renew well before expiry. |
 | Two daemons sharing one `-credentials-dir` | Same peer-cert CN, so the hub's reconnect logic kicks whichever connected first off the Connect stream every time the other connects. `bao agent list` shows the spoke flipping in and out and neither daemon makes useful progress. | `bao agent join` refuses to overwrite a non-empty credentials dir without `-force`; operators get a clear error pointing at the actual misconfiguration before they hit it at runtime. |
