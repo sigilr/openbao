@@ -1,0 +1,7 @@
+```release-note:feature
+ui: add a "Relay" section to the web UI for operating the hub-and-spoke remote-database (`relay/`) backend — connected spokes, bootstrap-token create/list/revoke, and CA status/rotate/update-endpoint.
+```
+
+```release-note:improvement
+secret/relay: the `relay/bootstrap-tokens` LIST endpoint now returns per-token metadata (expiry, allowed spoke, description, usages) via key_info.
+```
