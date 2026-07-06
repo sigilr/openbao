@@ -36,6 +36,10 @@
     />
   {{/if}}
 
+  {{#if (and this.namespace.inRootNamespace (has-permission "relay"))}}
+    <Nav.Link @route="vault.cluster.relay" @text="Relay" @hasSubItems={{true}} data-test-sidebar-nav-link="Relay" />
+  {{/if}}
+
   {{#if (and this.namespace.inRootNamespace (has-permission "status" routeParams=(array "raft" "seal")))}}
     <Nav.Title data-test-sidebar-nav-heading="Monitoring">Monitoring</Nav.Title>
   {{/if}}

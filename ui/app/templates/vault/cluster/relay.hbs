@@ -1,0 +1,23 @@
+<PageHeader as |p|>
+  <p.levelLeft>
+    <h1 class="title is-3" data-test-relay-header>
+      Relay
+    </h1>
+  </p.levelLeft>
+</PageHeader>
+<div class="tabs-container box is-sideless is-fullwidth is-paddingless is-marginless" data-test-relay-tabs>
+  <nav class="tabs" aria-label="relay tabs">
+    <ul>
+      <LinkTo @route="vault.cluster.relay.index" data-test-tab="spokes">
+        Spokes
+      </LinkTo>
+      <LinkTo @route="vault.cluster.relay.tokens" data-test-tab="tokens">
+        Bootstrap Tokens
+      </LinkTo>
+      <LinkTo @route="vault.cluster.relay.ca" data-test-tab="ca">
+        Certificate Authority
+      </LinkTo>
+    </ul>
+  </nav>
+</div>
+{{outlet}}
