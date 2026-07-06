@@ -6,6 +6,8 @@ package builtinplugins
 import (
 	"slices"
 
+	logicalRelay "github.com/openbao/openbao/v2/builtin/logical/relay"
+	dbRemote "github.com/openbao/openbao/v2/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
 	credAppRole "github.com/openbao/openbao/v2/internal/builtin/credential/approle"
@@ -83,6 +85,12 @@ func newRegistry() *registry {
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
+			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
+			"remote-influxdb-plugin":     {Factory: dbRemote.New("influxdb-database-plugin")},
+			"remote-mysql-plugin":        {Factory: dbRemote.New("mysql-database-plugin")},
+			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
+			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
@@ -91,6 +99,7 @@ func newRegistry() *registry {
 			"ldap":       {Factory: logicalLDAP.Factory},
 			"pki":        {Factory: logicalPki.Factory},
 			"rabbitmq":   {Factory: logicalRabbit.Factory},
+			"relay":      {Factory: logicalRelay.Factory},
 			"ssh":        {Factory: logicalSsh.Factory},
 			"totp":       {Factory: logicalTotp.Factory},
 			"transit":    {Factory: logicalTransit.Factory},
