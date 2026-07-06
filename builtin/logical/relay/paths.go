@@ -493,7 +493,34 @@ func (b *relayBackend) handleTokenList(ctx context.Context, req *logical.Request
 	if err != nil {
 		return nil, err
 	}
-	return logical.ListResponse(ids), nil
+	// Return per-token metadata alongside the keys so callers (e.g. the UI)
+	// can render the token list in a single request instead of reading each
+	// token individually. The secret is never included here.
+	keyInfo := make(map[string]any, len(ids))
+	for _, id := range ids {
+		t, err := readToken(ctx, req.Storage, id)
+		if err != nil {
+			// A single unreadable/corrupt record must not fail the whole list.
+			// Surface it with an error marker (rather than dropping it) so it
+			// stays visible and revocable in callers, and log for follow-up.
+			b.Logger().Warn("relay: unreadable bootstrap token while listing", "id", id, "err", err)
+			keyInfo[id] = map[string]any{"error": "unreadable"}
+			continue
+		}
+		if t == nil {
+			// Deleted between the List and the Get; genuinely gone, so omit it.
+			continue
+		}
+		keyInfo[id] = map[string]any{
+			"expiration_unix":    t.ExpirationUnix,
+			"created_unix":       t.CreatedUnix,
+			"allowed_spoke_name": t.AllowedSpokeName,
+			"description":        t.Description,
+			"usages":             t.Usages,
+			"expired":            t.expired(),
+		}
+	}
+	return logical.ListResponseWithInfo(ids, keyInfo), nil
 }
 
 // --- bootstrap-tokens/<id> ---------------------------------------------------
