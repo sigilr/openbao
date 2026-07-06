@@ -1,10 +1,10 @@
 // Copyright (c) AppsCode Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-// Package agent implements the OpenBao logical backend that operators use to
+// Package relay implements the OpenBao logical backend that operators use to
 // bootstrap and run the hub-and-spoke trust state for the remote-db-plugin.
-// It is mounted at `agent/` by `bao agent init`.
-package agent
+// It is mounted at `relay/` by `bao relay init`.
+package relay
 
 import (
 	"context"
@@ -22,27 +22,27 @@ import (
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
-// AgentBackendFactory builds the `agent/` mount: the trust-bootstrap surface
-// `bao agent init` and `bao agent join` talk to.
+// RelayBackendFactory builds the `relay/` mount: the trust-bootstrap surface
+// `bao relay init` and `bao relay join` talk to.
 //
 // Wire shape (kubeadm analogue in parens):
 //
-//	POST   agent/ca/init              — first-time CA generation       (kubeadm init)
-//	GET    agent/ca/info              — CA cert + hub TLS endpoint
-//	POST   agent/bootstrap-tokens     — create a token, returns id.secret
-//	LIST   agent/bootstrap-tokens     — list outstanding tokens
-//	GET    agent/bootstrap-tokens/<id>
-//	DELETE agent/bootstrap-tokens/<id>
-//	GET    agent/cluster-info         — UNAUTH; serves the JWS-signed bundle (cluster-info ConfigMap)
-//	POST   agent/sign-csr             — UNAUTH; exchange token for client cert (CSR + bootstrap RBAC)
+//	POST   relay/ca/init              — first-time CA generation       (kubeadm init)
+//	GET    relay/ca/info              — CA cert + hub TLS endpoint
+//	POST   relay/bootstrap-tokens     — create a token, returns id.secret
+//	LIST   relay/bootstrap-tokens     — list outstanding tokens
+//	GET    relay/bootstrap-tokens/<id>
+//	DELETE relay/bootstrap-tokens/<id>
+//	GET    relay/cluster-info         — UNAUTH; serves the JWS-signed bundle (cluster-info ConfigMap)
+//	POST   relay/sign-csr             — UNAUTH; exchange token for client cert (CSR + bootstrap RBAC)
 //
-// Factory builds the agent backend. Named Factory to match the convention used
+// Factory builds the relay backend. Named Factory to match the convention used
 // by every other builtin logical backend (helper/builtinplugins/registry.go
 // invokes it as `Factory`).
 func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
-	b := &agentBackend{}
+	b := &relayBackend{}
 	b.Backend = &framework.Backend{
-		Help: strings.TrimSpace(agentBackendHelp),
+		Help: strings.TrimSpace(relayBackendHelp),
 
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
@@ -50,8 +50,8 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 				"sign-csr",
 			},
 			SealWrapStorage: []string{
-				agentStorageCA,
-				agentStorageTokenPrefix,
+				relayStorageCA,
+				relayStorageTokenPrefix,
 			},
 		},
 
@@ -79,8 +79,8 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 }
 
 const (
-	agentStorageCA          = "ca/bundle"
-	agentStorageTokenPrefix = "tokens/"
+	relayStorageCA          = "ca/bundle"
+	relayStorageTokenPrefix = "tokens/"
 
 	defaultTokenTTL        = 24 * time.Hour
 	defaultSpokeCertExpiry = 30 * 24 * time.Hour
@@ -93,7 +93,7 @@ const (
 	usageAuthentication = "authentication"
 )
 
-type agentBackend struct {
+type relayBackend struct {
 	*framework.Backend
 	// caMu serializes ca/init, ca/rotate, and ca/update-endpoint against each
 	// other. Without it two concurrent ca/init calls both pass the
@@ -156,15 +156,15 @@ func (t *tokenStorage) hasUsage(want string) bool {
 // Listener errors (bad stored endpoint, port already in use) are logged but
 // do not fail the backend init: the admin paths (ca/update-endpoint, ca/info,
 // bootstrap-tokens/*) must stay reachable so the operator can fix the state
-// in-band. Returning an error here would brick the agent mount entirely,
+// in-band. Returning an error here would brick the relay mount entirely,
 // including the very path that fixes the endpoint.
-func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) error {
+func (b *relayBackend) hydrateHubState(ctx context.Context, s logical.Storage) error {
 	bundle, err := readCA(ctx, s)
 	if err != nil {
 		return err
 	}
 	if bundle == nil {
-		return nil // not initialized yet; `bao agent init` will populate it
+		return nil // not initialized yet; `bao relay init` will populate it
 	}
 	if err := bootstrap.Global().SetIdentity(
 		&bootstrap.CABundle{CertPEM: bundle.CACertPEM, KeyPEM: bundle.CAKeyPEM},
@@ -174,12 +174,12 @@ func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 	}
 	port, err := portFromEndpoint(bundle.HubEndpoint)
 	if err != nil {
-		b.Logger().Error("agent: stored hub_endpoint cannot be parsed; proxy listener not started — admin paths remain reachable so the endpoint can be fixed via agent/ca/update-endpoint",
+		b.Logger().Error("relay: stored hub_endpoint cannot be parsed; proxy listener not started — admin paths remain reachable so the endpoint can be fixed via relay/ca/update-endpoint",
 			"hub_endpoint", bundle.HubEndpoint, "err", err)
 		return nil
 	}
 	if err := remotedb.StartProxyServer(port); err != nil {
-		b.Logger().Error("agent: proxy listener failed to start; admin paths remain reachable",
+		b.Logger().Error("relay: proxy listener failed to start; admin paths remain reachable",
 			"port", port, "err", err)
 		return nil
 	}
@@ -187,7 +187,7 @@ func (b *agentBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 }
 
 // portFromEndpoint extracts the port from "host:port". The hub endpoint is
-// validated to have a port by `bao agent init`, so this should not fail in
+// validated to have a port by `bao relay init`, so this should not fail in
 // fresh state; the explicit error helps when migrating from older data.
 func portFromEndpoint(endpoint string) (int, error) {
 	_, p, err := net.SplitHostPort(endpoint)
@@ -205,7 +205,7 @@ func portFromEndpoint(endpoint string) (int, error) {
 }
 
 func readCA(ctx context.Context, s logical.Storage) (*caStorage, error) {
-	e, err := s.Get(ctx, agentStorageCA)
+	e, err := s.Get(ctx, relayStorageCA)
 	if err != nil {
 		return nil, err
 	}
@@ -224,11 +224,11 @@ func writeCA(ctx context.Context, s logical.Storage, c *caStorage) error {
 	if err != nil {
 		return err
 	}
-	return s.Put(ctx, &logical.StorageEntry{Key: agentStorageCA, Value: raw})
+	return s.Put(ctx, &logical.StorageEntry{Key: relayStorageCA, Value: raw})
 }
 
 func readToken(ctx context.Context, s logical.Storage, id string) (*tokenStorage, error) {
-	e, err := s.Get(ctx, agentStorageTokenPrefix+id)
+	e, err := s.Get(ctx, relayStorageTokenPrefix+id)
 	if err != nil {
 		return nil, err
 	}
@@ -247,16 +247,16 @@ func writeToken(ctx context.Context, s logical.Storage, t *tokenStorage) error {
 	if err != nil {
 		return err
 	}
-	return s.Put(ctx, &logical.StorageEntry{Key: agentStorageTokenPrefix + t.ID, Value: raw})
+	return s.Put(ctx, &logical.StorageEntry{Key: relayStorageTokenPrefix + t.ID, Value: raw})
 }
 
-const agentBackendHelp = `
-The agent backend manages the trust-bootstrap state for OpenBao's hub-and-spoke
+const relayBackendHelp = `
+The relay backend manages the trust-bootstrap state for OpenBao's hub-and-spoke
 remote database plugin: the spoke certificate authority, the hub's gRPC server
 TLS identity, and short-lived bootstrap tokens issued to operators.
 
-This is the backend that 'bao agent init' and 'bao agent join' talk to. The
+This is the backend that 'bao relay init' and 'bao relay join' talk to. The
 'cluster-info' and 'sign-csr' paths are unauthenticated so that a fresh spoke
 without an OpenBao token can complete the handshake using only the bootstrap
-token printed by 'bao agent init'.
+token printed by 'bao relay init'.
 `

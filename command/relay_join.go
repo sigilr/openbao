@@ -25,7 +25,7 @@ import (
 	"github.com/posener/complete"
 )
 
-// AgentJoinCommand is the spoke-side counterpart to AgentInitCommand:
+// RelayJoinCommand is the spoke-side counterpart to RelayInitCommand:
 //
 //  1. Fetch cluster-info from the hub OpenBao API.
 //  2. Verify the JWS-HS256 signature using the bootstrap token's secret half.
@@ -41,9 +41,9 @@ import (
 // JWS check is a separate, application-layer authenticity guarantee on top —
 // not a substitute for TLS.
 //
-// The spoke daemon (`bao agent run`) then loads the credentials directory
+// The spoke daemon (`bao relay run`) then loads the credentials directory
 // and connects to the hub's gRPC proxy port over mTLS.
-type AgentJoinCommand struct {
+type RelayJoinCommand struct {
 	*BaseCommand
 
 	flagMount          string
@@ -57,17 +57,17 @@ type AgentJoinCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentJoinCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentJoinCommand)(nil)
+	_ cli.Command             = (*RelayJoinCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayJoinCommand)(nil)
 )
 
-func (c *AgentJoinCommand) Synopsis() string {
+func (c *RelayJoinCommand) Synopsis() string {
 	return "Join a spoke to the hub using a bootstrap token"
 }
 
-func (c *AgentJoinCommand) Help() string {
+func (c *RelayJoinCommand) Help() string {
 	helpText := `
-Usage: bao agent join [options]
+Usage: bao relay join [options]
 
   Bootstraps trust between this spoke and the hub OpenBao. The command:
 
@@ -81,11 +81,11 @@ Usage: bao agent join [options]
   -ca-cert, -tls-skip-verify, …). The application-layer JWS signature is
   the kubeadm-style authenticity check; TLS is not bypassed.
 
-  After a successful join, start the spoke daemon with 'bao agent run'.
+  After a successful join, start the spoke daemon with 'bao relay run'.
 
   Example:
 
-      $ bao agent join \
+      $ bao relay join \
           -address=https://hub.example.com:8200 \
           -hub-addr=hub.example.com:50053 \
           -hub-cert-hash=sha256:abcdef... \
@@ -96,7 +96,7 @@ Usage: bao agent join [options]
 	return strings.TrimSpace(helpText)
 }
 
-func (c *AgentJoinCommand) Flags() *FlagSets {
+func (c *RelayJoinCommand) Flags() *FlagSets {
 	// FlagSetHTTP gives us -address, -ca-cert, -ca-path, -client-cert,
 	// -client-key, -tls-skip-verify, BAO_CACERT, BAO_ADDR, etc. so HTTPS to
 	// the hub bao API is verified the same way every other bao command
@@ -108,14 +108,14 @@ func (c *AgentJoinCommand) Flags() *FlagSets {
 	f.StringVar(&StringVar{
 		Name:    "mount",
 		Target:  &c.flagMount,
-		Default: "agent",
-		Usage:   "Mount path of the agent backend on the hub.",
+		Default: "relay",
+		Usage:   "Mount path of the relay backend on the hub.",
 	})
 	f.StringVar(&StringVar{
 		Name:    "token",
 		Target:  &c.flagToken,
 		Default: "",
-		Usage:   "Bootstrap token printed by `bao agent init` (id.secret).",
+		Usage:   "Bootstrap token printed by `bao relay init` (id.secret).",
 	})
 	f.StringVar(&StringVar{
 		Name:    "hub-addr",
@@ -161,10 +161,10 @@ func (c *AgentJoinCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentJoinCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentJoinCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayJoinCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayJoinCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentJoinCommand) Run(args []string) int {
+func (c *RelayJoinCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -188,7 +188,8 @@ func (c *AgentJoinCommand) Run(args []string) int {
 	} else if existing && !c.flagForce {
 		c.UI.Error(fmt.Sprintf(
 			"%s already contains spoke credentials. Pass -force to overwrite, or pick a different -credentials-dir.",
-			c.flagCredentialsDir))
+			c.flagCredentialsDir,
+		))
 		c.UI.Error("Two daemons sharing one credentials directory will be detected by the hub as the same spoke and kick each other off the Connect stream.")
 		return 1
 	}
@@ -277,7 +278,7 @@ func (c *AgentJoinCommand) Run(args []string) int {
 	c.UI.Output(fmt.Sprintf("Credentials written to %s", c.flagCredentialsDir))
 	c.UI.Output("")
 	c.UI.Output("Start the spoke daemon with:")
-	c.UI.Output(fmt.Sprintf("  bao agent run -server=%s -credentials-dir=%s",
+	c.UI.Output(fmt.Sprintf("  bao relay run -server=%s -credentials-dir=%s",
 		hubAddr, c.flagCredentialsDir))
 	return 0
 }
@@ -289,7 +290,7 @@ type clusterInfoResp struct {
 	Signature string `json:"signature"`
 }
 
-// fetchClusterInfo hits agent/cluster-info using the operator's standard
+// fetchClusterInfo hits relay/cluster-info using the operator's standard
 // OpenBao client. TLS is verified by api.Client per BAO_CACERT /
 // -tls-skip-verify; we deliberately don't override the transport here.
 //
@@ -394,7 +395,7 @@ func encodeECKey(k *ecdsa.PrivateKey) ([]byte, error) {
 }
 
 // existingSpokeCredentials reports whether dir already contains any of the
-// three files bao agent join writes. We treat 'any of them present' as
+// three files bao relay join writes. We treat 'any of them present' as
 // 'this dir is in use'; an operator who reset only part of it should clean
 // the rest up before re-joining.
 //

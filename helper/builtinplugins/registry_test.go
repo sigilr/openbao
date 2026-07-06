@@ -91,7 +91,7 @@ func Test_RegistryKeyCounts(t *testing.T) {
 		{
 			name:       "number of secrets plugins",
 			pluginType: consts.PluginTypeSecrets,
-			want:       10, // 9 base + agent (hub-and-spoke trust bootstrap)
+			want:       10, // 9 base + relay (hub-and-spoke trust bootstrap)
 		},
 	}
 	for _, tt := range tests {

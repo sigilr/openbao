@@ -40,9 +40,9 @@ const (
 	// proxy port.
 	HubCertOrganization = "openbao-hub"
 
-	// MsgCAAlreadyInitialized is the canonical prefix the agent backend
+	// MsgCAAlreadyInitialized is the canonical prefix the relay backend
 	// returns when ca/init is called without force on an already-initialized
-	// mount. Both the backend and the CLI (`bao agent init` idempotence
+	// mount. Both the backend and the CLI (`bao relay init` idempotence
 	// check) reference this constant so the CLI does not pattern-match
 	// against a free-floating string literal.
 	MsgCAAlreadyInitialized = "CA already initialized"
@@ -319,7 +319,7 @@ func decodeSinglePEM(data []byte, expectedTypes ...string) (*pem.Block, error) {
 // types. Uses the same strict single-block decode as the rest of the
 // package, so trailing data or block-type substitution is rejected outright.
 //
-// Shared between agent/sign-csr (the unauthenticated bootstrap path) and
+// Shared between relay/sign-csr (the unauthenticated bootstrap path) and
 // proxy.RenewCert (the mTLS-authenticated renewal RPC) so both entry points
 // stay aligned on what counts as a valid CSR envelope.
 func DecodeCSRPEM(csrPEM []byte) ([]byte, error) {

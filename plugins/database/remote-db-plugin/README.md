@@ -7,7 +7,7 @@ SPDX-License-Identifier: MPL-2.0
 
 A hub-and-spoke deployment of OpenBao's database secrets engine. One OpenBao
 instance (**the hub**) brokers credential operations over mTLS gRPC to one or
-more `bao agent run` daemons (**the spokes**) that run the actual built-in
+more `bao relay run` daemons (**the spokes**) that run the actual built-in
 database plugins in-process against locally-reachable databases.
 
 See [DESIGN.md](DESIGN.md) for the architecture, wire protocol, trust
@@ -23,15 +23,15 @@ the operator quick start.
 
 # 1. Initialize the hub: spoke-CA, hub TLS identity, bootstrap token, and
 #    the proxy gRPC listener (on the port you advertise to spokes).
-$ bao agent init \
+$ bao relay init \
     -hub-endpoint=hub.example.com:50053 \
     -hub-dns-sans=hub.example.com \
     -allowed-spoke-name=spoke-1 \
     -token-ttl=1h
 
-# `bao agent init` prints a ready-to-paste join command, for example:
+# `bao relay init` prints a ready-to-paste join command, for example:
 #
-#   bao agent join \
+#   bao relay join \
 #       -hub-addr=hub.example.com:50053 \
 #       -hub-cert-hash=sha256:abcd... \
 #       -token=a6b2fa.fd41cda24adcb696 \
@@ -40,7 +40,7 @@ $ bao agent init \
 # --- on each spoke --------------------------------------------------------
 
 # 2. Exchange the bootstrap token for a long-lived mTLS client cert.
-$ bao agent join \
+$ bao relay join \
     -address=https://hub.example.com:8200 \
     -hub-addr=hub.example.com:50053 \
     -hub-cert-hash=sha256:abcd... \
@@ -49,14 +49,14 @@ $ bao agent join \
     -credentials-dir=/etc/openbao-spoke
 
 # 3. Run the spoke daemon (long-running).
-$ bao agent run \
+$ bao relay run \
     -server=hub.example.com:50053 \
     -credentials-dir=/etc/openbao-spoke
 
 # --- on the hub, day-2 ----------------------------------------------------
 
 # 4. Confirm the spoke is connected and healthy.
-$ bao agent list
+$ bao relay list
 Listener: :50053
 Connected: 1 total, 1 healthy (stale after 45s)
 
@@ -85,17 +85,17 @@ $ bao read database/creds/readonly
 
 | Command | Side | What it does |
 | --- | --- | --- |
-| `bao agent init` | hub | Generate the spoke-CA + hub TLS cert, create a bootstrap token, start the proxy gRPC listener, print the join command. |
-| `bao agent join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. Refuses to overwrite an existing directory without `-force`. |
-| `bao agent run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, auto-renews its own cert, and evicts idle cached plugin instances. |
-| `bao agent renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
-| `bao agent list` | hub | Connected spokes with last-seen, health, and client-cert expiry (`CERT EXP`). `bao read agent/spokes` exposes the same as `cert_not_after` (Unix seconds) per spoke. |
-| `bao agent ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. Honors `-format=json|yaml` for machine consumption. |
-| `bao agent ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
-| `bao write agent/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. `hub_dns_sans` / `hub_ip_sans` accept either a comma-separated value or repeated key=value pairs. Bound listener port can't change here. |
-| `bao agent token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. Prints a prominent stderr warning that the token is shown only once. |
-| `bao agent token list` | hub | Outstanding bootstrap tokens with expiry. |
-| `bao agent token revoke` | hub | Revoke by token id. |
+| `bao relay init` | hub | Generate the spoke-CA + hub TLS cert, create a bootstrap token, start the proxy gRPC listener, print the join command. |
+| `bao relay join` | spoke | Fetch + JWS-verify cluster-info, pin the CA via SPKI hash, exchange the token for a client cert. Writes credentials to `-credentials-dir`. Refuses to overwrite an existing directory without `-force`. |
+| `bao relay run` | spoke | Long-running daemon. Connects to the hub with mTLS, serves DB plugin requests in-process, auto-renews its own cert, and evicts idle cached plugin instances. |
+| `bao relay renew` | spoke | One-shot manual renewal. Reuses the existing cert to authenticate. |
+| `bao relay list` | hub | Connected spokes with last-seen, health, and client-cert expiry (`CERT EXP`). `bao read relay/spokes` exposes the same as `cert_not_after` (Unix seconds) per spoke. |
+| `bao relay ca status` | hub | CA + hub cert metadata: subjects, expiry (with relative time), SANs, listener port. Honors `-format=json|yaml` for machine consumption. |
+| `bao relay ca rotate` | hub | Default: re-issue the hub TLS cert from the existing CA (transparent to spokes). With `-full -yes`: rotate the CA itself (every spoke must re-join). |
+| `bao write relay/ca/update-endpoint` | hub | Change advertised endpoint or hub TLS SANs without rotating the CA. `hub_dns_sans` / `hub_ip_sans` accept either a comma-separated value or repeated key=value pairs. Bound listener port can't change here. |
+| `bao relay token create` | hub | Issue a fresh bootstrap token; honors `-ttl`, `-allowed-spoke-name`. Prints a prominent stderr warning that the token is shown only once. |
+| `bao relay token list` | hub | Outstanding bootstrap tokens with expiry. |
+| `bao relay token revoke` | hub | Revoke by token id. |
 
 ## Supported databases
 
@@ -116,8 +116,8 @@ in-process on the spoke.
 
 | Binary | Role | Location |
 | --- | --- | --- |
-| `bao` | OpenBao server + the `bao agent ...` CLI subtree | Hub cluster |
-| `bao agent run` | The long-running spoke daemon (same `bao` binary, different subcommand) | Spoke cluster |
+| `bao` | OpenBao server + the `bao relay ...` CLI subtree | Hub cluster |
+| `bao relay run` | The long-running spoke daemon (same `bao` binary, different subcommand) | Spoke cluster |
 
 Operators only install one binary everywhere.
 
@@ -142,8 +142,8 @@ plugins/database/remote-db-plugin/
 └── README.md              # This file
 ```
 
-The CLI lives under `command/agent_*.go` and the `agent/` logical backend
-lives under `builtin/logical/agent/`.
+The CLI lives under `command/relay_*.go` and the `relay/` logical backend
+lives under `builtin/logical/relay/`.
 
 ## Security
 
@@ -152,7 +152,7 @@ The trust bootstrap is a port of kubeadm's discovery flow. See
 
 - **mTLS** between hub and spoke, **TLS 1.3 floor** on both sides. Spoke
   identity comes from the verified client cert CN, not from any wire field.
-  `bao agent run` verifies its local cert chains to the bundled `ca.pem`
+  `bao relay run` verifies its local cert chains to the bundled `ca.pem`
   at startup — a half-rotated credentials directory fails fast with a
   clear error instead of an opaque TLS handshake later — mirroring the
   hub's chain-check on `SetIdentity`.
@@ -165,28 +165,28 @@ The trust bootstrap is a port of kubeadm's discovery flow. See
   a placeholder when the id is unknown, so "unknown id" pays the same HMAC
   cost as "wrong secret" — closing a timing oracle that would otherwise
   let a valid-token holder enumerate live ids.
-- **CA-cert SPKI pin** is printed by `bao agent init` and verified by
-  `bao agent join` with a constant-time compare — defense in depth on top
+- **CA-cert SPKI pin** is printed by `bao relay init` and verified by
+  `bao relay join` with a constant-time compare — defense in depth on top
   of the JWS check.
 - **Strict CSR validation** on both initial-issue and renew: ECDSA or RSA
   ≥ 2048 only, no SANs, no extra X.509 extensions, reserved CNs
   (`openbao-hub`, `openbao-spoke-ca`) refused.
 - **gRPC HTTP/2 keepalive + app-level heartbeats** so a wedged spoke is
-  detected within ~45s; `bao agent list` surfaces both.
-- **Graceful shutdown**: `bao agent run` on SIGINT/SIGTERM drains in-flight
+  detected within ~45s; `bao relay list` surfaces both.
+- **Graceful shutdown**: `bao relay run` on SIGINT/SIGTERM drains in-flight
   workers, cancels timers, flushes the send channel, and closes every
   cached DB connection cleanly before exiting.
 
 ## Status & known limitations
 
-- Spoke certs renew automatically: `bao agent run` ticks every
+- Spoke certs renew automatically: `bao relay run` ticks every
   `-renew-check-every` (default 1h) and submits a new CSR via the existing
   mTLS connection when the cert is past `-renew-threshold` (default 0.5).
-  Operators can also force `bao agent renew` directly. The hub rejects any
+  Operators can also force `bao relay renew` directly. The hub rejects any
   CSR whose CN does not match the calling spoke's peer-cert CN, so renewal
   cannot rebind to a different identity. The hub records each spoke's current
   client-cert `NotAfter` (captured at connect, refreshed in place on renewal)
-  and exposes it via `bao agent list` / `agent/spokes` `cert_not_after`.
+  and exposes it via `bao relay list` / `relay/spokes` `cert_not_after`.
 - See DESIGN.md "Failure modes" for the rest.
 
 ## License

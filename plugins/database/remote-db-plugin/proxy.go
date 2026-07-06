@@ -48,14 +48,14 @@ const (
 	// long creation_statements / revocation_statements lists can comfortably
 	// fit under the default, but combined with verbose error messages and
 	// large CSR/cert PEMs flowing through Connect, headroom is cheap. Apply
-	// symmetrically on the server (proxy.go) and the client (agent_run.go,
-	// agent_renew.go) so neither side bottlenecks the other.
+	// symmetrically on the server (proxy.go) and the client (relay_run.go,
+	// relay_renew.go) so neither side bottlenecks the other.
 	MaxMessageBytes = 16 * 1024 * 1024
 )
 
 // proxyServer is the singleton gRPC server that brokers requests between the
 // hub and spoke-agents. It is started exactly once by StartProxyServer, which
-// is called from the agent backend (on `agent/ca/init` and on backend
+// is called from the relay backend (on `relay/ca/init` and on backend
 // hydration after a restart). Database mounts no longer touch its lifecycle.
 type proxyServer struct {
 	agentproto.UnimplementedAgentServiceServer
@@ -85,7 +85,7 @@ type spokeConnection struct {
 	// already select on `<-conn.done` to bail out cleanly; the sender
 	// goroutine returns on the same signal. The channel itself is GCd when
 	// the last waiter releases the spokeConnection. (The spoke side closes
-	// its sendCh because every sender is scoped to bao agent run's Run()
+	// its sendCh because every sender is scoped to bao relay run's Run()
 	// and has already been torn down by the time the defer fires.)
 	sendCh chan *agentproto.AgentMessage
 	// done is closed when the Connect handler returns (stream broke or the
@@ -211,7 +211,7 @@ func StartProxyServer(port int) error {
 		return fmt.Errorf("invalid port %d", port)
 	}
 	if !bootstrap.Global().Ready() {
-		return fmt.Errorf("hub identity not initialized; run `bao agent init` first")
+		return fmt.Errorf("hub identity not initialized; run `bao relay init` first")
 	}
 
 	proxyServerLifecycleMu.Lock()
@@ -436,8 +436,8 @@ func spokeNameFromPeer(ctx context.Context) (string, error) {
 const RenewCertMaxTTL = 90 * 24 * time.Hour
 
 // RenewCertDefaultTTL is what we sign for when the spoke requests 0. Kept
-// equal to the initial bao agent join cert validity so the default renewal
-// cadence (bao agent run -renew-threshold=0.5) lines up with operators'
+// equal to the initial bao relay join cert validity so the default renewal
+// cadence (bao relay run -renew-threshold=0.5) lines up with operators'
 // expectations.
 const RenewCertDefaultTTL = 30 * 24 * time.Hour
 
@@ -499,7 +499,7 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 
 	// Renewal happens in place over the live stream — the spoke does not
 	// reconnect — so refresh the connection's recorded expiry from the cert we
-	// just signed. Otherwise `agent/spokes` would keep reporting the old
+	// just signed. Otherwise `relay/spokes` would keep reporting the old
 	// NotAfter until the spoke happens to reconnect. Best-effort: if the spoke
 	// has no live connection or the cert fails to parse, leave the old value.
 	if newNotAfter, perr := certNotAfterFromPEM(certPEM); perr == nil {
@@ -647,7 +647,7 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 
 	if ProxyServerPort() == 0 {
 		return dbplugin.InitializeResponse{}, fmt.Errorf(
-			"proxy listener not running; run `bao agent init` on the hub before configuring database mounts",
+			"proxy listener not running; run `bao relay init` on the hub before configuring database mounts",
 		)
 	}
 
@@ -719,14 +719,14 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 
 // ProxyServerPort returns the port the proxy is bound to, or 0 if not started.
 // Used by PluginProxy.Initialize to fail fast when the operator forgot to run
-// `bao agent init`.
+// `bao relay init`.
 func ProxyServerPort() int {
 	proxyServerLifecycleMu.Lock()
 	defer proxyServerLifecycleMu.Unlock()
 	return proxyServerStartedPort
 }
 
-// SpokeStatus is the health snapshot used by `bao agent list`.
+// SpokeStatus is the health snapshot used by `bao relay list`.
 type SpokeStatus struct {
 	Name        string
 	ConnectedAt time.Time
@@ -911,7 +911,7 @@ func (p *PluginProxy) getPluginConfig() map[string]interface{} {
 	pluginConfig := make(map[string]interface{}, len(p.config))
 	for k, v := range p.config {
 		switch k {
-		case "spoke_name", "agent_port", proxyInstanceIDKey:
+		case "spoke_name", "relay_port", proxyInstanceIDKey:
 			continue
 		}
 		pluginConfig[k] = v

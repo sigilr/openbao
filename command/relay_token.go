@@ -33,23 +33,23 @@ func asUnix(v interface{}) int64 {
 	return 0
 }
 
-// --- bao agent token (parent) -----------------------------------------------
+// --- bao relay token (parent) -----------------------------------------------
 
-type AgentTokenCommand struct {
+type RelayTokenCommand struct {
 	*BaseCommand
 }
 
-var _ cli.Command = (*AgentTokenCommand)(nil)
+var _ cli.Command = (*RelayTokenCommand)(nil)
 
-func (c *AgentTokenCommand) Synopsis() string {
+func (c *RelayTokenCommand) Synopsis() string {
 	return "Manage bootstrap tokens for spoke joins"
 }
 
-func (c *AgentTokenCommand) Help() string {
+func (c *RelayTokenCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent token <subcommand> [options]
+Usage: bao relay token <subcommand> [options]
 
-  Manage bootstrap tokens stored at the agent/ backend.
+  Manage bootstrap tokens stored at the relay/ backend.
 
 Subcommands:
   create   Create a bootstrap token
@@ -59,13 +59,13 @@ Subcommands:
 `)
 }
 
-func (c *AgentTokenCommand) Run(args []string) int {
+func (c *RelayTokenCommand) Run(args []string) int {
 	return cli.RunResultHelp
 }
 
-// --- bao agent token create -------------------------------------------------
+// --- bao relay token create -------------------------------------------------
 
-type AgentTokenCreateCommand struct {
+type RelayTokenCreateCommand struct {
 	*BaseCommand
 
 	flagMount        string
@@ -75,27 +75,27 @@ type AgentTokenCreateCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentTokenCreateCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentTokenCreateCommand)(nil)
+	_ cli.Command             = (*RelayTokenCreateCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayTokenCreateCommand)(nil)
 )
 
-func (c *AgentTokenCreateCommand) Synopsis() string { return "Create a bootstrap token" }
-func (c *AgentTokenCreateCommand) Help() string {
+func (c *RelayTokenCreateCommand) Synopsis() string { return "Create a bootstrap token" }
+func (c *RelayTokenCreateCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent token create [options]
+Usage: bao relay token create [options]
 
-  Creates a bootstrap token at the agent/ backend and prints it. The token is
+  Creates a bootstrap token at the relay/ backend and prints it. The token is
   shown only once.
 
 ` + c.Flags().Help())
 }
 
-func (c *AgentTokenCreateCommand) Flags() *FlagSets {
+func (c *RelayTokenCreateCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	f.StringVar(&StringVar{
 		Name: "ttl", Target: &c.flagTTL, Default: "24h",
@@ -115,10 +115,10 @@ func (c *AgentTokenCreateCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentTokenCreateCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentTokenCreateCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayTokenCreateCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayTokenCreateCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentTokenCreateCommand) Run(args []string) int {
+func (c *RelayTokenCreateCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -167,43 +167,43 @@ func (c *AgentTokenCreateCommand) Run(args []string) int {
 	return 0
 }
 
-// --- bao agent token list ---------------------------------------------------
+// --- bao relay token list ---------------------------------------------------
 
-type AgentTokenListCommand struct {
+type RelayTokenListCommand struct {
 	*BaseCommand
 
 	flagMount string
 }
 
 var (
-	_ cli.Command             = (*AgentTokenListCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentTokenListCommand)(nil)
+	_ cli.Command             = (*RelayTokenListCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayTokenListCommand)(nil)
 )
 
-func (c *AgentTokenListCommand) Synopsis() string { return "List bootstrap tokens" }
-func (c *AgentTokenListCommand) Help() string {
+func (c *RelayTokenListCommand) Synopsis() string { return "List bootstrap tokens" }
+func (c *RelayTokenListCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent token list [options]
+Usage: bao relay token list [options]
 
   Lists outstanding bootstrap token ids and their metadata.
 
 ` + c.Flags().Help())
 }
 
-func (c *AgentTokenListCommand) Flags() *FlagSets {
+func (c *RelayTokenListCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	return set
 }
 
-func (c *AgentTokenListCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentTokenListCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayTokenListCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayTokenListCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentTokenListCommand) Run(args []string) int {
+func (c *RelayTokenListCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -251,44 +251,44 @@ func (c *AgentTokenListCommand) Run(args []string) int {
 	return 0
 }
 
-// --- bao agent token revoke -------------------------------------------------
+// --- bao relay token revoke -------------------------------------------------
 
-type AgentTokenRevokeCommand struct {
+type RelayTokenRevokeCommand struct {
 	*BaseCommand
 
 	flagMount string
 }
 
 var (
-	_ cli.Command             = (*AgentTokenRevokeCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentTokenRevokeCommand)(nil)
+	_ cli.Command             = (*RelayTokenRevokeCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayTokenRevokeCommand)(nil)
 )
 
-func (c *AgentTokenRevokeCommand) Synopsis() string { return "Revoke a bootstrap token by id" }
-func (c *AgentTokenRevokeCommand) Help() string {
+func (c *RelayTokenRevokeCommand) Synopsis() string { return "Revoke a bootstrap token by id" }
+func (c *RelayTokenRevokeCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent token revoke [options] TOKEN_ID
+Usage: bao relay token revoke [options] TOKEN_ID
 
   Revokes a bootstrap token. TOKEN_ID is the 6-character id printed by
-  'bao agent token create' (the part before the dot).
+  'bao relay token create' (the part before the dot).
 
 ` + c.Flags().Help())
 }
 
-func (c *AgentTokenRevokeCommand) Flags() *FlagSets {
+func (c *RelayTokenRevokeCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	return set
 }
 
-func (c *AgentTokenRevokeCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentTokenRevokeCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayTokenRevokeCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayTokenRevokeCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentTokenRevokeCommand) Run(args []string) int {
+func (c *RelayTokenRevokeCommand) Run(args []string) int {
 	f := c.Flags()
 	if err := f.Parse(args); err != nil {
 		c.UI.Error(err.Error())
@@ -296,7 +296,7 @@ func (c *AgentTokenRevokeCommand) Run(args []string) int {
 	}
 	rest := f.Args()
 	if len(rest) != 1 {
-		c.UI.Error("Usage: bao agent token revoke TOKEN_ID")
+		c.UI.Error("Usage: bao relay token revoke TOKEN_ID")
 		return 1
 	}
 	id := rest[0]

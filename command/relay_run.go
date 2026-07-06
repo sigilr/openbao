@@ -28,17 +28,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// AgentRunCommand is the long-running spoke daemon. It connects to the hub's
-// gRPC proxy port using mTLS (with credentials produced by `bao agent join`),
+// RelayRunCommand is the long-running spoke daemon. It connects to the hub's
+// gRPC proxy port using mTLS (with credentials produced by `bao relay join`),
 // dispatches inbound requests to a long-lived in-process plugin runner, and
 // sends periodic heartbeats so the hub can mark the spoke healthy in
-// `bao agent list`.
+// `bao relay list`.
 //
 // The certificate's Common Name is the spoke's authoritative identity; the
 // hub reads it off the verified peer cert. Concurrent in-flight requests are
 // matched to responses via the AgentMessage.RequestId field and dispatched on
 // independent goroutines so a slow plugin call never blocks others.
-type AgentRunCommand struct {
+type RelayRunCommand struct {
 	*BaseCommand
 
 	flagServer            string
@@ -51,31 +51,31 @@ type AgentRunCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentRunCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentRunCommand)(nil)
+	_ cli.Command             = (*RelayRunCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayRunCommand)(nil)
 )
 
-func (c *AgentRunCommand) Synopsis() string {
+func (c *RelayRunCommand) Synopsis() string {
 	return "Run the spoke daemon (connects to a hub and serves DB plugin requests)"
 }
 
-func (c *AgentRunCommand) Help() string {
+func (c *RelayRunCommand) Help() string {
 	helpText := `
-Usage: bao agent run [options]
+Usage: bao relay run [options]
 
   Long-running spoke daemon. Connects to a hub OpenBao's proxy gRPC port
-  using the credentials produced by 'bao agent join', then serves database
+  using the credentials produced by 'bao relay join', then serves database
   plugin requests in-process against locally-reachable databases.
 
   The credentials directory must contain:
 
-      cert.pem    client cert issued by 'bao agent join'
+      cert.pem    client cert issued by 'bao relay join'
       key.pem     matching private key
       ca.pem      spoke-CA root used to verify the hub
 
   Example:
 
-      $ bao agent run \
+      $ bao relay run \
           -server=hub.example.com:50053 \
           -credentials-dir=/etc/openbao-spoke
 
@@ -83,7 +83,7 @@ Usage: bao agent run [options]
 	return strings.TrimSpace(helpText)
 }
 
-func (c *AgentRunCommand) Flags() *FlagSets {
+func (c *RelayRunCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetNone)
 	f := set.NewFlagSet("Command Options")
 
@@ -132,10 +132,10 @@ func (c *AgentRunCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentRunCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentRunCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayRunCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayRunCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentRunCommand) Run(args []string) int {
+func (c *RelayRunCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -460,15 +460,15 @@ func loadSpokeTLS(credsDir, serverName, serverAddr string) (*tls.Config, error) 
 	// A credentials directory left half-rotated (cert.pem from a fresh join,
 	// ca.pem from the prior CA) would otherwise only surface as an opaque
 	// TLS handshake error at the first gRPC dial — long after the operator
-	// has left the terminal. Catch it here so `bao agent run` (and `bao
-	// agent renew`) fail at startup with a clear cause. Mirrors the
+	// has left the terminal. Catch it here so `bao relay run` (and `bao
+	// relay renew`) fail at startup with a clear cause. Mirrors the
 	// hub-side check in bootstrap/state.go SetIdentity.
 	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		// The underlying err from x509.Verify already names the specific
 		// cause (expired, not yet valid, KU mismatch, unknown authority).
 		// Wrap with where to look, not a guess at why — "does not chain"
 		// reads as "your ca.pem is wrong" even when the actual problem is
-		// "your cert.pem expired, run bao agent join again".
+		// "your cert.pem expired, run bao relay join again".
 		return nil, fmt.Errorf("spoke cert in %s failed verification: %w", credsDir, err)
 	}
 

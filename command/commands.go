@@ -199,41 +199,41 @@ func initCommands(ui, serverCmdUi cli.Ui, runOpts *RunOptions) map[string]cli.Co
 				BaseCommand: getBaseCommand(),
 			}, nil
 		},
-		"agent init": func() (cli.Command, error) {
-			return &AgentInitCommand{BaseCommand: getBaseCommand()}, nil
+		"relay init": func() (cli.Command, error) {
+			return &RelayInitCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent join": func() (cli.Command, error) {
-			return &AgentJoinCommand{BaseCommand: getBaseCommand()}, nil
+		"relay join": func() (cli.Command, error) {
+			return &RelayJoinCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent list": func() (cli.Command, error) {
-			return &AgentListCommand{BaseCommand: getBaseCommand()}, nil
+		"relay list": func() (cli.Command, error) {
+			return &RelayListCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent run": func() (cli.Command, error) {
-			return &AgentRunCommand{BaseCommand: getBaseCommand()}, nil
+		"relay run": func() (cli.Command, error) {
+			return &RelayRunCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent renew": func() (cli.Command, error) {
-			return &AgentRenewCommand{BaseCommand: getBaseCommand()}, nil
+		"relay renew": func() (cli.Command, error) {
+			return &RelayRenewCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent ca": func() (cli.Command, error) {
-			return &AgentCACommand{BaseCommand: getBaseCommand()}, nil
+		"relay ca": func() (cli.Command, error) {
+			return &RelayCACommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent ca status": func() (cli.Command, error) {
-			return &AgentCAStatusCommand{BaseCommand: getBaseCommand()}, nil
+		"relay ca status": func() (cli.Command, error) {
+			return &RelayCAStatusCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent ca rotate": func() (cli.Command, error) {
-			return &AgentCARotateCommand{BaseCommand: getBaseCommand()}, nil
+		"relay ca rotate": func() (cli.Command, error) {
+			return &RelayCARotateCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent token": func() (cli.Command, error) {
-			return &AgentTokenCommand{BaseCommand: getBaseCommand()}, nil
+		"relay token": func() (cli.Command, error) {
+			return &RelayTokenCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent token create": func() (cli.Command, error) {
-			return &AgentTokenCreateCommand{BaseCommand: getBaseCommand()}, nil
+		"relay token create": func() (cli.Command, error) {
+			return &RelayTokenCreateCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent token list": func() (cli.Command, error) {
-			return &AgentTokenListCommand{BaseCommand: getBaseCommand()}, nil
+		"relay token list": func() (cli.Command, error) {
+			return &RelayTokenListCommand{BaseCommand: getBaseCommand()}, nil
 		},
-		"agent token revoke": func() (cli.Command, error) {
-			return &AgentTokenRevokeCommand{BaseCommand: getBaseCommand()}, nil
+		"relay token revoke": func() (cli.Command, error) {
+			return &RelayTokenRevokeCommand{BaseCommand: getBaseCommand()}, nil
 		},
 		"audit": func() (cli.Command, error) {
 			return &AuditCommand{

@@ -26,13 +26,13 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// AgentRenewCommand performs a one-shot renewal of the spoke's mTLS client
+// RelayRenewCommand performs a one-shot renewal of the spoke's mTLS client
 // cert. Uses the existing cert in -credentials-dir to authenticate to the
 // hub's RenewCert RPC, then atomically replaces cert.pem and key.pem in
-// place. Safe to run while `bao agent run` is up — the live gRPC connection
+// place. Safe to run while `bao relay run` is up — the live gRPC connection
 // keeps the old cert until it reconnects, at which point the renewed cert is
 // used.
-type AgentRenewCommand struct {
+type RelayRenewCommand struct {
 	*BaseCommand
 
 	flagServer         string
@@ -42,17 +42,17 @@ type AgentRenewCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentRenewCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentRenewCommand)(nil)
+	_ cli.Command             = (*RelayRenewCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayRenewCommand)(nil)
 )
 
-func (c *AgentRenewCommand) Synopsis() string {
+func (c *RelayRenewCommand) Synopsis() string {
 	return "Renew the spoke's mTLS client cert via the existing cert"
 }
 
-func (c *AgentRenewCommand) Help() string {
+func (c *RelayRenewCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent renew [options]
+Usage: bao relay renew [options]
 
   Renews the spoke's mTLS client cert without a fresh bootstrap token. The
   existing cert in -credentials-dir authenticates the call; the hub signs
@@ -61,13 +61,13 @@ Usage: bao agent renew [options]
   The renewed cert is written atomically over cert.pem and key.pem. ca.pem
   is left untouched.
 
-  Pair with cron, systemd timers, or just let 'bao agent run' renew
+  Pair with cron, systemd timers, or just let 'bao relay run' renew
   automatically (see its -renew-* flags).
 
 ` + c.Flags().Help())
 }
 
-func (c *AgentRenewCommand) Flags() *FlagSets {
+func (c *RelayRenewCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetNone)
 	f := set.NewFlagSet("Command Options")
 
@@ -98,10 +98,10 @@ func (c *AgentRenewCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentRenewCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentRenewCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayRenewCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayRenewCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentRenewCommand) Run(args []string) int {
+func (c *RelayRenewCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -123,7 +123,7 @@ func (c *AgentRenewCommand) Run(args []string) int {
 	return 0
 }
 
-// --- Shared helper (also used by `bao agent run`'s auto-renew goroutine) ----
+// --- Shared helper (also used by `bao relay run`'s auto-renew goroutine) ----
 
 // RenewSpokeCertInput configures one renewal call.
 type RenewSpokeCertInput struct {
@@ -158,7 +158,8 @@ func RenewSpokeCert(ctx context.Context, in RenewSpokeCertInput) (*RenewSpokeCer
 		return nil, fmt.Errorf("generate CSR: %w", err)
 	}
 
-	conn, err := grpc.NewClient(in.Server,
+	conn, err := grpc.NewClient(
+		in.Server,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(remotedb.MaxMessageBytes),
@@ -241,7 +242,7 @@ func parseFirstCert(certPEM []byte) (*x509.Certificate, error) {
 //
 // Without the directory sync, a clean reboot between the cert rename and the
 // key rename leaves the disk with (new cert, old key); tls.LoadX509KeyPair
-// at next start would fail until the operator re-ran agent renew. With the
+// at next start would fail until the operator re-ran relay renew. With the
 // sync, the worst-case observable state on recovery is (new cert, old key)
 // — which fails the LoadX509KeyPair signature check loudly so the caller
 // retries — or the fully-committed (new cert, new key).
@@ -322,6 +323,6 @@ func PastRenewalThreshold(notBefore, notAfter time.Time, threshold float64, now 
 	return !now.Before(cutoff)
 }
 
-// loadSpokeTLS is reused from agent_run.go. Marker comment so the file is
+// loadSpokeTLS is reused from relay_run.go. Marker comment so the file is
 // self-contained when read in isolation.
 var _ = tls.LoadX509KeyPair

@@ -14,12 +14,12 @@ import (
 	credLdap "github.com/openbao/openbao/builtin/credential/ldap"
 	credRadius "github.com/openbao/openbao/builtin/credential/radius"
 	credUserpass "github.com/openbao/openbao/builtin/credential/userpass"
-	logicalAgent "github.com/openbao/openbao/builtin/logical/agent"
 	logicalKube "github.com/openbao/openbao/builtin/logical/kubernetes"
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 	logicalLDAP "github.com/openbao/openbao/builtin/logical/openldap"
 	logicalPki "github.com/openbao/openbao/builtin/logical/pki"
 	logicalRabbit "github.com/openbao/openbao/builtin/logical/rabbitmq"
+	logicalRelay "github.com/openbao/openbao/builtin/logical/relay"
 	logicalSsh "github.com/openbao/openbao/builtin/logical/ssh"
 	logicalTotp "github.com/openbao/openbao/builtin/logical/totp"
 	logicalTransit "github.com/openbao/openbao/builtin/logical/transit"
@@ -93,13 +93,13 @@ func newRegistry() *registry {
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
-			"agent":      {Factory: logicalAgent.Factory},
 			"kubernetes": {Factory: logicalKube.Factory},
 			"kv":         {Factory: logicalKv.Factory},
 			"openldap":   {Factory: logicalLDAP.Factory},
 			"ldap":       {Factory: logicalLDAP.Factory},
 			"pki":        {Factory: logicalPki.Factory},
 			"rabbitmq":   {Factory: logicalRabbit.Factory},
+			"relay":      {Factory: logicalRelay.Factory},
 			"ssh":        {Factory: logicalSsh.Factory},
 			"totp":       {Factory: logicalTotp.Factory},
 			"transit":    {Factory: logicalTransit.Factory},

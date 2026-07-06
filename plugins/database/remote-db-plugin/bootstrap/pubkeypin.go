@@ -31,7 +31,7 @@ func HashCert(cert *x509.Certificate) string {
 //
 // The byte compare is constant-time. The hash itself isn't a secret, but
 // pin verification runs against attacker-controlled `pin` values during
-// `bao agent join` — a string `!=` compare leaks which prefix bytes
+// `bao relay join` — a string `!=` compare leaks which prefix bytes
 // matched, letting a malicious cluster-info server grind a colliding pin
 // one byte at a time. The error returned to callers is generic; the
 // computed hash (which would hand the grinder the answer outright) is

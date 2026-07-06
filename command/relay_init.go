@@ -14,10 +14,10 @@ import (
 	"github.com/posener/complete"
 )
 
-// AgentInitCommand initializes the hub's trust-bootstrap state and prints the
-// `bao agent join` invocation to run on each spoke. This is the kubeadm-style
+// RelayInitCommand initializes the hub's trust-bootstrap state and prints the
+// `bao relay join` invocation to run on each spoke. This is the kubeadm-style
 // counterpart to `kubeadm init`.
-type AgentInitCommand struct {
+type RelayInitCommand struct {
 	*BaseCommand
 
 	flagMount         string
@@ -32,33 +32,33 @@ type AgentInitCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentInitCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentInitCommand)(nil)
+	_ cli.Command             = (*RelayInitCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayInitCommand)(nil)
 )
 
-func (c *AgentInitCommand) Synopsis() string {
+func (c *RelayInitCommand) Synopsis() string {
 	return "Initialize the hub for spoke joins and print a join command"
 }
 
-func (c *AgentInitCommand) Help() string {
+func (c *RelayInitCommand) Help() string {
 	helpText := `
-Usage: bao agent init [options]
+Usage: bao relay init [options]
 
   Initializes the hub side of the OpenBao hub-and-spoke remote database plugin.
   This command:
 
-    1. Mounts the 'agent/' backend if it is not already mounted.
+    1. Mounts the 'relay/' backend if it is not already mounted.
     2. Generates a self-signed spoke certificate authority and a hub TLS cert
        (unless already initialized; pass -force to regenerate).
     3. Creates a short-lived bootstrap token.
-    4. Prints a 'bao agent join' command to run on each spoke.
+    4. Prints a 'bao relay join' command to run on each spoke.
 
   The hub TLS cert is presented by the proxy gRPC listener. Spokes verify it
   using the SPKI pin printed in the join command.
 
   Example:
 
-      $ bao agent init \
+      $ bao relay init \
           -hub-endpoint=hub.example.com:50053 \
           -hub-dns-sans=hub.example.com \
           -allowed-spoke-name=spoke-1
@@ -67,15 +67,15 @@ Usage: bao agent init [options]
 	return strings.TrimSpace(helpText)
 }
 
-func (c *AgentInitCommand) Flags() *FlagSets {
+func (c *RelayInitCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 
 	f.StringVar(&StringVar{
 		Name:    "mount",
 		Target:  &c.flagMount,
-		Default: "agent",
-		Usage:   "Mount path of the agent backend.",
+		Default: "relay",
+		Usage:   "Mount path of the relay backend.",
 	})
 	f.StringVar(&StringVar{
 		Name:    "hub-endpoint",
@@ -131,10 +131,10 @@ func (c *AgentInitCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentInitCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentInitCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayInitCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayInitCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentInitCommand) Run(args []string) int {
+func (c *RelayInitCommand) Run(args []string) int {
 	f := c.Flags()
 	if err := f.Parse(args); err != nil {
 		c.UI.Error(err.Error())
@@ -154,7 +154,7 @@ func (c *AgentInitCommand) Run(args []string) int {
 	mount := strings.TrimSuffix(c.flagMount, "/")
 
 	if !c.flagPrintJoinOnly {
-		if err := ensureAgentMount(client, mount); err != nil {
+		if err := ensureRelayMount(client, mount); err != nil {
 			c.UI.Error(fmt.Sprintf("Mounting %s/: %s", mount, err))
 			return 2
 		}
@@ -177,7 +177,7 @@ func (c *AgentInitCommand) Run(args []string) int {
 	c.UI.Output("Hub initialized. Run the following on each spoke:")
 	c.UI.Output("")
 	c.UI.Output(fmt.Sprintf("  BAO_ADDR=%s \\", client.Address()))
-	c.UI.Output("  bao agent join \\")
+	c.UI.Output("  bao relay join \\")
 	c.UI.Output(fmt.Sprintf("      -hub-addr=%s \\", hubEndpoint))
 	c.UI.Output(fmt.Sprintf("      -hub-cert-hash=%s \\", caHash))
 	c.UI.Output(fmt.Sprintf("      -token=%s \\", tokenData["token"]))
@@ -193,7 +193,7 @@ func (c *AgentInitCommand) Run(args []string) int {
 	return 0
 }
 
-func ensureAgentMount(client *api.Client, mount string) error {
+func ensureRelayMount(client *api.Client, mount string) error {
 	mounts, err := client.Sys().ListMounts()
 	if err != nil {
 		return err
@@ -202,12 +202,12 @@ func ensureAgentMount(client *api.Client, mount string) error {
 		return nil
 	}
 	return client.Sys().Mount(mount+"/", &api.MountInput{
-		Type:        "agent",
+		Type:        "relay",
 		Description: "OpenBao hub-and-spoke trust-bootstrap state",
 	})
 }
 
-func initOrFetchCA(client *api.Client, mount string, c *AgentInitCommand) (map[string]interface{}, error) {
+func initOrFetchCA(client *api.Client, mount string, c *RelayInitCommand) (map[string]interface{}, error) {
 	body := map[string]interface{}{
 		"hub_endpoint": c.flagHubEndpoint,
 		"force":        c.flagForce,
@@ -237,7 +237,7 @@ func initOrFetchCA(client *api.Client, mount string, c *AgentInitCommand) (map[s
 	return nil, err
 }
 
-func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand) (map[string]interface{}, []string, string, string, error) {
+func createBootstrapToken(client *api.Client, mount string, c *RelayInitCommand) (map[string]interface{}, []string, string, string, error) {
 	body := map[string]interface{}{
 		"ttl":         c.flagTokenTTL,
 		"description": c.flagDescription,
@@ -264,7 +264,7 @@ func createBootstrapToken(client *api.Client, mount string, c *AgentInitCommand)
 	return resp.Data, resp.Warnings, hubEndpoint, caHash, nil
 }
 
-// isAlreadyInitialized matches the canonical prefix the agent backend
+// isAlreadyInitialized matches the canonical prefix the relay backend
 // returns from ca/init when force is not set. The constant is exported by
 // the bootstrap package so the CLI and the backend reference the same
 // source of truth instead of pattern-matching a free-floating string. It is

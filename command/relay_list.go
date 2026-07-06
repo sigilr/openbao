@@ -12,26 +12,26 @@ import (
 	"github.com/posener/complete"
 )
 
-// AgentListCommand prints the spokes currently connected to the hub's gRPC
+// RelayListCommand prints the spokes currently connected to the hub's gRPC
 // proxy server. This is the operator's "what's running" view.
-type AgentListCommand struct {
+type RelayListCommand struct {
 	*BaseCommand
 
 	flagMount string
 }
 
 var (
-	_ cli.Command             = (*AgentListCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentListCommand)(nil)
+	_ cli.Command             = (*RelayListCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayListCommand)(nil)
 )
 
-func (c *AgentListCommand) Synopsis() string {
+func (c *RelayListCommand) Synopsis() string {
 	return "List spokes currently connected to the hub"
 }
 
-func (c *AgentListCommand) Help() string {
+func (c *RelayListCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent list [options]
+Usage: bao relay list [options]
 
   Lists spokes that have an active Connect stream to the hub's proxy gRPC
   server. The view is point-in-time and may race with a disconnect.
@@ -39,20 +39,20 @@ Usage: bao agent list [options]
 ` + c.Flags().Help())
 }
 
-func (c *AgentListCommand) Flags() *FlagSets {
+func (c *RelayListCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	return set
 }
 
-func (c *AgentListCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentListCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayListCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayListCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentListCommand) Run(args []string) int {
+func (c *RelayListCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -75,7 +75,7 @@ func (c *AgentListCommand) Run(args []string) int {
 	port := asUnix(resp.Data["listener_port"])
 	if port == 0 {
 		c.UI.Output("Proxy gRPC listener is not running.")
-		c.UI.Output("Run `bao agent init` on the hub before any spokes can connect.")
+		c.UI.Output("Run `bao relay init` on the hub before any spokes can connect.")
 		return 0
 	}
 	c.UI.Output(fmt.Sprintf("Listener: :%d", port))
@@ -139,7 +139,7 @@ func (c *AgentListCommand) Run(args []string) int {
 }
 
 // shortDuration prints a duration as the largest single unit (e.g. "3d",
-// "47m", "12s") for the agent list view. The package's humanDuration formats
+// "47m", "12s") for the relay list view. The package's humanDuration formats
 // differently and isn't quite what we want here.
 func shortDuration(d time.Duration) string {
 	switch {

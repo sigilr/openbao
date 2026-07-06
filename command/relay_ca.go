@@ -12,46 +12,46 @@ import (
 	"github.com/posener/complete"
 )
 
-// --- bao agent ca (parent) ---------------------------------------------------
+// --- bao relay ca (parent) ---------------------------------------------------
 
-type AgentCACommand struct {
+type RelayCACommand struct {
 	*BaseCommand
 }
 
-var _ cli.Command = (*AgentCACommand)(nil)
+var _ cli.Command = (*RelayCACommand)(nil)
 
-func (c *AgentCACommand) Synopsis() string {
+func (c *RelayCACommand) Synopsis() string {
 	return "Inspect or rotate the hub spoke-CA"
 }
 
-func (c *AgentCACommand) Help() string {
+func (c *RelayCACommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent ca <subcommand> [options]
+Usage: bao relay ca <subcommand> [options]
 
 Subcommands:
   status   Show CA + hub cert metadata, expiry, and listener state
   rotate   Re-issue the hub TLS cert; with -full, rotate the CA itself
 `)
 }
-func (c *AgentCACommand) Run(args []string) int { return cli.RunResultHelp }
+func (c *RelayCACommand) Run(args []string) int { return cli.RunResultHelp }
 
-// --- bao agent ca status -----------------------------------------------------
+// --- bao relay ca status -----------------------------------------------------
 
-type AgentCAStatusCommand struct {
+type RelayCAStatusCommand struct {
 	*BaseCommand
 
 	flagMount string
 }
 
 var (
-	_ cli.Command             = (*AgentCAStatusCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentCAStatusCommand)(nil)
+	_ cli.Command             = (*RelayCAStatusCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayCAStatusCommand)(nil)
 )
 
-func (c *AgentCAStatusCommand) Synopsis() string { return "Show CA + hub cert metadata" }
-func (c *AgentCAStatusCommand) Help() string {
+func (c *RelayCAStatusCommand) Synopsis() string { return "Show CA + hub cert metadata" }
+func (c *RelayCAStatusCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent ca status [options]
+Usage: bao relay ca status [options]
 
   Shows the spoke-CA and hub TLS cert metadata: subjects, expiry dates,
   SANs, SPKI pin, and the port the proxy gRPC listener is bound to.
@@ -59,7 +59,7 @@ Usage: bao agent ca status [options]
 ` + c.Flags().Help())
 }
 
-func (c *AgentCAStatusCommand) Flags() *FlagSets {
+func (c *RelayCAStatusCommand) Flags() *FlagSets {
 	// FlagSetOutputFormat brings in the shared `-format` flag so this command
 	// honors `-format=json` like the rest of the bao CLI. With format != table
 	// we round-trip the raw ca/info data through OutputData; with format=table
@@ -67,16 +67,16 @@ func (c *AgentCAStatusCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP | FlagSetOutputFormat)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	return set
 }
 
-func (c *AgentCAStatusCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentCAStatusCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayCAStatusCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayCAStatusCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentCAStatusCommand) Run(args []string) int {
+func (c *RelayCAStatusCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
@@ -92,7 +92,7 @@ func (c *AgentCAStatusCommand) Run(args []string) int {
 		return 2
 	}
 	if resp == nil {
-		c.UI.Error("CA not initialized; run `bao agent init`")
+		c.UI.Error("CA not initialized; run `bao relay init`")
 		return 2
 	}
 	d := resp.Data
@@ -128,9 +128,9 @@ func (c *AgentCAStatusCommand) Run(args []string) int {
 	return 0
 }
 
-// --- bao agent ca rotate -----------------------------------------------------
+// --- bao relay ca rotate -----------------------------------------------------
 
-type AgentCARotateCommand struct {
+type RelayCARotateCommand struct {
 	*BaseCommand
 
 	flagMount     string
@@ -141,15 +141,15 @@ type AgentCARotateCommand struct {
 }
 
 var (
-	_ cli.Command             = (*AgentCARotateCommand)(nil)
-	_ cli.CommandAutocomplete = (*AgentCARotateCommand)(nil)
+	_ cli.Command             = (*RelayCARotateCommand)(nil)
+	_ cli.CommandAutocomplete = (*RelayCARotateCommand)(nil)
 )
 
-func (c *AgentCARotateCommand) Synopsis() string { return "Rotate the hub TLS cert or the spoke-CA" }
+func (c *RelayCARotateCommand) Synopsis() string { return "Rotate the hub TLS cert or the spoke-CA" }
 
-func (c *AgentCARotateCommand) Help() string {
+func (c *RelayCARotateCommand) Help() string {
 	return strings.TrimSpace(`
-Usage: bao agent ca rotate [options]
+Usage: bao relay ca rotate [options]
 
   Without -full: re-issues the hub TLS server cert from the existing CA.
     Transparent to spokes: their certs and the CA they trust do not change.
@@ -157,19 +157,19 @@ Usage: bao agent ca rotate [options]
 
   With -full: regenerates the spoke-CA itself.
     DESTRUCTIVE. Every issued spoke client cert becomes invalid at the next
-    TLS handshake; you must re-run 'bao agent init' (or just create a fresh
-    bootstrap token with 'bao agent token create') and then 'bao agent join'
+    TLS handshake; you must re-run 'bao relay init' (or just create a fresh
+    bootstrap token with 'bao relay token create') and then 'bao relay join'
     on every spoke.
 
 ` + c.Flags().Help())
 }
 
-func (c *AgentCARotateCommand) Flags() *FlagSets {
+func (c *RelayCARotateCommand) Flags() *FlagSets {
 	set := c.flagSet(FlagSetHTTP)
 	f := set.NewFlagSet("Command Options")
 	f.StringVar(&StringVar{
-		Name: "mount", Target: &c.flagMount, Default: "agent",
-		Usage: "Mount path of the agent backend.",
+		Name: "mount", Target: &c.flagMount, Default: "relay",
+		Usage: "Mount path of the relay backend.",
 	})
 	f.BoolVar(&BoolVar{
 		Name: "full", Target: &c.flagFull, Default: false,
@@ -190,10 +190,10 @@ func (c *AgentCARotateCommand) Flags() *FlagSets {
 	return set
 }
 
-func (c *AgentCARotateCommand) AutocompleteArgs() complete.Predictor { return nil }
-func (c *AgentCARotateCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
+func (c *RelayCARotateCommand) AutocompleteArgs() complete.Predictor { return nil }
+func (c *RelayCARotateCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
-func (c *AgentCARotateCommand) Run(args []string) int {
+func (c *RelayCARotateCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1

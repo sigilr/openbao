@@ -1,7 +1,7 @@
 // Copyright (c) AppsCode Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package agent
+package relay
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 
 // --- ca/init -----------------------------------------------------------------
 
-func (b *agentBackend) pathCAInit() *framework.Path {
+func (b *relayBackend) pathCAInit() *framework.Path {
 	return &framework.Path{
 		Pattern: "ca/init",
 		Fields: map[string]*framework.FieldSchema{
@@ -46,7 +46,7 @@ func (b *agentBackend) pathCAInit() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleCAInit(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	endpoint := d.Get("hub_endpoint").(string)
 	if endpoint == "" {
 		return logical.ErrorResponse("hub_endpoint is required"), nil
@@ -104,9 +104,9 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	// Bring up the gRPC listener now, while we have an authenticated operator
 	// holding the response. Doing it here (instead of lazily from the database
 	// mount's Initialize) means port problems surface to whoever ran
-	// `bao agent init`, not to whoever later mounts a database engine, and the
+	// `bao relay init`, not to whoever later mounts a database engine, and the
 	// port comes from a single source of truth instead of the first DB mount's
-	// agent_port config.
+	// relay_port config.
 	if err := remotedb.StartProxyServer(port); err != nil {
 		return logical.ErrorResponse(fmt.Sprintf("start proxy listener: %v", err)), nil
 	}
@@ -126,7 +126,7 @@ func (b *agentBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 
 // --- ca/info -----------------------------------------------------------------
 
-func (b *agentBackend) pathCAInfo() *framework.Path {
+func (b *relayBackend) pathCAInfo() *framework.Path {
 	return &framework.Path{
 		Pattern: "ca/info",
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -136,13 +136,13 @@ func (b *agentBackend) pathCAInfo() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleCAInfo(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleCAInfo(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	bundle, err := readCA(ctx, req.Storage)
 	if err != nil {
 		return nil, err
 	}
 	if bundle == nil {
-		return logical.ErrorResponse("CA not initialized; run `bao agent init`"), nil
+		return logical.ErrorResponse("CA not initialized; run `bao relay init`"), nil
 	}
 	caCert, err := bootstrap.ParseCert(bundle.CACertPEM)
 	if err != nil {
@@ -177,7 +177,7 @@ func (b *agentBackend) handleCAInfo(ctx context.Context, req *logical.Request, _
 
 // --- ca/update-endpoint ------------------------------------------------------
 
-func (b *agentBackend) pathCAUpdateEndpoint() *framework.Path {
+func (b *relayBackend) pathCAUpdateEndpoint() *framework.Path {
 	return &framework.Path{
 		Pattern: "ca/update-endpoint",
 		Fields: map[string]*framework.FieldSchema{
@@ -208,7 +208,7 @@ func (b *agentBackend) pathCAUpdateEndpoint() *framework.Path {
 // re-issued. The bound port cannot change here; that requires a process
 // restart, so we reject endpoint values whose port differs from the running
 // listener's.
-func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	b.caMu.Lock()
 	defer b.caMu.Unlock()
 
@@ -217,7 +217,7 @@ func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.
 		return nil, err
 	}
 	if bundle == nil {
-		return logical.ErrorResponse("CA not initialized; run `bao agent init`"), nil
+		return logical.ErrorResponse("CA not initialized; run `bao relay init`"), nil
 	}
 
 	newEndpoint := d.Get("hub_endpoint").(string)
@@ -285,7 +285,7 @@ func (b *agentBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.
 
 // --- ca/rotate ---------------------------------------------------------------
 
-func (b *agentBackend) pathCARotate() *framework.Path {
+func (b *relayBackend) pathCARotate() *framework.Path {
 	return &framework.Path{
 		Pattern: "ca/rotate",
 		Fields: map[string]*framework.FieldSchema{
@@ -309,7 +309,7 @@ func (b *agentBackend) pathCARotate() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleCARotate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	b.caMu.Lock()
 	defer b.caMu.Unlock()
 
@@ -318,7 +318,7 @@ func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request,
 		return nil, err
 	}
 	if bundle == nil {
-		return logical.ErrorResponse("CA not initialized; run `bao agent init`"), nil
+		return logical.ErrorResponse("CA not initialized; run `bao relay init`"), nil
 	}
 
 	full := d.Get("full").(bool)
@@ -395,8 +395,8 @@ func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request,
 			"  - spokes no longer trust the hub server cert (the ca.pem they pinned is for the old CA),",
 			"so any reconnect — process restart, network blip, hub restart — will fail in both directions.",
 			"Recovery requires, on each spoke: distribute the new ca.pem out of band, create a fresh bootstrap",
-			"token (`bao agent token create`), run `bao agent join` to obtain a new client cert + ca.pem,",
-			"then restart `bao agent run`. There is no in-band channel that survives a full rotation.",
+			"token (`bao relay token create`), run `bao relay join` to obtain a new client cert + ca.pem,",
+			"then restart `bao relay run`. There is no in-band channel that survives a full rotation.",
 		}, " "))
 	}
 	return resp, nil
@@ -404,7 +404,7 @@ func (b *agentBackend) handleCARotate(ctx context.Context, req *logical.Request,
 
 // --- bootstrap-tokens (create + list) ----------------------------------------
 
-func (b *agentBackend) pathTokensCreate() *framework.Path {
+func (b *relayBackend) pathTokensCreate() *framework.Path {
 	return &framework.Path{
 		Pattern: "bootstrap-tokens/?$",
 		Fields: map[string]*framework.FieldSchema{
@@ -418,7 +418,7 @@ func (b *agentBackend) pathTokensCreate() *framework.Path {
 			},
 			"description": {
 				Type:        framework.TypeString,
-				Description: "Free-form description shown in `bao agent token list`.",
+				Description: "Free-form description shown in `bao relay token list`.",
 			},
 			"usages": {
 				Type:        framework.TypeStringSlice,
@@ -433,7 +433,7 @@ func (b *agentBackend) pathTokensCreate() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleTokenCreate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleTokenCreate(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	ttl := time.Duration(d.Get("ttl").(int)) * time.Second
 	if ttl == 0 {
 		ttl = defaultTokenTTL
@@ -484,12 +484,12 @@ func (b *agentBackend) handleTokenCreate(ctx context.Context, req *logical.Reque
 	// `kubeadm token create` — but they should not see it again in audit
 	// logs or forwarded responses. Emit a warning so it shows up next to the
 	// token wherever the caller surfaces it.
-	resp.AddWarning("This token is shown only once. Communicate it out of band; do not store or log it. Configure audit_non_hmac_response_keys=token on the agent mount and request response wrapping (-wrap-ttl) for production use.")
+	resp.AddWarning("This token is shown only once. Communicate it out of band; do not store or log it. Configure audit_non_hmac_response_keys=token on the relay mount and request response wrapping (-wrap-ttl) for production use.")
 	return resp, nil
 }
 
-func (b *agentBackend) handleTokenList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
-	ids, err := req.Storage.List(ctx, agentStorageTokenPrefix)
+func (b *relayBackend) handleTokenList(ctx context.Context, req *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	ids, err := req.Storage.List(ctx, relayStorageTokenPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +498,7 @@ func (b *agentBackend) handleTokenList(ctx context.Context, req *logical.Request
 
 // --- bootstrap-tokens/<id> ---------------------------------------------------
 
-func (b *agentBackend) pathTokenItem() *framework.Path {
+func (b *relayBackend) pathTokenItem() *framework.Path {
 	return &framework.Path{
 		Pattern: "bootstrap-tokens/" + framework.GenericNameRegex("id"),
 		Fields: map[string]*framework.FieldSchema{
@@ -511,7 +511,7 @@ func (b *agentBackend) pathTokenItem() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleTokenRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleTokenRead(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	id := d.Get("id").(string)
 	t, err := readToken(ctx, req.Storage, id)
 	if err != nil {
@@ -533,9 +533,9 @@ func (b *agentBackend) handleTokenRead(ctx context.Context, req *logical.Request
 	}, nil
 }
 
-func (b *agentBackend) handleTokenDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleTokenDelete(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	id := d.Get("id").(string)
-	if err := req.Storage.Delete(ctx, agentStorageTokenPrefix+id); err != nil {
+	if err := req.Storage.Delete(ctx, relayStorageTokenPrefix+id); err != nil {
 		return nil, err
 	}
 	return nil, nil
@@ -543,7 +543,7 @@ func (b *agentBackend) handleTokenDelete(ctx context.Context, req *logical.Reque
 
 // --- cluster-info (UNAUTH) ---------------------------------------------------
 
-func (b *agentBackend) pathClusterInfo() *framework.Path {
+func (b *relayBackend) pathClusterInfo() *framework.Path {
 	return &framework.Path{
 		Pattern: "cluster-info",
 		Fields: map[string]*framework.FieldSchema{
@@ -568,13 +568,13 @@ type clusterInfoPayload struct {
 	HubEndpoint string `json:"hub_endpoint"`
 }
 
-func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleClusterInfo(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	tokenID := d.Get("token_id").(string)
 	if !bootstrap.ValidTokenID(tokenID) {
 		// Reject syntactically-bad ids before the storage lookup. The path is
 		// unauthenticated and the id space is small (~16M); cheap upfront
 		// rejection keeps storage off the hot path for brute-force probes.
-		// Pair this with a sys/quotas/rate-limit policy on agent/cluster-info
+		// Pair this with a sys/quotas/rate-limit policy on relay/cluster-info
 		// (see DESIGN.md "Hardening").
 		return logical.ErrorResponse("token unknown or expired"), nil
 	}
@@ -598,7 +598,7 @@ func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Reque
 		// (a token in storage with no CA — should not happen via the
 		// CLI but possible via direct API misuse) can find it without
 		// adding scanner noise to WARN-level alerts.
-		b.Logger().Info("agent/cluster-info called with a valid token but no CA bundle in storage; returning generic error to caller",
+		b.Logger().Info("relay/cluster-info called with a valid token but no CA bundle in storage; returning generic error to caller",
 			"token_id", tokenID)
 		return logical.ErrorResponse("token unknown or expired"), nil
 	}
@@ -626,7 +626,7 @@ func (b *agentBackend) handleClusterInfo(ctx context.Context, req *logical.Reque
 
 // --- sign-csr (UNAUTH, token-authenticated) ----------------------------------
 
-func (b *agentBackend) pathSignCSR() *framework.Path {
+func (b *relayBackend) pathSignCSR() *framework.Path {
 	return &framework.Path{
 		Pattern: "sign-csr",
 		Fields: map[string]*framework.FieldSchema{
@@ -654,7 +654,7 @@ func (b *agentBackend) pathSignCSR() *framework.Path {
 	}
 }
 
-// genericTokenAuthError is what the unauthenticated agent/sign-csr endpoint
+// genericTokenAuthError is what the unauthenticated relay/sign-csr endpoint
 // returns for every failure mode that depends on the token itself: malformed
 // format, unknown id, expired, wrong secret, missing usage, wrong
 // allowed_spoke_name. A single message keeps an attacker (or even a holder
@@ -666,13 +666,13 @@ func (b *agentBackend) pathSignCSR() *framework.Path {
 // placeholder when the id is unknown, so "unknown id" pays the same HMAC +
 // per-field work as "known id, wrong secret". The storage read itself can
 // still differ slightly between hit and miss depending on the backend; pair
-// with a sys/quotas/rate-limit policy on agent/sign-csr to make brute-force
+// with a sys/quotas/rate-limit policy on relay/sign-csr to make brute-force
 // timing impractical even against a backend with a measurable miss/hit gap.
 //
 // The real reason is logged server-side so operators can still diagnose.
 const genericTokenAuthError = "token unknown or expired"
 
-func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleSignCSR(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	rawTok := d.Get("token").(string)
 	spokeName := d.Get("spoke_name").(string)
 	csrPEM := d.Get("csr_pem").(string)
@@ -700,7 +700,7 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 
 	parsedTok, err := bootstrap.ParseToken(rawTok)
 	if err != nil {
-		b.Logger().Warn("agent/sign-csr: malformed token", "err", err)
+		b.Logger().Warn("relay/sign-csr: malformed token", "err", err)
 		return logical.ErrorResponse(genericTokenAuthError), nil
 	}
 
@@ -733,7 +733,7 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 	// rewritten || form reads worse in security-sensitive code.
 	ok := exists && secretEq && notExpired && usageOK && spokeOK
 	if !ok {
-		b.Logger().Warn("agent/sign-csr: token auth failed",
+		b.Logger().Warn("relay/sign-csr: token auth failed",
 			"token_id", parsedTok.ID,
 			"exists", exists,
 			"secret_eq", secretEq,
@@ -772,7 +772,7 @@ func (b *agentBackend) handleSignCSR(ctx context.Context, req *logical.Request, 
 
 // --- spokes -----------------------------------------------------------------
 
-func (b *agentBackend) pathSpokes() *framework.Path {
+func (b *relayBackend) pathSpokes() *framework.Path {
 	return &framework.Path{
 		Pattern: "spokes",
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -783,7 +783,7 @@ func (b *agentBackend) pathSpokes() *framework.Path {
 	}
 }
 
-func (b *agentBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+func (b *relayBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
 	statuses := remotedb.ListConnectedSpokes()
 	now := time.Now()
 	entries := make([]map[string]any, 0, len(statuses))

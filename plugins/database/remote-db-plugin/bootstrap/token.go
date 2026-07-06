@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Package bootstrap implements the kubeadm-style trust-bootstrap primitives
-// used by `bao agent init` and `bao agent join`:
+// used by `bao relay init` and `bao relay join`:
 //
 //   - bootstrap token format <6-char-id>.<16-char-secret>
 //   - detached JWS-HS256 over cluster-info, keyed by the token secret

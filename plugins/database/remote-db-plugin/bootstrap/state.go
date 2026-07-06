@@ -11,7 +11,7 @@ import (
 )
 
 // HubState is the runtime hub identity shared between the logical backend
-// (which mutates it during `bao agent init` and CA rotation) and the proxy
+// (which mutates it during `bao relay init` and CA rotation) and the proxy
 // gRPC server (which reads it when configuring its TLS listener).
 //
 // We keep it as a package-level singleton because the logical backend runs in
@@ -35,7 +35,7 @@ var globalHubState = &HubState{}
 func Global() *HubState { return globalHubState }
 
 // SetIdentity replaces the hub's CA + server cert. Called by the logical
-// backend on `agent/ca/init` and again on CA rotation. Safe to call before any
+// backend on `relay/ca/init` and again on CA rotation. Safe to call before any
 // gRPC connection arrives; the proxy listener reads via TLSConfig callbacks
 // every handshake.
 //
@@ -107,7 +107,7 @@ func (s *HubState) TLSConfig() *tls.Config {
 			s.mu.RLock()
 			defer s.mu.RUnlock()
 			if s.hubTLSCert == nil {
-				return nil, fmt.Errorf("hub identity not initialized; run `bao agent init`")
+				return nil, fmt.Errorf("hub identity not initialized; run `bao relay init`")
 			}
 			return s.hubTLSCert, nil
 		},
