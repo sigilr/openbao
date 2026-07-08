@@ -1,0 +1,3 @@
+```release-note:improvement
+command: register the `bao relay` command group (init, join, run, list, renew, ca, token) with the CLI so it is available as a top-level subcommand.
+```
