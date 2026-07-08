@@ -41,6 +41,18 @@ This repo is a multi-module workspace: `./go.mod` (root), `api/go.mod`, `sdk/go.
 ### UI
 The Ember UI lives in `ui/`. `make install-ui-dependencies` runs `pnpm install`; `make test-ember` runs the Ember test suite; `make ember-dist` produces the assets the Go binary embeds via `make dev-ui`.
 
+## Changelog
+
+Every PR to `main` must carry a changelog entry or CI (`changelog-check`) fails. When you open a PR, always create `changelog/<PR-number>.txt` with a fenced release-note block, e.g.:
+
+~~~
+```release-note:improvement
+command: short description of the change.
+```
+~~~
+
+Valid types are `release-note:feature`, `release-note:improvement`, `release-note:bug`, and `release-note:change` (note the singular forms — `enhancement`, `changes`, `bugs`, `fix` are rejected). If a change genuinely needs no changelog, apply the `pr/no-changelog` label instead. Go toolchain bumps use `changelog/_go-ver-<version-without-dots>.txt` with a `release-note:change` entry.
+
 ## Commit / sign-off
 
 All commits must carry a `Signed-off-by` trailer per the project's DCO policy — always use `git commit -s`. Do not amend signed-off commits without re-signing.
