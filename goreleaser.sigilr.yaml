@@ -61,11 +61,11 @@ dockers:
       - sigilr
     build_flag_templates:
       - "--pull"
-      # goreleaser stages the binary flat at the context root and flattens
-      # extra_files to their basenames; override the Dockerfile's per-arch
-      # defaults to match that layout.
+      # goreleaser stages the built binary flat at the context root, so
+      # override BIN_SRC to its basename. extra_files keep their path relative
+      # to the repo root, so DOCKER_ENTRYPOINT matches the Dockerfile default.
       - "--build-arg=BIN_SRC={{ .ProjectName }}"
-      - "--build-arg=DOCKER_ENTRYPOINT=docker-entrypoint.sh"
+      - "--build-arg=DOCKER_ENTRYPOINT=.release/docker/docker-entrypoint.sh"
       - "--platform=linux/amd64"
       - "--target=default"
       - '--label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}'
@@ -90,11 +90,11 @@ dockers:
       - sigilr
     build_flag_templates:
       - "--pull"
-      # goreleaser stages the binary flat at the context root and flattens
-      # extra_files to their basenames; override the Dockerfile's per-arch
-      # defaults to match that layout.
+      # goreleaser stages the built binary flat at the context root, so
+      # override BIN_SRC to its basename. extra_files keep their path relative
+      # to the repo root, so DOCKER_ENTRYPOINT matches the Dockerfile default.
       - "--build-arg=BIN_SRC={{ .ProjectName }}"
-      - "--build-arg=DOCKER_ENTRYPOINT=docker-entrypoint.sh"
+      - "--build-arg=DOCKER_ENTRYPOINT=.release/docker/docker-entrypoint.sh"
       - "--platform=linux/arm64"
       - "--target=default"
       - '--label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}'
