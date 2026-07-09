@@ -16,10 +16,19 @@
 # than one container image flavor packaging it.
 FROM scratch AS bin
 ARG TARGETARCH
-COPY --chmod=555 bin/${TARGETARCH}/bao /usr/bin/bao
+# BIN_SRC defaults to the per-arch layout the upstream release tooling stages
+# (bin/${TARGETARCH}/bao). goreleaser (goreleaser.sigilr.yaml) copies the binary
+# flat into the build context root, so it overrides this with --build-arg=BIN_SRC=bao.
+ARG BIN_SRC=bin/${TARGETARCH}/bao
+COPY --chmod=555 ${BIN_SRC} /usr/bin/bao
 
 # This is {docker.io,quay.io,ghcr.io}/openbao/openbao.
 FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS default
+
+# DOCKER_ENTRYPOINT defaults to the in-repo path the upstream tooling builds
+# from. goreleaser flattens extra_files into the context root, so it overrides
+# this with --build-arg=DOCKER_ENTRYPOINT=docker-entrypoint.sh.
+ARG DOCKER_ENTRYPOINT=.release/docker/docker-entrypoint.sh
 
 COPY LICENSE /licenses/mozilla.txt
 
@@ -54,12 +63,17 @@ VOLUME /openbao/file
 # OpenBao.
 EXPOSE 8200
 
+# 50053/tcp is the relay proxy gRPC server (`bao relay init`) that spoke
+# clusters connect to over mTLS. This is the conventional relay port; the actual
+# port is whatever `-hub-endpoint=host:port` advertises, so remap as needed.
+EXPOSE 50053
+
 # Use the OpenBao user as the default user for starting this container.
 USER openbao
 
 # The entry point script uses dumb-init as the top-level process to reap any
 # zombie processes created by OpenBao sub-processes.
-COPY .release/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY ${DOCKER_ENTRYPOINT} /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 # By default you'll get a single-node development server that stores everything
@@ -110,6 +124,11 @@ VOLUME /openbao/file
 # OpenBao.
 EXPOSE 8200
 
+# 50053/tcp is the relay proxy gRPC server (`bao relay init`) that spoke
+# clusters connect to over mTLS. This is the conventional relay port; the actual
+# port is whatever `-hub-endpoint=host:port` advertises, so remap as needed.
+EXPOSE 50053
+
 # Use the OpenBao user as the default user for starting this container.
 USER openbao
 
@@ -134,6 +153,11 @@ COPY --from=bin . /
 # 8200/tcp is the primary interface that applications use to interact with
 # OpenBao.
 EXPOSE 8200
+
+# 50053/tcp is the relay proxy gRPC server (`bao relay init`) that spoke
+# clusters connect to over mTLS. This is the conventional relay port; the actual
+# port is whatever `-hub-endpoint=host:port` advertises, so remap as needed.
+EXPOSE 50053
 
 # By default you'll get a single-node development server that stores everything
 # in RAM and bootstraps itself. Don't use this configuration for production.
