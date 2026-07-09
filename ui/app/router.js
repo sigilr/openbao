@@ -25,6 +25,12 @@ Router.map(function () {
       this.route('mfa-setup');
       this.route('storage', { path: '/storage/raft' });
       this.route('storage-restore', { path: '/storage/raft/restore' });
+      this.route('relay', function () {
+        this.route('tokens', function () {
+          this.route('create');
+        });
+        this.route('ca');
+      });
       this.route('settings', function () {
         this.route('index', { path: '/' });
         this.route('seal');
