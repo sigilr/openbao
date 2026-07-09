@@ -1,0 +1,76 @@
+<Toolbar>
+  <ToolbarActions>
+    <button type="button" class="toolbar-link" {{on "click" this.refreshList}} data-test-tokens-refresh>
+      Refresh
+      <Icon @name="reload" />
+    </button>
+    <ToolbarLink @route="vault.cluster.relay.tokens.create" @type="add" data-test-token-create>
+      Create token
+    </ToolbarLink>
+  </ToolbarActions>
+</Toolbar>
+
+{{#if this.model.error}}
+  <EmptyState @title="Unable to list bootstrap tokens" @message={{this.model.error}} />
+{{else if this.model.tokens}}
+  <table class="vlt-table is-fullwidth">
+    <caption class="is-collapsed">Bootstrap tokens</caption>
+    <thead class="has-text-weight-semibold">
+      <tr>
+        <th scope="col">ID</th>
+        <th scope="col">Description</th>
+        <th scope="col">Allowed spoke</th>
+        <th scope="col">Created</th>
+        <th scope="col">Expires</th>
+        <th scope="col"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each this.model.tokens as |token|}}
+        <tr data-test-token-row={{token.id}}>
+          <td><code>{{token.id}}</code></td>
+          <td>
+            {{#if token.error}}
+              <span class="tag is-warning" data-test-token-unreadable>Unreadable record</span>
+            {{else}}
+              {{token.description}}
+            {{/if}}
+          </td>
+          <td>{{if token.allowed_spoke_name token.allowed_spoke_name "Any"}}</td>
+          <td>
+            {{#if token.created_unix}}
+              {{date-format token.created_unix "MMM d, yyyy hh:mm a"}}
+            {{/if}}
+          </td>
+          <td>
+            {{#if token.expired}}
+              <span class="tag is-danger">Expired</span>
+            {{else if token.expiration_unix}}
+              {{date-format token.expiration_unix "MMM d, yyyy hh:mm a"}}
+            {{else}}
+              Never
+            {{/if}}
+          </td>
+          <td class="middle no-padding has-text-right">
+            <ConfirmAction
+              @buttonClasses="button is-ghost"
+              @onConfirmAction={{fn this.revokeToken token.id}}
+              @confirmTitle={{concat "Revoke " token.id "?"}}
+              @confirmMessage="Spokes will no longer be able to join with this token."
+              @confirmButtonText="Revoke"
+              data-test-token-revoke={{token.id}}
+            >
+              Revoke
+            </ConfirmAction>
+          </td>
+        </tr>
+      {{/each}}
+    </tbody>
+  </table>
+{{else}}
+  <EmptyState @title="No bootstrap tokens" @message="Create a bootstrap token to let a spoke cluster join this hub.">
+    <LinkTo @route="vault.cluster.relay.tokens.create">
+      Create token
+    </LinkTo>
+  </EmptyState>
+{{/if}}

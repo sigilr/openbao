@@ -1,0 +1,117 @@
+<Toolbar>
+  <ToolbarActions>
+    <button type="button" class="toolbar-link" {{on "click" this.refreshList}} data-test-ca-refresh>
+      Refresh
+      <Icon @name="reload" />
+    </button>
+    {{#unless this.model.error}}
+      <button type="button" class="toolbar-link" {{on "click" this.toggleEndpointForm}} data-test-ca-edit-endpoint>
+        Update endpoint
+      </button>
+      <ConfirmAction
+        @buttonClasses="toolbar-link"
+        @onConfirmAction={{this.rotateHub}}
+        @confirmTitle="Rotate hub certificate?"
+        @confirmMessage="The hub TLS certificate is re-issued from the current CA. Spoke certificates stay valid."
+        @confirmButtonText="Rotate"
+        data-test-ca-rotate-hub
+      >
+        Rotate hub cert
+      </ConfirmAction>
+      <ConfirmAction
+        @buttonClasses="toolbar-link"
+        @onConfirmAction={{this.rotateFull}}
+        @confirmTitle="Rotate the entire CA?"
+        @confirmMessage="This invalidates every issued spoke certificate and every spoke's local ca.pem. All spokes must re-join with fresh bootstrap tokens."
+        @confirmButtonText="Rotate CA"
+        data-test-ca-rotate-full
+      >
+        Rotate CA (full)
+      </ConfirmAction>
+    {{/unless}}
+  </ToolbarActions>
+</Toolbar>
+
+{{#if this.model.error}}
+  <EmptyState @title="Certificate authority not available" @message={{this.model.error}} />
+{{else}}
+  {{#if this.showEndpointForm}}
+    <form {{on "submit" this.updateEndpoint}} aria-label="update hub endpoint">
+      <div class="box is-sideless is-fullwidth is-marginless">
+        <div class="field">
+          <label class="is-label" for="hub-endpoint">Hub endpoint</label>
+          <div class="control">
+            <input
+              id="hub-endpoint"
+              class="input"
+              type="text"
+              value={{this.endpointValue}}
+              {{on "input" (pipe (pick "target.value") (fn (mut this.endpointValue)))}}
+              data-test-ca-endpoint
+            />
+          </div>
+          <p class="help has-text-grey">
+            host:port advertised to spokes. The port must match the running listener port.
+          </p>
+        </div>
+        <div class="field">
+          <label class="is-label" for="hub-dns-sans">Hub DNS SANs</label>
+          <div class="control">
+            <input
+              id="hub-dns-sans"
+              class="input"
+              type="text"
+              value={{this.dnsSansValue}}
+              {{on "input" (pipe (pick "target.value") (fn (mut this.dnsSansValue)))}}
+              data-test-ca-dns-sans
+            />
+          </div>
+          <p class="help has-text-grey">Comma-separated DNS names for the hub TLS certificate.</p>
+        </div>
+        <div class="field">
+          <label class="is-label" for="hub-ip-sans">Hub IP SANs</label>
+          <div class="control">
+            <input
+              id="hub-ip-sans"
+              class="input"
+              type="text"
+              value={{this.ipSansValue}}
+              {{on "input" (pipe (pick "target.value") (fn (mut this.ipSansValue)))}}
+              data-test-ca-ip-sans
+            />
+          </div>
+          <p class="help has-text-grey">Comma-separated IP addresses for the hub TLS certificate.</p>
+        </div>
+      </div>
+      <div class="field is-grouped box is-fullwidth is-bottomless">
+        <div class="control">
+          <button type="submit" class="button is-primary" disabled={{this.isSaving}} data-test-ca-endpoint-save>
+            Update endpoint
+          </button>
+        </div>
+        <div class="control">
+          <button type="button" class="button" {{on "click" this.toggleEndpointForm}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </form>
+  {{else}}
+    <div class="box is-fullwidth is-sideless is-paddingless is-marginless" data-test-ca-info>
+      <InfoTableRow @label="Hub endpoint" @value={{this.model.hub_endpoint}} />
+      <InfoTableRow @label="Listener port" @value={{this.model.listener_port}} />
+      <InfoTableRow @label="CA subject" @value={{this.model.ca_subject}} />
+      <InfoTableRow @label="CA fingerprint" @value={{this.model.ca_cert_hash}} />
+      <InfoTableRow @label="CA expires" @value={{date-format this.model.ca_not_after "MMM d, yyyy hh:mm a"}} />
+      <InfoTableRow @label="Created" @value={{date-format this.model.created_unix "MMM d, yyyy hh:mm a"}} />
+      <InfoTableRow @label="Hub cert subject" @value={{this.model.hub_cert_subject}} />
+      <InfoTableRow @label="Hub cert expires" @value={{date-format this.model.hub_cert_not_after "MMM d, yyyy hh:mm a"}} />
+      <InfoTableRow @label="Hub DNS SANs" @value={{this.dnsSansDisplay}} @alwaysRender={{true}} />
+      <InfoTableRow @label="Hub IP SANs" @value={{this.ipSansDisplay}} @alwaysRender={{true}} />
+      <InfoTableRow @label="CA certificate" @alwaysRender={{true}}>
+        <HoverCopyButton @copyValue={{this.model.ca_cert_pem}} @alwaysShow={{true}} />
+        <span class="has-text-grey">PEM encoded &mdash; copy to distribute to spokes</span>
+      </InfoTableRow>
+    </div>
+  {{/if}}
+{{/if}}
