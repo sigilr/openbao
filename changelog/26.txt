@@ -1,0 +1,3 @@
+```release-note:bug
+release: fix the sigilr distribution's container build (the shared Dockerfile now works with goreleaser's flat build context via BIN_SRC/DOCKER_ENTRYPOINT build-args), build binaries for all windows/linux/darwin x amd64/arm64 combinations, and expose the relay proxy gRPC port (50053) in the image.
+```
