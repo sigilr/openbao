@@ -1,0 +1,92 @@
+{{#if this.createdToken}}
+  <div class="box is-sideless is-fullwidth is-shadowless" data-test-token-created>
+    <AlertBanner
+      @type="warning"
+      @title="This token is shown only once"
+      @message="Copy it now and communicate it out of band; it cannot be retrieved later."
+    />
+    <div class="field">
+      <label class="is-label" for="created-token">Bootstrap token</label>
+      <div class="control is-flex">
+        <code id="created-token" class="is-flex-1" data-test-token-value>{{this.createdToken.token}}</code>
+        <HoverCopyButton @copyValue={{this.createdToken.token}} @alwaysShow={{true}} />
+      </div>
+    </div>
+    {{#if this.createdToken.expiration_unix}}
+      <p class="has-text-grey">
+        Expires
+        {{date-format this.createdToken.expiration_unix "MMM d, yyyy hh:mm a"}}
+      </p>
+    {{else}}
+      <p class="has-text-grey">This token never expires.</p>
+    {{/if}}
+    <div class="field is-grouped box is-fullwidth is-bottomless">
+      <button type="button" class="button is-primary" {{on "click" this.done}} data-test-token-done>
+        Done
+      </button>
+    </div>
+  </div>
+{{else}}
+  <form {{on "submit" this.createToken}} aria-label="create bootstrap token">
+    <div class="box is-sideless is-fullwidth is-marginless">
+      <div class="field">
+        <label class="is-label" for="token-ttl">TTL</label>
+        <div class="control">
+          <input
+            id="token-ttl"
+            class="input"
+            type="text"
+            value={{this.ttl}}
+            placeholder="24h"
+            {{on "input" (pipe (pick "target.value") (fn (mut this.ttl)))}}
+            data-test-token-ttl
+          />
+        </div>
+        <p class="help has-text-grey">Token lifetime, e.g. 24h. Blank or 0 uses the default (24h); a negative value (e.g.
+          -1s) never expires.</p>
+      </div>
+      <div class="field">
+        <label class="is-label" for="token-spoke-name">Allowed spoke name</label>
+        <div class="control">
+          <input
+            id="token-spoke-name"
+            class="input"
+            type="text"
+            value={{this.allowedSpokeName}}
+            {{on "input" (pipe (pick "target.value") (fn (mut this.allowedSpokeName)))}}
+            data-test-token-spoke-name
+          />
+        </div>
+        <p class="help has-text-grey">
+          Optional. If set, the joining spoke must request exactly this name; it becomes the CN of the spoke certificate.
+        </p>
+      </div>
+      <div class="field">
+        <label class="is-label" for="token-description">Description</label>
+        <div class="control">
+          <input
+            id="token-description"
+            class="input"
+            type="text"
+            value={{this.description}}
+            {{on "input" (pipe (pick "target.value") (fn (mut this.description)))}}
+            data-test-token-description
+          />
+        </div>
+        <p class="help has-text-grey">Optional free-form description shown in the token list.</p>
+      </div>
+    </div>
+    <div class="field is-grouped box is-fullwidth is-bottomless">
+      <div class="control">
+        <button type="submit" class="button is-primary" disabled={{this.isSaving}} data-test-token-save>
+          Create token
+        </button>
+      </div>
+      <div class="control">
+        <LinkTo @route="vault.cluster.relay.tokens" class="button">
+          Cancel
+        </LinkTo>
+      </div>
+    </div>
+  </form>
+{{/if}}

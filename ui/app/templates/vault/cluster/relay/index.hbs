@@ -1,0 +1,59 @@
+<Toolbar>
+  <ToolbarActions>
+    <button type="button" class="toolbar-link" {{on "click" this.refreshList}} data-test-spokes-refresh>
+      Refresh
+      <Icon @name="reload" />
+    </button>
+  </ToolbarActions>
+</Toolbar>
+
+{{#if this.model.error}}
+  <EmptyState @title="Unable to list spokes" @message={{this.model.error}} />
+{{else}}
+  <div class="box is-sideless is-fullwidth is-shadowless has-slim-padding" data-test-spokes-summary>
+    <p class="has-text-grey">
+      {{this.model.connected_count}}
+      connected,
+      {{this.model.healthy_count}}
+      healthy
+      {{#if this.model.listener_port}}
+        &mdash; gRPC listener on port
+        {{this.model.listener_port}}
+      {{/if}}
+    </p>
+  </div>
+  {{#if this.model.spokes}}
+    <table class="vlt-table is-fullwidth">
+      <caption class="is-collapsed">Connected spokes</caption>
+      <thead class="has-text-weight-semibold">
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Connected</th>
+          <th scope="col">Last seen</th>
+          <th scope="col">Healthy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each this.model.spokes as |spoke|}}
+          <tr data-test-spoke-row={{spoke.name}}>
+            <td>{{spoke.name}}</td>
+            <td>{{date-format spoke.connected_at_unix "MMM d, yyyy hh:mm:ss a"}}</td>
+            <td>{{spoke.last_seen_seconds}}s ago</td>
+            <td>
+              {{#if spoke.healthy}}
+                <Icon @name="check-circle" aria-label="Healthy" class="icon-true has-text-success" />
+              {{else}}
+                <Icon @name="x-square" aria-label="Stale" class="icon-false" />
+              {{/if}}
+            </td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+  {{else}}
+    <EmptyState
+      @title="No spokes connected"
+      @message="Spokes appear here after they join the hub with a bootstrap token and `bao relay run` connects."
+    />
+  {{/if}}
+{{/if}}

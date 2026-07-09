@@ -41,7 +41,7 @@ module('Integration | Component | sidebar-nav-cluster', function (hooks) {
   });
 
   test('it should render nav links', async function (assert) {
-    const links = ['Secrets engines', 'Access', 'Policies', 'Tools', 'Raft Storage', 'Seal OpenBao'];
+    const links = ['Secrets engines', 'Access', 'Policies', 'Tools', 'Relay', 'Raft Storage', 'Seal OpenBao'];
     stubPermissions(this.owner, true);
     await renderComponent();
 

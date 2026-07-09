@@ -31,6 +31,11 @@ const API_PATHS = {
     seal: 'sys/seal',
     raft: 'sys/storage/raft/configuration',
   },
+  relay: {
+    spokes: 'relay/spokes',
+    tokens: 'relay/bootstrap-tokens',
+    ca: 'relay/ca/info',
+  },
   clients: {
     activity: 'sys/internal/counters/activity',
     config: 'sys/internal/counters/config',
