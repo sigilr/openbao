@@ -131,6 +131,724 @@ func (x *RenewCertResponse) GetCaCertPem() []byte {
 	return nil
 }
 
+type RelayListSpokesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayListSpokesRequest) Reset() {
+	*x = RelayListSpokesRequest{}
+	mi := &file_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayListSpokesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayListSpokesRequest) ProtoMessage() {}
+
+func (x *RelayListSpokesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayListSpokesRequest.ProtoReflect.Descriptor instead.
+func (*RelayListSpokesRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{2}
+}
+
+type RelayListSpokesResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Spokes            []*RelaySpokeStatus    `protobuf:"bytes,1,rep,name=spokes,proto3" json:"spokes,omitempty"`
+	HubNodes          []*RelayHubNode        `protobuf:"bytes,2,rep,name=hub_nodes,json=hubNodes,proto3" json:"hub_nodes,omitempty"`
+	ListenerPort      int32                  `protobuf:"varint,3,opt,name=listener_port,json=listenerPort,proto3" json:"listener_port,omitempty"`
+	StaleAfterSeconds int32                  `protobuf:"varint,4,opt,name=stale_after_seconds,json=staleAfterSeconds,proto3" json:"stale_after_seconds,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RelayListSpokesResponse) Reset() {
+	*x = RelayListSpokesResponse{}
+	mi := &file_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayListSpokesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayListSpokesResponse) ProtoMessage() {}
+
+func (x *RelayListSpokesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayListSpokesResponse.ProtoReflect.Descriptor instead.
+func (*RelayListSpokesResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RelayListSpokesResponse) GetSpokes() []*RelaySpokeStatus {
+	if x != nil {
+		return x.Spokes
+	}
+	return nil
+}
+
+func (x *RelayListSpokesResponse) GetHubNodes() []*RelayHubNode {
+	if x != nil {
+		return x.HubNodes
+	}
+	return nil
+}
+
+func (x *RelayListSpokesResponse) GetListenerPort() int32 {
+	if x != nil {
+		return x.ListenerPort
+	}
+	return 0
+}
+
+func (x *RelayListSpokesResponse) GetStaleAfterSeconds() int32 {
+	if x != nil {
+		return x.StaleAfterSeconds
+	}
+	return 0
+}
+
+type RelaySpokeStatus struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SpokeName       string                 `protobuf:"bytes,1,opt,name=spoke_name,json=spokeName,proto3" json:"spoke_name,omitempty"`
+	ConnectedAtUnix int64                  `protobuf:"varint,2,opt,name=connected_at_unix,json=connectedAtUnix,proto3" json:"connected_at_unix,omitempty"`
+	LastSeenUnix    int64                  `protobuf:"varint,3,opt,name=last_seen_unix,json=lastSeenUnix,proto3" json:"last_seen_unix,omitempty"`
+	Healthy         bool                   `protobuf:"varint,4,opt,name=healthy,proto3" json:"healthy,omitempty"`
+	CertNotAfter    int64                  `protobuf:"varint,5,opt,name=cert_not_after,json=certNotAfter,proto3" json:"cert_not_after,omitempty"`
+	NodeClusterAddr string                 `protobuf:"bytes,6,opt,name=node_cluster_addr,json=nodeClusterAddr,proto3" json:"node_cluster_addr,omitempty"`
+	NodeId          string                 `protobuf:"bytes,7,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeIsActive    bool                   `protobuf:"varint,8,opt,name=node_is_active,json=nodeIsActive,proto3" json:"node_is_active,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelaySpokeStatus) Reset() {
+	*x = RelaySpokeStatus{}
+	mi := &file_agent_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySpokeStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySpokeStatus) ProtoMessage() {}
+
+func (x *RelaySpokeStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySpokeStatus.ProtoReflect.Descriptor instead.
+func (*RelaySpokeStatus) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *RelaySpokeStatus) GetSpokeName() string {
+	if x != nil {
+		return x.SpokeName
+	}
+	return ""
+}
+
+func (x *RelaySpokeStatus) GetConnectedAtUnix() int64 {
+	if x != nil {
+		return x.ConnectedAtUnix
+	}
+	return 0
+}
+
+func (x *RelaySpokeStatus) GetLastSeenUnix() int64 {
+	if x != nil {
+		return x.LastSeenUnix
+	}
+	return 0
+}
+
+func (x *RelaySpokeStatus) GetHealthy() bool {
+	if x != nil {
+		return x.Healthy
+	}
+	return false
+}
+
+func (x *RelaySpokeStatus) GetCertNotAfter() int64 {
+	if x != nil {
+		return x.CertNotAfter
+	}
+	return 0
+}
+
+func (x *RelaySpokeStatus) GetNodeClusterAddr() string {
+	if x != nil {
+		return x.NodeClusterAddr
+	}
+	return ""
+}
+
+func (x *RelaySpokeStatus) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RelaySpokeStatus) GetNodeIsActive() bool {
+	if x != nil {
+		return x.NodeIsActive
+	}
+	return false
+}
+
+type RelayHubNode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ClusterAddr   string                 `protobuf:"bytes,1,opt,name=cluster_addr,json=clusterAddr,proto3" json:"cluster_addr,omitempty"`
+	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	IsActive      bool                   `protobuf:"varint,3,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	SpokeCount    int32                  `protobuf:"varint,4,opt,name=spoke_count,json=spokeCount,proto3" json:"spoke_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayHubNode) Reset() {
+	*x = RelayHubNode{}
+	mi := &file_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayHubNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayHubNode) ProtoMessage() {}
+
+func (x *RelayHubNode) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayHubNode.ProtoReflect.Descriptor instead.
+func (*RelayHubNode) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RelayHubNode) GetClusterAddr() string {
+	if x != nil {
+		return x.ClusterAddr
+	}
+	return ""
+}
+
+func (x *RelayHubNode) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RelayHubNode) GetIsActive() bool {
+	if x != nil {
+		return x.IsActive
+	}
+	return false
+}
+
+func (x *RelayHubNode) GetSpokeCount() int32 {
+	if x != nil {
+		return x.SpokeCount
+	}
+	return 0
+}
+
+// RelayRedirect is carried as a gRPC status detail on the FailedPrecondition a
+// non-active node returns from Connect when wrong-node rejection is enabled
+// (optional policy, off by default). It tells the spoke which relay endpoint to
+// re-dial.
+type RelayRedirect struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RelayEndpoint string                 `protobuf:"bytes,1,opt,name=relay_endpoint,json=relayEndpoint,proto3" json:"relay_endpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRedirect) Reset() {
+	*x = RelayRedirect{}
+	mi := &file_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRedirect) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRedirect) ProtoMessage() {}
+
+func (x *RelayRedirect) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRedirect.ProtoReflect.Descriptor instead.
+func (*RelayRedirect) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RelayRedirect) GetRelayEndpoint() string {
+	if x != nil {
+		return x.RelayEndpoint
+	}
+	return ""
+}
+
+type AnnounceSpokesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// node_cluster_addr is where the active node dials back to reach the
+	// announcer (RunCommand). Learned from the announcement itself, so the
+	// registry needs no separate peer-discovery input.
+	NodeClusterAddr string `protobuf:"bytes,1,opt,name=node_cluster_addr,json=nodeClusterAddr,proto3" json:"node_cluster_addr,omitempty"`
+	// node_id is the announcer's raft node id, for display only.
+	NodeId string `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// spokes is the announcer's FULL local spoke set, not a delta. A full
+	// re-announce is what makes the registry idempotent and self-healing.
+	Spokes        []*SpokeEntry `protobuf:"bytes,3,rep,name=spokes,proto3" json:"spokes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnnounceSpokesRequest) Reset() {
+	*x = AnnounceSpokesRequest{}
+	mi := &file_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnnounceSpokesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnnounceSpokesRequest) ProtoMessage() {}
+
+func (x *AnnounceSpokesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnnounceSpokesRequest.ProtoReflect.Descriptor instead.
+func (*AnnounceSpokesRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AnnounceSpokesRequest) GetNodeClusterAddr() string {
+	if x != nil {
+		return x.NodeClusterAddr
+	}
+	return ""
+}
+
+func (x *AnnounceSpokesRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *AnnounceSpokesRequest) GetSpokes() []*SpokeEntry {
+	if x != nil {
+		return x.Spokes
+	}
+	return nil
+}
+
+type AnnounceSpokesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnnounceSpokesResponse) Reset() {
+	*x = AnnounceSpokesResponse{}
+	mi := &file_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnnounceSpokesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnnounceSpokesResponse) ProtoMessage() {}
+
+func (x *AnnounceSpokesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnnounceSpokesResponse.ProtoReflect.Descriptor instead.
+func (*AnnounceSpokesResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{8}
+}
+
+type SpokeEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SpokeName       string                 `protobuf:"bytes,1,opt,name=spoke_name,json=spokeName,proto3" json:"spoke_name,omitempty"`
+	ConnectedAtUnix int64                  `protobuf:"varint,2,opt,name=connected_at_unix,json=connectedAtUnix,proto3" json:"connected_at_unix,omitempty"`
+	LastSeenUnix    int64                  `protobuf:"varint,3,opt,name=last_seen_unix,json=lastSeenUnix,proto3" json:"last_seen_unix,omitempty"`
+	CertNotAfter    int64                  `protobuf:"varint,4,opt,name=cert_not_after,json=certNotAfter,proto3" json:"cert_not_after,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SpokeEntry) Reset() {
+	*x = SpokeEntry{}
+	mi := &file_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpokeEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpokeEntry) ProtoMessage() {}
+
+func (x *SpokeEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpokeEntry.ProtoReflect.Descriptor instead.
+func (*SpokeEntry) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SpokeEntry) GetSpokeName() string {
+	if x != nil {
+		return x.SpokeName
+	}
+	return ""
+}
+
+func (x *SpokeEntry) GetConnectedAtUnix() int64 {
+	if x != nil {
+		return x.ConnectedAtUnix
+	}
+	return 0
+}
+
+func (x *SpokeEntry) GetLastSeenUnix() int64 {
+	if x != nil {
+		return x.LastSeenUnix
+	}
+	return 0
+}
+
+func (x *SpokeEntry) GetCertNotAfter() int64 {
+	if x != nil {
+		return x.CertNotAfter
+	}
+	return 0
+}
+
+type RelayRunCommandRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpokeName     string                 `protobuf:"bytes,1,opt,name=spoke_name,json=spokeName,proto3" json:"spoke_name,omitempty"`
+	Command       string                 `protobuf:"bytes,2,opt,name=command,proto3" json:"command,omitempty"`
+	TimeoutMs     int64                  `protobuf:"varint,3,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRunCommandRequest) Reset() {
+	*x = RelayRunCommandRequest{}
+	mi := &file_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRunCommandRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRunCommandRequest) ProtoMessage() {}
+
+func (x *RelayRunCommandRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRunCommandRequest.ProtoReflect.Descriptor instead.
+func (*RelayRunCommandRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *RelayRunCommandRequest) GetSpokeName() string {
+	if x != nil {
+		return x.SpokeName
+	}
+	return ""
+}
+
+func (x *RelayRunCommandRequest) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *RelayRunCommandRequest) GetTimeoutMs() int64 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
+type RelayRunCommandResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Output        string                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRunCommandResponse) Reset() {
+	*x = RelayRunCommandResponse{}
+	mi := &file_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRunCommandResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRunCommandResponse) ProtoMessage() {}
+
+func (x *RelayRunCommandResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRunCommandResponse.ProtoReflect.Descriptor instead.
+func (*RelayRunCommandResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RelayRunCommandResponse) GetOutput() string {
+	if x != nil {
+		return x.Output
+	}
+	return ""
+}
+
+func (x *RelayRunCommandResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type RelaySignCSRRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// csr_pem is the spoke's renewal CSR, PEM-encoded PKCS#10.
+	CsrPem []byte `protobuf:"bytes,1,opt,name=csr_pem,json=csrPem,proto3" json:"csr_pem,omitempty"`
+	// spoke_name is the verified peer-cert CN the holding node authenticated on
+	// the spoke stream. The active node signs for this CN, not for whatever the
+	// CSR claims, and rejects a mismatch.
+	SpokeName     string `protobuf:"bytes,2,opt,name=spoke_name,json=spokeName,proto3" json:"spoke_name,omitempty"`
+	TtlSeconds    int64  `protobuf:"varint,3,opt,name=ttl_seconds,json=ttlSeconds,proto3" json:"ttl_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelaySignCSRRequest) Reset() {
+	*x = RelaySignCSRRequest{}
+	mi := &file_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySignCSRRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySignCSRRequest) ProtoMessage() {}
+
+func (x *RelaySignCSRRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySignCSRRequest.ProtoReflect.Descriptor instead.
+func (*RelaySignCSRRequest) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RelaySignCSRRequest) GetCsrPem() []byte {
+	if x != nil {
+		return x.CsrPem
+	}
+	return nil
+}
+
+func (x *RelaySignCSRRequest) GetSpokeName() string {
+	if x != nil {
+		return x.SpokeName
+	}
+	return ""
+}
+
+func (x *RelaySignCSRRequest) GetTtlSeconds() int64 {
+	if x != nil {
+		return x.TtlSeconds
+	}
+	return 0
+}
+
+type RelaySignCSRResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CertPem       []byte                 `protobuf:"bytes,1,opt,name=cert_pem,json=certPem,proto3" json:"cert_pem,omitempty"`
+	CaCertPem     []byte                 `protobuf:"bytes,2,opt,name=ca_cert_pem,json=caCertPem,proto3" json:"ca_cert_pem,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelaySignCSRResponse) Reset() {
+	*x = RelaySignCSRResponse{}
+	mi := &file_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySignCSRResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySignCSRResponse) ProtoMessage() {}
+
+func (x *RelaySignCSRResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySignCSRResponse.ProtoReflect.Descriptor instead.
+func (*RelaySignCSRResponse) Descriptor() ([]byte, []int) {
+	return file_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RelaySignCSRResponse) GetCertPem() []byte {
+	if x != nil {
+		return x.CertPem
+	}
+	return nil
+}
+
+func (x *RelaySignCSRResponse) GetCaCertPem() []byte {
+	if x != nil {
+		return x.CaCertPem
+	}
+	return nil
+}
+
 type AgentMessage struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	ClientName string                 `protobuf:"bytes,1,opt,name=client_name,json=clientName,proto3" json:"client_name,omitempty"`
@@ -155,7 +873,7 @@ type AgentMessage struct {
 
 func (x *AgentMessage) Reset() {
 	*x = AgentMessage{}
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -167,7 +885,7 @@ func (x *AgentMessage) String() string {
 func (*AgentMessage) ProtoMessage() {}
 
 func (x *AgentMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -180,7 +898,7 @@ func (x *AgentMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentMessage.ProtoReflect.Descriptor instead.
 func (*AgentMessage) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AgentMessage) GetClientName() string {
@@ -250,6 +968,60 @@ const file_agent_proto_rawDesc = "" +
 	"ttlSeconds\"N\n" +
 	"\x11RenewCertResponse\x12\x19\n" +
 	"\bcert_pem\x18\x01 \x01(\fR\acertPem\x12\x1e\n" +
+	"\vca_cert_pem\x18\x02 \x01(\fR\tcaCertPem\"\x18\n" +
+	"\x16RelayListSpokesRequest\"\xd1\x01\n" +
+	"\x17RelayListSpokesResponse\x12/\n" +
+	"\x06spokes\x18\x01 \x03(\v2\x17.agent.RelaySpokeStatusR\x06spokes\x120\n" +
+	"\thub_nodes\x18\x02 \x03(\v2\x13.agent.RelayHubNodeR\bhubNodes\x12#\n" +
+	"\rlistener_port\x18\x03 \x01(\x05R\flistenerPort\x12.\n" +
+	"\x13stale_after_seconds\x18\x04 \x01(\x05R\x11staleAfterSeconds\"\xae\x02\n" +
+	"\x10RelaySpokeStatus\x12\x1d\n" +
+	"\n" +
+	"spoke_name\x18\x01 \x01(\tR\tspokeName\x12*\n" +
+	"\x11connected_at_unix\x18\x02 \x01(\x03R\x0fconnectedAtUnix\x12$\n" +
+	"\x0elast_seen_unix\x18\x03 \x01(\x03R\flastSeenUnix\x12\x18\n" +
+	"\ahealthy\x18\x04 \x01(\bR\ahealthy\x12$\n" +
+	"\x0ecert_not_after\x18\x05 \x01(\x03R\fcertNotAfter\x12*\n" +
+	"\x11node_cluster_addr\x18\x06 \x01(\tR\x0fnodeClusterAddr\x12\x17\n" +
+	"\anode_id\x18\a \x01(\tR\x06nodeId\x12$\n" +
+	"\x0enode_is_active\x18\b \x01(\bR\fnodeIsActive\"\x88\x01\n" +
+	"\fRelayHubNode\x12!\n" +
+	"\fcluster_addr\x18\x01 \x01(\tR\vclusterAddr\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x1b\n" +
+	"\tis_active\x18\x03 \x01(\bR\bisActive\x12\x1f\n" +
+	"\vspoke_count\x18\x04 \x01(\x05R\n" +
+	"spokeCount\"6\n" +
+	"\rRelayRedirect\x12%\n" +
+	"\x0erelay_endpoint\x18\x01 \x01(\tR\rrelayEndpoint\"\x87\x01\n" +
+	"\x15AnnounceSpokesRequest\x12*\n" +
+	"\x11node_cluster_addr\x18\x01 \x01(\tR\x0fnodeClusterAddr\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12)\n" +
+	"\x06spokes\x18\x03 \x03(\v2\x11.agent.SpokeEntryR\x06spokes\"\x18\n" +
+	"\x16AnnounceSpokesResponse\"\xa3\x01\n" +
+	"\n" +
+	"SpokeEntry\x12\x1d\n" +
+	"\n" +
+	"spoke_name\x18\x01 \x01(\tR\tspokeName\x12*\n" +
+	"\x11connected_at_unix\x18\x02 \x01(\x03R\x0fconnectedAtUnix\x12$\n" +
+	"\x0elast_seen_unix\x18\x03 \x01(\x03R\flastSeenUnix\x12$\n" +
+	"\x0ecert_not_after\x18\x04 \x01(\x03R\fcertNotAfter\"p\n" +
+	"\x16RelayRunCommandRequest\x12\x1d\n" +
+	"\n" +
+	"spoke_name\x18\x01 \x01(\tR\tspokeName\x12\x18\n" +
+	"\acommand\x18\x02 \x01(\tR\acommand\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\x03 \x01(\x03R\ttimeoutMs\"G\n" +
+	"\x17RelayRunCommandResponse\x12\x16\n" +
+	"\x06output\x18\x01 \x01(\tR\x06output\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"n\n" +
+	"\x13RelaySignCSRRequest\x12\x17\n" +
+	"\acsr_pem\x18\x01 \x01(\fR\x06csrPem\x12\x1d\n" +
+	"\n" +
+	"spoke_name\x18\x02 \x01(\tR\tspokeName\x12\x1f\n" +
+	"\vttl_seconds\x18\x03 \x01(\x03R\n" +
+	"ttlSeconds\"Q\n" +
+	"\x14RelaySignCSRResponse\x12\x19\n" +
+	"\bcert_pem\x18\x01 \x01(\fR\acertPem\x12\x1e\n" +
 	"\vca_cert_pem\x18\x02 \x01(\fR\tcaCertPem\"\xfb\x01\n" +
 	"\fAgentMessage\x12\x1f\n" +
 	"\vclient_name\x18\x01 \x01(\tR\n" +
@@ -266,7 +1038,14 @@ const file_agent_proto_rawDesc = "" +
 	"\x05error\x18\b \x01(\tR\x05error2\x87\x01\n" +
 	"\fAgentService\x127\n" +
 	"\aConnect\x12\x13.agent.AgentMessage\x1a\x13.agent.AgentMessage(\x010\x01\x12>\n" +
-	"\tRenewCert\x12\x17.agent.RenewCertRequest\x1a\x18.agent.RenewCertResponseBHZFgithub.com/openbao/openbao/plugins/database/remote-db-plugin/proto/genb\x06proto3"
+	"\tRenewCert\x12\x17.agent.RenewCertRequest\x1a\x18.agent.RenewCertResponse2\xc3\x02\n" +
+	"\x0fRelayForwarding\x12M\n" +
+	"\x0eAnnounceSpokes\x12\x1c.agent.AnnounceSpokesRequest\x1a\x1d.agent.AnnounceSpokesResponse\x12K\n" +
+	"\n" +
+	"RunCommand\x12\x1d.agent.RelayRunCommandRequest\x1a\x1e.agent.RelayRunCommandResponse\x12G\n" +
+	"\fSignSpokeCSR\x12\x1a.agent.RelaySignCSRRequest\x1a\x1b.agent.RelaySignCSRResponse\x12K\n" +
+	"\n" +
+	"ListSpokes\x12\x1d.agent.RelayListSpokesRequest\x1a\x1e.agent.RelayListSpokesResponseBHZFgithub.com/openbao/openbao/plugins/database/remote-db-plugin/proto/genb\x06proto3"
 
 var (
 	file_agent_proto_rawDescOnce sync.Once
@@ -280,22 +1059,45 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_agent_proto_goTypes = []any{
-	(*RenewCertRequest)(nil),  // 0: agent.RenewCertRequest
-	(*RenewCertResponse)(nil), // 1: agent.RenewCertResponse
-	(*AgentMessage)(nil),      // 2: agent.AgentMessage
+	(*RenewCertRequest)(nil),        // 0: agent.RenewCertRequest
+	(*RenewCertResponse)(nil),       // 1: agent.RenewCertResponse
+	(*RelayListSpokesRequest)(nil),  // 2: agent.RelayListSpokesRequest
+	(*RelayListSpokesResponse)(nil), // 3: agent.RelayListSpokesResponse
+	(*RelaySpokeStatus)(nil),        // 4: agent.RelaySpokeStatus
+	(*RelayHubNode)(nil),            // 5: agent.RelayHubNode
+	(*RelayRedirect)(nil),           // 6: agent.RelayRedirect
+	(*AnnounceSpokesRequest)(nil),   // 7: agent.AnnounceSpokesRequest
+	(*AnnounceSpokesResponse)(nil),  // 8: agent.AnnounceSpokesResponse
+	(*SpokeEntry)(nil),              // 9: agent.SpokeEntry
+	(*RelayRunCommandRequest)(nil),  // 10: agent.RelayRunCommandRequest
+	(*RelayRunCommandResponse)(nil), // 11: agent.RelayRunCommandResponse
+	(*RelaySignCSRRequest)(nil),     // 12: agent.RelaySignCSRRequest
+	(*RelaySignCSRResponse)(nil),    // 13: agent.RelaySignCSRResponse
+	(*AgentMessage)(nil),            // 14: agent.AgentMessage
 }
 var file_agent_proto_depIdxs = []int32{
-	2, // 0: agent.AgentService.Connect:input_type -> agent.AgentMessage
-	0, // 1: agent.AgentService.RenewCert:input_type -> agent.RenewCertRequest
-	2, // 2: agent.AgentService.Connect:output_type -> agent.AgentMessage
-	1, // 3: agent.AgentService.RenewCert:output_type -> agent.RenewCertResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	4,  // 0: agent.RelayListSpokesResponse.spokes:type_name -> agent.RelaySpokeStatus
+	5,  // 1: agent.RelayListSpokesResponse.hub_nodes:type_name -> agent.RelayHubNode
+	9,  // 2: agent.AnnounceSpokesRequest.spokes:type_name -> agent.SpokeEntry
+	14, // 3: agent.AgentService.Connect:input_type -> agent.AgentMessage
+	0,  // 4: agent.AgentService.RenewCert:input_type -> agent.RenewCertRequest
+	7,  // 5: agent.RelayForwarding.AnnounceSpokes:input_type -> agent.AnnounceSpokesRequest
+	10, // 6: agent.RelayForwarding.RunCommand:input_type -> agent.RelayRunCommandRequest
+	12, // 7: agent.RelayForwarding.SignSpokeCSR:input_type -> agent.RelaySignCSRRequest
+	2,  // 8: agent.RelayForwarding.ListSpokes:input_type -> agent.RelayListSpokesRequest
+	14, // 9: agent.AgentService.Connect:output_type -> agent.AgentMessage
+	1,  // 10: agent.AgentService.RenewCert:output_type -> agent.RenewCertResponse
+	8,  // 11: agent.RelayForwarding.AnnounceSpokes:output_type -> agent.AnnounceSpokesResponse
+	11, // 12: agent.RelayForwarding.RunCommand:output_type -> agent.RelayRunCommandResponse
+	13, // 13: agent.RelayForwarding.SignSpokeCSR:output_type -> agent.RelaySignCSRResponse
+	3,  // 14: agent.RelayForwarding.ListSpokes:output_type -> agent.RelayListSpokesResponse
+	9,  // [9:15] is the sub-list for method output_type
+	3,  // [3:9] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_agent_proto_init() }
@@ -309,9 +1111,9 @@ func file_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   15,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_agent_proto_goTypes,
 		DependencyIndexes: file_agent_proto_depIdxs,

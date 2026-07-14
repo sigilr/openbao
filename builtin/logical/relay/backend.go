@@ -20,6 +20,7 @@ import (
 	"github.com/openbao/openbao/v2/plugins/database/remote-db-plugin/bootstrap"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"github.com/openbao/openbao/v2/internal/vault/relayfwd"
 )
 
 // RelayBackendFactory builds the `relay/` mount: the trust-bootstrap surface
@@ -41,6 +42,15 @@ import (
 // invokes it as `Factory`).
 func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
 	b := &relayBackend{}
+	// Reach this node's Core-backed relay view through the extended system
+	// view. It is how the seal path (Clean, below) and the HA forwarding paths
+	// learn leadership/seal state without importing vault internals. In unit
+	// tests that mount the backend without a full Core, the assertion fails and
+	// b.node stays nil; the seal path then treats every Cleanup as a genuine
+	// seal, which is correct for a single node (no leadership transitions).
+	if rn, ok := conf.System.(interface{ RelayNode() relayfwd.Node }); ok {
+		b.node = rn.RelayNode()
+	}
 	b.Backend = &framework.Backend{
 		Help: strings.TrimSpace(relayBackendHelp),
 
@@ -71,6 +81,7 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 		InitializeFunc: func(ctx context.Context, req *logical.InitializationRequest) error {
 			return b.hydrateHubState(ctx, req.Storage)
 		},
+		Clean: b.cleanup,
 	}
 	if err := b.Setup(ctx, conf); err != nil {
 		return nil, err
@@ -95,6 +106,9 @@ const (
 
 type relayBackend struct {
 	*framework.Backend
+	// node is this Core's HA view (leadership, seal state, cluster identity),
+	// or nil when the backend is mounted without a full Core (unit tests).
+	node relayfwd.Node
 	// caMu serializes ca/init, ca/rotate, and ca/update-endpoint against each
 	// other. Without it two concurrent ca/init calls both pass the
 	// "existing==nil" check, both generate a CA, and the last writer wins —
@@ -146,6 +160,34 @@ func (t *tokenStorage) hasUsage(want string) bool {
 	return false
 }
 
+// cleanup is the backend's Clean hook. framework.Backend.Cleanup calls it on
+// every backend unload: a genuine seal, but also each leadership transition
+// (preSeal runs on standby->active promotion and active->standby demotion) and
+// on an explicit unmount.
+//
+// The proxy gRPC listener and the connected-spoke map are process/Core-global
+// and deliberately NOT tied to the backend lifecycle, so they survive a
+// standby->active transition untouched: the new leader forwards to wherever the
+// streams already live instead of waiting for every spoke to drop and re-dial.
+// We therefore tear the listener down ONLY on a genuine seal, which we detect
+// via node.Sealed(): sealInternalWithOptions marks the node sealed before
+// running preSeal, so Sealed() is true here on a real seal and false on a
+// transition. When node is nil (unit test without a Core), there are no
+// transitions to protect, so we treat Cleanup as a seal.
+//
+// Note: an explicit unmount while unsealed-and-active also reads Sealed()==false
+// and so leaves the listener running. That is a deliberate trade-off: an
+// unmount is rare and recoverable with a process restart, whereas dropping
+// every spoke stream on every leadership change (the failure this whole design
+// exists to prevent) is not. See DESIGN.md "Prerequisite: stop the listener on
+// seal".
+func (b *relayBackend) cleanup(_ context.Context) {
+	if b.node != nil && !b.node.Sealed() {
+		return
+	}
+	remotedb.StopProxyServerForNode(b.node)
+}
+
 // --- Hydration --------------------------------------------------------------
 
 // hydrateHubState pushes the persisted CA/hub-cert into the singleton the
@@ -159,6 +201,15 @@ func (t *tokenStorage) hasUsage(want string) bool {
 // in-band. Returning an error here would brick the relay mount entirely,
 // including the very path that fixes the endpoint.
 func (b *relayBackend) hydrateHubState(ctx context.Context, s logical.Storage) error {
+	// Wire this node's HA view into the proxy server so it can announce spokes
+	// to the active node (when standby) and route/forward credential ops (when
+	// active). Done on every unseal, before the listener binds, and independent
+	// of whether the CA is initialized yet. On a single-node hub node.IsActive()
+	// is always true and the announcer is a no-op.
+	if b.node != nil {
+		remotedb.SetRelayNode(b.node)
+	}
+
 	bundle, err := readCA(ctx, s)
 	if err != nil {
 		return err
@@ -178,7 +229,7 @@ func (b *relayBackend) hydrateHubState(ctx context.Context, s logical.Storage) e
 			"hub_endpoint", bundle.HubEndpoint, "err", err)
 		return nil
 	}
-	if err := remotedb.StartProxyServer(port); err != nil {
+	if err := remotedb.StartProxyServerForNode(b.node, port); err != nil {
 		b.Logger().Error("relay: proxy listener failed to start; admin paths remain reachable",
 			"port", port, "err", err)
 		return nil

@@ -2285,6 +2285,17 @@ func (readonlyUnsealStrategy) unsealShared(ctx context.Context, c *Core, standby
 
 	c.setupWorkflowStore()
 
+	// Register the relay forwarding handler on the cluster listener. Runs on
+	// both active and standby (this strategy is shared): a standby receives
+	// forwarded RunCommand calls for spokes it terminates, the active receives
+	// AnnounceSpokes / SignSpokeCSR. Non-fatal: a hiccup here must not block
+	// unseal, since the relay is optional and its admin paths stay reachable.
+	if c.getClusterListener() != nil {
+		if err := c.startRelayForwarding(); err != nil {
+			c.logger.Warn("failed to start relay forwarding handler", "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -2425,6 +2436,7 @@ func (c *Core) preSeal() error {
 	var result error
 
 	c.stopForwarding()
+	c.stopRelayForwarding()
 	c.stopRaftActiveNode()
 	c.cancelNamespaceDeletion()
 

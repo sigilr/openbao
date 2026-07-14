@@ -107,7 +107,7 @@ func (b *relayBackend) handleCAInit(ctx context.Context, req *logical.Request, d
 	// `bao relay init`, not to whoever later mounts a database engine, and the
 	// port comes from a single source of truth instead of the first DB mount's
 	// relay_port config.
-	if err := remotedb.StartProxyServer(port); err != nil {
+	if err := remotedb.StartProxyServerForNode(b.node, port); err != nil {
 		return logical.ErrorResponse(fmt.Sprintf("start proxy listener: %v", err)), nil
 	}
 
@@ -170,7 +170,7 @@ func (b *relayBackend) handleCAInfo(ctx context.Context, req *logical.Request, _
 			"hub_dns_sans":       hubCert.DNSNames,
 			"hub_ip_sans":        ipSANs,
 			"created_unix":       bundle.CreatedUnix,
-			"listener_port":      remotedb.ProxyServerPort(),
+			"listener_port":      remotedb.ProxyServerPortForNode(b.node),
 		},
 	}, nil
 }
@@ -228,7 +228,7 @@ func (b *relayBackend) handleCAUpdateEndpoint(ctx context.Context, req *logical.
 				"hub_endpoint must be host:port (%v)", err,
 			)), nil
 		}
-		runningPort := remotedb.ProxyServerPort()
+		runningPort := remotedb.ProxyServerPortForNode(b.node)
 		if runningPort != 0 && runningPort != newPort {
 			return logical.ErrorResponse(fmt.Sprintf(
 				"hub_endpoint port %d does not match the running listener on :%d; "+
@@ -810,8 +810,12 @@ func (b *relayBackend) pathSpokes() *framework.Path {
 	}
 }
 
-func (b *relayBackend) handleSpokesList(_ context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
-	statuses := remotedb.ListConnectedSpokes()
+func (b *relayBackend) handleSpokesList(ctx context.Context, _ *logical.Request, _ *framework.FieldData) (*logical.Response, error) {
+	// A standby's registry is empty (only the active node accumulates spoke
+	// announcements), so a relay/spokes read on a standby forwards to the active
+	// node for the merged cluster-wide view. On the active node this is local.
+	view := remotedb.ClusterSpokesForNode(ctx, b.node)
+	statuses := view.Spokes
 	now := time.Now()
 	entries := make([]map[string]any, 0, len(statuses))
 	healthyCount := 0
@@ -825,9 +829,16 @@ func (b *relayBackend) handleSpokesList(_ context.Context, _ *logical.Request, _
 			"last_seen_unix":    s.LastSeen.Unix(),
 			"last_seen_seconds": int64(now.Sub(s.LastSeen) / time.Second),
 			"healthy":           s.Healthy,
+			// HA stream ownership. A spoke connected to a standby node
+			// (node_is_active=false) is normal and fully functional: the active
+			// node forwards to it. See DESIGN.md "HA".
+			"node_cluster_addr": s.NodeClusterAddr,
+			"node_id":           s.NodeID,
+			"node_is_active":    s.NodeIsActive,
 		}
 		// Per-spoke mTLS client-cert expiry (Unix seconds), like ca_not_after.
-		// Zero when the hub never captured a verified peer cert.
+		// Zero when the hub never captured a verified peer cert. Field name and
+		// shape are kept intact: a downstream KubeVault operator reads it.
 		if !s.CertNotAfter.IsZero() {
 			entry["cert_not_after"] = s.CertNotAfter.Unix()
 		} else {
@@ -835,13 +846,35 @@ func (b *relayBackend) handleSpokesList(_ context.Context, _ *logical.Request, _
 		}
 		entries = append(entries, entry)
 	}
-	return &logical.Response{
-		Data: map[string]any{
-			"spokes":              entries,
-			"connected_count":     len(statuses),
-			"healthy_count":       healthyCount,
-			"listener_port":       remotedb.ProxyServerPort(),
-			"stale_after_seconds": int64(remotedb.SpokeStaleAfter / time.Second),
-		},
-	}, nil
+
+	hubNodes := make([]map[string]any, 0)
+	for _, hn := range view.HubNodes {
+		hubNodes = append(hubNodes, map[string]any{
+			"cluster_addr": hn.ClusterAddr,
+			"node_id":      hn.NodeID,
+			"is_active":    hn.IsActive,
+			"spoke_count":  hn.SpokeCount,
+		})
+	}
+
+	data := map[string]any{
+		"spokes":              entries,
+		"connected_count":     len(statuses),
+		"healthy_count":       healthyCount,
+		"listener_port":       view.ListenerPort,
+		"stale_after_seconds": view.StaleAfterSeconds,
+		// Hub nodes across the cluster (including nodes terminating zero spokes),
+		// so an operator can see cluster-wide ownership (DESIGN.md "Observability").
+		"hub_nodes":      hubNodes,
+		"hub_node_count": len(hubNodes),
+	}
+	resp := &logical.Response{Data: data}
+	// !FromActive means this read landed on a standby and forwarding to the
+	// active node failed, so the view is this standby's local partial one. Flag
+	// it so the operator knows the list may be incomplete rather than trusting a
+	// silently truncated cluster view.
+	if !view.FromActive {
+		resp.AddWarning("relay/spokes was read on a standby node and could not reach the active node; the list reflects only this node's local spokes and may be incomplete")
+	}
+	return resp, nil
 }
