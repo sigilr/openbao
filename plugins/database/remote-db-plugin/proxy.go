@@ -769,12 +769,12 @@ func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string)
 	node := s.getNode()
 	reg := s.getRegistry()
 	if node == nil || reg == nil || !node.IsActive() {
-		return "", fmt.Errorf("spoke %q not connected", spokeName)
+		return "", fmt.Errorf("spoke %q: %w", spokeName, ErrSpokeNotConnected)
 	}
 
 	loc, ok := reg.resolve(spokeName)
 	if !ok {
-		return "", fmt.Errorf("spoke %q not connected", spokeName)
+		return "", fmt.Errorf("spoke %q: %w", spokeName, ErrSpokeNotConnected)
 	}
 	out, err := s.forwardRunCommand(ctx, node, loc, spokeName, command)
 	if err != nil && isSpokeNotConnected(err) {
@@ -785,7 +785,7 @@ func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string)
 		if loc2, ok := reg.resolve(spokeName); ok && loc2.NodeClusterAddr != loc.NodeClusterAddr {
 			return s.forwardRunCommand(ctx, node, loc2, spokeName, command)
 		}
-		return "", fmt.Errorf("spoke %q not connected", spokeName)
+		return "", fmt.Errorf("spoke %q: %w", spokeName, ErrSpokeNotConnected)
 	}
 	return out, err
 }

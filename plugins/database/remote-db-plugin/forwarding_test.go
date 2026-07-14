@@ -5,6 +5,7 @@ package remotedb
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -178,6 +179,52 @@ func TestRunCommand_StaleEntrySingleRetry(t *testing.T) {
 	// The stale entry must have been forgotten.
 	if _, ok := active.registry.resolve("s1"); ok {
 		t.Fatal("stale registry entry should have been forgotten")
+	}
+}
+
+// TestErrSpokeNotConnected_Sentinel asserts every "spoke not connected" producer
+// wraps the typed sentinel (errors.Is holds), including the cross-wire path where
+// the owner's FailedPrecondition status is translated back by forwardRunCommand.
+func TestErrSpokeNotConnected_Sentinel(t *testing.T) {
+	ctx := context.Background()
+
+	// runLocalOnly local-miss.
+	s := &proxyServer{spokes: map[string]*spokeConnection{}}
+	if _, err := s.runLocalOnly(ctx, "ghost", `"x"`); !errors.Is(err, ErrSpokeNotConnected) {
+		t.Fatalf("runLocalOnly miss: errors.Is failed: %v", err)
+	}
+
+	// RunCommand local-miss on a single-node hub (node == nil).
+	if _, err := s.RunCommand(ctx, "ghost", `"x"`); !errors.Is(err, ErrSpokeNotConnected) {
+		t.Fatalf("RunCommand single-node miss: errors.Is failed: %v", err)
+	}
+
+	// RunCommand registry-miss on the active node.
+	active := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(DefaultAnnounceInterval),
+		node:     &fakeNode{active: true},
+	}
+	if _, err := active.RunCommand(ctx, "ghost", `"x"`); !errors.Is(err, ErrSpokeNotConnected) {
+		t.Fatalf("RunCommand registry miss: errors.Is failed: %v", err)
+	}
+
+	// Cross-wire: the owner runs a real RelayForwarding server whose RunCommand
+	// handler maps ErrSpokeNotConnected to a FailedPrecondition status (a wrapped
+	// Go error cannot cross gRPC). forwardRunCommand must translate it back so
+	// errors.Is holds on the active node.
+	owner := &proxyServer{spokes: map[string]*spokeConnection{}}
+	lis := newOwnerServer(t, owner)
+	fwd := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(DefaultAnnounceInterval),
+		node:     &fakeNode{active: true, dial: dialBuf(lis)},
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := fwd.forwardRunCommand(callCtx, fwd.node, SpokeLocation{NodeClusterAddr: "https://owner:8201"}, "ghost", `"x"`)
+	if !errors.Is(err, ErrSpokeNotConnected) {
+		t.Fatalf("forwardRunCommand cross-wire: errors.Is failed: %v", err)
 	}
 }
 

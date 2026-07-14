@@ -259,6 +259,14 @@ func (s *proxyServer) forwardRunCommand(ctx context.Context, node relayfwd.Node,
 		Command:   command,
 	})
 	if err != nil {
+		// Cross-wire detection of "spoke not connected": the owner's handler
+		// maps ErrSpokeNotConnected to a FailedPrecondition status (a wrapped Go
+		// error cannot cross gRPC), so translate it back to the sentinel here.
+		// RunCommand's staleness check is then the same errors.Is used on the
+		// in-process path, keeping one detection rule for both.
+		if status.Code(err) == codes.FailedPrecondition {
+			return "", fmt.Errorf("spoke %q: %w", spokeName, ErrSpokeNotConnected)
+		}
 		// A dead connection (Unavailable) is dropped so the next forward
 		// redials; the caller re-resolves the owner from the registry.
 		if status.Code(err) == codes.Unavailable {
@@ -330,7 +338,7 @@ func (s *proxyServer) runLocalOnly(ctx context.Context, spokeName, command strin
 	conn, ok := s.spokes[spokeName]
 	s.mu.RUnlock()
 	if !ok {
-		return "", fmt.Errorf("spoke %q not connected", spokeName)
+		return "", fmt.Errorf("spoke %q: %w", spokeName, ErrSpokeNotConnected)
 	}
 	return s.runLocalConn(ctx, conn, spokeName, command)
 }
@@ -382,11 +390,23 @@ func (s *proxyServer) activeRelayEndpoint(leaderClusterAddr string) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// ErrSpokeNotConnected is the sentinel every "spoke not connected" site wraps
+// (with %w, keeping the spoke name in the message). Routing keys off this to
+// re-resolve a stale registry entry exactly once, so the signal must not depend
+// on the exact wording of the surrounding message.
+var ErrSpokeNotConnected = errors.New("spoke not connected")
+
 // isSpokeNotConnected reports whether err is the "spoke not connected" signal
 // (from a stale registry entry pointing at a node that no longer holds the
 // stream), so RunCommand can re-resolve exactly once.
+//
+// This is the in-process (same-Go-error) detection path. The forwarded path
+// crosses a gRPC boundary where the wrapped error cannot survive, so
+// forwardRunCommand translates the owner's FailedPrecondition status back into
+// this sentinel (see forwardRunCommand and the RunCommand handler); once that is
+// done, both paths funnel through this single errors.Is check.
 func isSpokeNotConnected(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "not connected")
+	return errors.Is(err, ErrSpokeNotConnected)
 }
 
 // --- RelayForwarding gRPC service (rides the cluster port) -------------------
@@ -439,6 +459,14 @@ func (rf *relayForwardingService) AnnounceSpokes(ctx context.Context, req *agent
 func (rf *relayForwardingService) RunCommand(ctx context.Context, req *agentproto.RelayRunCommandRequest) (*agentproto.RelayRunCommandResponse, error) {
 	out, err := rf.s.runLocalOnly(ctx, req.SpokeName, req.Command)
 	if err != nil {
+		// A wrapped Go error cannot survive the gRPC boundary, so the "spoke not
+		// connected" signal is carried as a typed status (FailedPrecondition)
+		// rather than in the response Error string; forwardRunCommand maps it
+		// back to ErrSpokeNotConnected so the active node re-resolves. Every
+		// other error stays in the response body as before.
+		if errors.Is(err, ErrSpokeNotConnected) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
 		return &agentproto.RelayRunCommandResponse{Error: err.Error()}, nil
 	}
 	return &agentproto.RelayRunCommandResponse{Output: out}, nil
