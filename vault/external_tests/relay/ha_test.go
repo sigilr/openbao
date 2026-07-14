@@ -55,7 +55,7 @@ func TestRelayHA_ForwardingAcrossNodes(t *testing.T) {
 	// production the relay backend does this from its InitializeFunc; the test
 	// does it directly so it does not depend on the relay mount being present.
 	for _, c := range cluster.Cores {
-		remotedb.SetRelayNode(c.Core.RelayNodeView())
+		remotedb.SetRelayNode(c.RelayNodeView())
 	}
 
 	active := testhelpers.DeriveActiveCore(t, cluster)

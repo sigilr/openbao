@@ -541,11 +541,17 @@ func (s *proxyServer) clusterSpokesView(ctx context.Context, node relayfwd.Node)
 	if v, err := s.remoteSpokesView(ctx, node); err == nil {
 		return v
 	} else {
-		log.Printf("[relay-fwd] relay/spokes forward to active failed, returning local partial view: %v", err)
+		// Log only the gRPC status code (an enum), not the error string: the
+		// error can carry response metadata that static analysis flags as
+		// clear-text logging of header-derived data, and the code is enough to
+		// tell an operator why the forward fell back to the local partial view.
+		log.Printf("[relay-fwd] relay/spokes forward to active failed (%s); returning local partial view", status.Code(err))
 	}
-	v := s.localSpokesView()
-	v.FromActive = false
-	return v
+	// Forwarding failed: return this standby's own partial view, flagged so the
+	// caller can warn that the list may be incomplete.
+	partial := s.localSpokesView()
+	partial.FromActive = false
+	return partial
 }
 
 // remoteSpokesView forwards a relay/spokes read from a standby to the active

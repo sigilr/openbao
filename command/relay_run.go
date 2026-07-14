@@ -177,10 +177,14 @@ func (c *RelayRunCommand) Run(args []string) int {
 			return 1
 		}
 		c.UI.Info(fmt.Sprintf("hub redirected spoke to active node %s (%d/%d)", redirect, redirects, redirectChaseLimit))
+		// Explicit timer (not time.After) so the pending timer is stopped when a
+		// shutdown signal wins the race, rather than lingering until it fires.
+		backoff := time.NewTimer(redirectBackoff)
 		select {
 		case <-shutdownCh:
+			backoff.Stop()
 			return 0
-		case <-time.After(redirectBackoff):
+		case <-backoff.C:
 		}
 		server = redirect
 	}

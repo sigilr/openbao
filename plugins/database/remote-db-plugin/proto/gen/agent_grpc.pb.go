@@ -11,7 +11,6 @@ package gen
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -91,7 +90,6 @@ type UnimplementedAgentServiceServer struct{}
 func (UnimplementedAgentServiceServer) Connect(grpc.BidiStreamingServer[AgentMessage, AgentMessage]) error {
 	return status.Error(codes.Unimplemented, "method Connect not implemented")
 }
-
 func (UnimplementedAgentServiceServer) RenewCert(context.Context, *RenewCertRequest) (*RenewCertResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewCert not implemented")
 }
@@ -282,15 +280,12 @@ type UnimplementedRelayForwardingServer struct{}
 func (UnimplementedRelayForwardingServer) AnnounceSpokes(context.Context, *AnnounceSpokesRequest) (*AnnounceSpokesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AnnounceSpokes not implemented")
 }
-
 func (UnimplementedRelayForwardingServer) RunCommand(context.Context, *RelayRunCommandRequest) (*RelayRunCommandResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RunCommand not implemented")
 }
-
 func (UnimplementedRelayForwardingServer) SignSpokeCSR(context.Context, *RelaySignCSRRequest) (*RelaySignCSRResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SignSpokeCSR not implemented")
 }
-
 func (UnimplementedRelayForwardingServer) ListSpokes(context.Context, *RelayListSpokesRequest) (*RelayListSpokesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSpokes not implemented")
 }

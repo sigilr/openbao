@@ -10,12 +10,11 @@
 package gen
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -1060,27 +1059,24 @@ func file_agent_proto_rawDescGZIP() []byte {
 	return file_agent_proto_rawDescData
 }
 
-var (
-	file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-	file_agent_proto_goTypes  = []any{
-		(*RenewCertRequest)(nil),        // 0: agent.RenewCertRequest
-		(*RenewCertResponse)(nil),       // 1: agent.RenewCertResponse
-		(*RelayListSpokesRequest)(nil),  // 2: agent.RelayListSpokesRequest
-		(*RelayListSpokesResponse)(nil), // 3: agent.RelayListSpokesResponse
-		(*RelaySpokeStatus)(nil),        // 4: agent.RelaySpokeStatus
-		(*RelayHubNode)(nil),            // 5: agent.RelayHubNode
-		(*RelayRedirect)(nil),           // 6: agent.RelayRedirect
-		(*AnnounceSpokesRequest)(nil),   // 7: agent.AnnounceSpokesRequest
-		(*AnnounceSpokesResponse)(nil),  // 8: agent.AnnounceSpokesResponse
-		(*SpokeEntry)(nil),              // 9: agent.SpokeEntry
-		(*RelayRunCommandRequest)(nil),  // 10: agent.RelayRunCommandRequest
-		(*RelayRunCommandResponse)(nil), // 11: agent.RelayRunCommandResponse
-		(*RelaySignCSRRequest)(nil),     // 12: agent.RelaySignCSRRequest
-		(*RelaySignCSRResponse)(nil),    // 13: agent.RelaySignCSRResponse
-		(*AgentMessage)(nil),            // 14: agent.AgentMessage
-	}
-)
-
+var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_agent_proto_goTypes = []any{
+	(*RenewCertRequest)(nil),        // 0: agent.RenewCertRequest
+	(*RenewCertResponse)(nil),       // 1: agent.RenewCertResponse
+	(*RelayListSpokesRequest)(nil),  // 2: agent.RelayListSpokesRequest
+	(*RelayListSpokesResponse)(nil), // 3: agent.RelayListSpokesResponse
+	(*RelaySpokeStatus)(nil),        // 4: agent.RelaySpokeStatus
+	(*RelayHubNode)(nil),            // 5: agent.RelayHubNode
+	(*RelayRedirect)(nil),           // 6: agent.RelayRedirect
+	(*AnnounceSpokesRequest)(nil),   // 7: agent.AnnounceSpokesRequest
+	(*AnnounceSpokesResponse)(nil),  // 8: agent.AnnounceSpokesResponse
+	(*SpokeEntry)(nil),              // 9: agent.SpokeEntry
+	(*RelayRunCommandRequest)(nil),  // 10: agent.RelayRunCommandRequest
+	(*RelayRunCommandResponse)(nil), // 11: agent.RelayRunCommandResponse
+	(*RelaySignCSRRequest)(nil),     // 12: agent.RelaySignCSRRequest
+	(*RelaySignCSRResponse)(nil),    // 13: agent.RelaySignCSRResponse
+	(*AgentMessage)(nil),            // 14: agent.AgentMessage
+}
 var file_agent_proto_depIdxs = []int32{
 	4,  // 0: agent.RelayListSpokesResponse.spokes:type_name -> agent.RelaySpokeStatus
 	5,  // 1: agent.RelayListSpokesResponse.hub_nodes:type_name -> agent.RelayHubNode
