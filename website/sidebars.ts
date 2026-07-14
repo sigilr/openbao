@@ -389,6 +389,12 @@ const sidebars: SidebarsConfig = {
                     ],
                 },
             ],
+            "Relay (Hub and Spoke)": [
+                "relay/index",
+                "relay/setup",
+                "relay/high-availability",
+                "relay/commands",
+            ],
             "Auth Methods": [
                 "auth/index",
                 "auth/approle",

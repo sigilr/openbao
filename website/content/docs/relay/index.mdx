@@ -1,0 +1,110 @@
+---
+sidebar_label: Overview
+description: |-
+  The relay is a hub-and-spoke deployment of the OpenBao database secrets
+  engine. One OpenBao instance (the hub) brokers credential operations over
+  mTLS gRPC to spoke daemons that run database plugins next to
+  locally-reachable databases.
+---
+
+# Relay (hub and spoke)
+
+The relay is a hub-and-spoke deployment of the [database secrets
+engine](../secrets/databases/index.mdx). One OpenBao instance (the **hub**)
+brokers every credential operation over an mTLS gRPC connection to one or more
+`bao relay run` daemons (the **spokes**). Each spoke runs the actual database
+plugin (`postgresql-database-plugin`, `mysql-database-plugin`, and so on)
+in-process, against a database that only the spoke can reach.
+
+Operators install a single binary, `bao`, and run different subcommands on the
+hub and on the spokes. There is no separate agent to build or ship.
+
+## Why hub and spoke
+
+The standard database secrets engine requires the OpenBao server itself to hold
+a network path to every managed database. That does not fit deployments where
+databases live in isolated networks:
+
+- **Per-tenant or per-cluster databases** that are only reachable from inside
+  each tenant's network, never from a central control plane.
+- **Edge or on-premises databases** where the central OpenBao cluster cannot
+  open a connection inward, but an outbound connection from the edge is allowed.
+- **Blast-radius reduction**: the hub never needs database credentials or
+  network reachability for any spoke's database. It holds only the trust
+  material needed to talk to the spoke.
+
+With the relay, the spoke opens a single outbound mTLS connection to the hub and
+holds it open. The hub sends credential operations down that connection; the
+spoke runs them locally and returns the result. The database is never exposed to
+the hub's network.
+
+## Architecture
+
+```text
+                                     ┌──────────────────────────────────┐
+                                     │   spoke cluster A                │
+                                     │                                  │
+              ┌────────── mTLS ──────►   bao relay run                  │
+              │  gRPC                │   ├─ postgresql-database-plugin   │
+              │  (relay port 50053)  │   │   (in-process, cached)       │
+              │                      │   └─→ postgres@127.0.0.1:5432     │
+              │                      └──────────────────────────────────┘
+┌─────────────┴──────────────────┐
+│   hub OpenBao                  │   ┌──────────────────────────────────┐
+│                                │   │   spoke cluster B                │
+│   relay/ logical backend       │   │                                  │
+│   ├─ bootstrap tokens          │   │   bao relay run                  │
+│   ├─ spoke certificate authority◄──►   ├─ mysql-database-plugin       │
+│   └─ hub TLS identity          │mTLS   │   (in-process, cached)       │
+│                                │   │   └─→ mysql@127.0.0.1:3306        │
+│   remote-{postgres,mysql,...}- │   └──────────────────────────────────┘
+│   proxy database plugins       │
+└────────────────────────────────┘
+```
+
+### Components
+
+| Component | Where it runs | Role |
+| --- | --- | --- |
+| `relay/` logical backend | Hub | Manages the spoke certificate authority, the hub TLS identity, and the bootstrap tokens. Serves the unauthenticated `cluster-info` and `sign-csr` paths that spokes use to join. |
+| `remote-<db>-plugin` proxy | Hub | Presents itself to OpenBao as an ordinary database plugin (`remote-postgres-plugin`, `remote-mysql-plugin`, and so on). Forwards every `Initialize` / `NewUser` / `UpdateUser` / `DeleteUser` / `Close` call to the spoke named in the mount config. |
+| `bao relay run` daemon | Spoke | Holds the long-lived mTLS stream to the hub, dispatches incoming requests to the real in-process database plugin, and caches the plugin instance between calls. |
+| `bao relay ...` CLI | Operator workstation | Bootstraps the hub (`init`), joins a spoke (`join`), and drives day-2 operations. See the [command reference](./commands.mdx). |
+
+## Trust model
+
+The relay bootstrap is a port of kubeadm's discovery flow. A spoke joins the hub
+with a short-lived bootstrap token and ends up holding an mTLS client
+certificate signed by the hub's spoke certificate authority. After the join, the
+hub holds no token-shaped secret for that spoke, only the certificate authority's
+public certificate in its trust pool.
+
+Four primitives underpin the join:
+
+1. **Bootstrap token** (`<id>.<secret>`): the secret half is an HMAC key, the id
+   is the lookup key. Stored seal-wrapped on the hub.
+2. **Cluster-info bundle** (`{ca_cert_pem, hub_endpoint}`): returned by the hub
+   over the standard OpenBao API.
+3. **Detached JWS (HS256) over the cluster-info bundle**: the hub signs the
+   bundle with the token's secret half, so only the real hub can produce a
+   matching signature.
+4. **SPKI pin**: `sha256(DER(SubjectPublicKeyInfo))` of the spoke certificate
+   authority, printed by `bao relay init` and verified by `bao relay join`.
+
+See [Setup and joining spokes](./setup.mdx) for the full flow, and the
+[command reference](./commands.mdx#security) for the security boundary of each
+surface.
+
+## High availability
+
+Behind an HA hub (raft storage, multiple nodes), a spoke reached through a load
+balancer can land its stream on any node, including a standby. The relay handles
+this by routing the credential operation across the hub cluster to whichever node
+holds the stream, so a leadership change is a routing detail rather than a relay
+outage. See [High availability](./high-availability.mdx).
+
+## Getting started
+
+Continue to [Setup and joining spokes](./setup.mdx) for an end-to-end
+walkthrough: bootstrap the hub, join a spoke, run the spoke daemon, and configure
+a database mount that targets it.
