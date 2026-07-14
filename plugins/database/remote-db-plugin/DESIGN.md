@@ -52,9 +52,9 @@ hub and the spokes.
 | `bootstrap/ca.go` | Spoke-CA generation, hub TLS cert issuance, CSR signing. |
 | `bootstrap/state.go` | Process-wide singleton holding the CA + hub cert; shared between the relay backend and the proxy server. |
 | `proto/agent.proto` | gRPC contract. One bidi stream per spoke. |
-| `registry.go` | Cluster-wide `spoke -> owning node` registry (HA). Derived state, never persisted. |
-| `forwarding.go` | `RelayForwarding` gRPC service on the cluster port (HA). Active node forwards frames to the node holding the stream. |
-| `../../vault/relayfwd/` | Cluster-listener plumbing for `RelayForwardingALPN`, mirroring `vault/forwarding`. |
+| `registry.go` | Active-node registry of `spoke -> owning node`, built from peer announcements (HA). Derived state, never persisted. |
+| `forwarding.go` | `RelayForwarding` gRPC service (HA): `AnnounceSpokes` (peer -> active), `RunCommand` (active -> owner), `SignSpokeCSR` (owner -> active). |
+| `../../vault/relayfwd/` | Cluster-listener plumbing for `RelayForwardingALPN` (handler, client, dialer) plus the narrow `Core` interface the relay needs: `IsActive()`, `LeaderClusterAddr()`, `ClusterAddr()`. Mirrors `vault/forwarding`; keeps `plugins/...` from importing `vault/` internals. |
 | `../../builtin/logical/relay/{backend,paths}.go` | The `relay/` logical backend. Operators interact with it via `bao relay ...`. |
 | `../../command/relay_{init,join,list,run,ca,token}.go` | The `bao relay ...` CLI subcommands. |
 | `TEST.md` | Step-by-step manual test plan (smoke, token security, CSR validation, renewal, CA rotation, failure modes, concurrency, HA failover). |
@@ -392,68 +392,137 @@ the listener binds and accepts spoke streams. Accepting a stream needs no
 storage writes; mTLS verification against the spoke-CA is an in-memory
 operation over state loaded by a read.
 
-**2. Cluster-aware spoke registry.** Every node advertises which spokes it
-terminates. Two options, in preference order:
-
-- *Gossip on the existing heartbeat.* The forwarding echo already carries node
-  state from standbys to the active node (`forwarding.NodeHAConnectionInfo`,
-  `clusterPeerClusterAddrsCache`). Add the node's connected spoke names (plus
-  `lastSeen` / `certNotAfter` per spoke) to that payload. The active node then
-  holds a complete `spoke -> cluster_addr` map, refreshed every
-  `clusterHeartbeatInterval`, with no new RPC.
-- *Lookup on demand.* If the echo payload is judged too heavy, add a
-  `LookupSpoke(name) -> (cluster_addr, ok)` RPC that the active node fans out
-  to peers on a cache miss, with a short positive/negative TTL.
-
-Either way the registry is **derived state, never persisted**: a spoke's
-location is a property of a live TCP connection and must not survive a
-restart.
-
-**3. `RelayForwarding` service on the cluster port.** Register a new ALPN
+**2. `RelayForwarding` service on the cluster port.** Register a new ALPN
 (`relay_fw_v1`, alongside `consts.RequestForwardingALPN`) via
 `clusterListener.AddHandler` / `AddClient`, exactly as
-`vault/forwarding.NewRequestForwardingHandler` does for the HTTP path. The
-service is deliberately tiny, a mirror of the frame that already crosses the
-spoke wire:
+`vault/forwarding.NewRequestForwardingHandler` does for the HTTP path. This is
+sound in both directions: `clusterListener.GetContextDialerFunc(ctx, alpn)` is
+direction-agnostic (raft already uses it for leader-to-follower traffic), and
+every node holds the **same** cluster cert (`LocalClusterParsedCert`, minted by
+the active and read from the barrier by the rest), so mTLS authenticates
+active-to-standby and standby-to-active alike with no new key material.
 
 ```protobuf
 service RelayForwarding {
-  // Active node -> the node holding the spoke stream.
+  // Standby (or demoted ex-active) -> active. Push the local spoke set.
+  rpc AnnounceSpokes(AnnounceSpokesRequest) returns (AnnounceSpokesResponse);
+
+  // Active -> the node holding the spoke stream.
   rpc RunCommand(RelayRunCommandRequest) returns (RelayRunCommandResponse);
 
-  // Any node -> active node. Cert issuance is an authority operation.
+  // Node holding the stream -> active. Cert issuance is an authority operation.
   rpc SignSpokeCSR(RelaySignCSRRequest) returns (RelaySignCSRResponse);
+}
 
-  // Active node -> peers. Only if the gossip option above is rejected.
-  rpc ListSpokes(RelayListSpokesRequest) returns (RelayListSpokesResponse);
+message AnnounceSpokesRequest {
+  string node_cluster_addr = 1;   // where to reach the announcer, see below
+  string node_id           = 2;   // raft node id, for display only
+  repeated SpokeEntry spokes = 3; // FULL local set, not a delta
+}
+message SpokeEntry {
+  string spoke_name        = 1;
+  int64  connected_at_unix = 2;
+  int64  last_seen_unix    = 3;
+  int64  cert_not_after    = 4;
 }
 
 message RelayRunCommandRequest  { string spoke_name = 1; string command = 2; int64 timeout_ms = 3; }
 message RelayRunCommandResponse { string output = 1; string error = 2; }
 ```
 
-`proxyServer.RunCommand(spokeName, cmd)` gains one branch: if the spoke is in
-the local map, behave exactly as today; otherwise resolve the owning node from
-the registry and call `RelayForwarding.RunCommand` on it. The peer executes the
-identical local path and returns the JSON payload. The `PluginProxy` above it
-is unchanged, and so is the entire spoke-side protocol: **the spoke never
-learns that its frames took an extra hop.**
+**3. The spoke registry is built by announcement, not by gossip or lookup.**
+Every node that terminates spoke streams and is **not** the active node calls
+`AnnounceSpokes` on the active node:
 
-Cost is one intra-cluster RTT on the credential path, on a connection that is
-already warm. The benefit is large: a spoke stream **survives a leadership
-change untouched**. The new leader simply forwards to wherever the streams
-already live, instead of waiting for every spoke to notice, drop, and re-dial.
+- **On change**: a stream connects or drops, so the propagation delay in the
+  common case is one intra-cluster RTT.
+- **Periodically** (default 5s, aligned with `clusterHeartbeatInterval`), a
+  full re-announce. This is what makes the registry self-healing: it is
+  idempotent, carries the complete local set rather than a delta, and needs no
+  reconciliation protocol.
+- **Immediately on observing a leadership change**, which is the case that
+  matters most (see the failover timeline below).
 
-**4. Authority operations go to the active node.** `RenewCert` (and any future
-path that mutates hub state) is a write in spirit even when it does not touch
-storage today: it re-records `certNotAfter` on the connection and it exercises
-the spoke-CA private key. A standby that terminates a spoke stream forwards the
-CSR to the active node via `RelayForwarding.SignSpokeCSR`, gets the signed cert
-back, hands it to the spoke over the existing stream, and updates its local
-`spokeConnection`. This keeps a single, auditable signer even when the stream
-is anchored elsewhere. If the relay backend later persists per-spoke records,
-this is the seam through which those writes flow, and `logical.ErrReadOnly` on a
-standby becomes the trigger to forward rather than an error to return.
+The active node keeps `spoke_name -> {cluster_addr, node_id, last_seen, ...}`,
+expiring entries after 3 missed announces. Its own streams are never announced;
+they are found in the local map first.
+
+The announcement carries the announcer's `node_cluster_addr`, which is the
+detail that makes this self-contained: the active node learns **where to dial
+back** from the announcement itself, so the registry has no dependency on
+`clusterPeerClusterAddrsCache` or on any other peer-discovery mechanism. A
+standby always knows where to send the announcement, because `Core.Leader()`
+already returns the leader's cluster address (it is exactly what
+`refreshRequestForwardingConnection` dials for HTTP forwarding).
+
+The registry is **derived state, never persisted**. A spoke's location is a
+property of a live TCP connection; it must not survive a restart, and it must
+not be replicated through raft.
+
+Two designs were considered and rejected:
+
+- **Gossip on the forwarding Echo heartbeat.** `EchoRequest` already flows
+  standby-to-active every `clusterHeartbeatInterval` and the active already
+  caches per-node state from it (`forwarding.NodeHAConnectionInfo`), so adding
+  a `repeated string relay_spokes` field looks free. It is not: `EchoRequest`
+  is a **core** protobuf in `vault/forwarding`, and putting a database-plugin
+  concept into the HA heartbeat wire format couples core to the relay forever,
+  for the convenience of not opening a connection we are opening anyway (we
+  need the relay ALPN for `RunCommand` regardless). Rejected on layering.
+- **Lookup on demand** (`LookupSpoke` fanned out from the active on a cache
+  miss). No periodic traffic, but it puts a fan-out on the **credential hot
+  path**, and it behaves worst exactly when things are already wrong: a mount
+  configured for a spoke that is down fans out to every peer on **every**
+  request. It also needs its own peer-discovery input, which announcement gets
+  for free. Rejected on tail latency and failure amplification.
+
+**4. Route in `proxyServer.RunCommand`.** One branch: spoke in the local map,
+behave exactly as today (single-node hubs keep a byte-for-byte identical hot
+path); otherwise resolve the owner from the registry and call
+`RelayForwarding.RunCommand` on it. The peer runs its own identical local path
+and returns the JSON payload. `PluginProxy` above is untouched, and so is the
+entire spoke-side protocol: **the spoke never learns that its frames took an
+extra hop.** A registry entry that has gone stale (the peer answers "spoke not
+connected") triggers exactly one re-resolve before the error surfaces.
+
+Cost is one intra-cluster RTT on the credential path, over a warm connection.
+The benefit is that a spoke stream **survives a leadership change untouched**:
+the new leader forwards to wherever the streams already live rather than
+waiting for every spoke to time out, drop, and re-dial.
+
+**5. Authority operations go to the active node.** `RenewCert` is a write in
+spirit even though it touches no storage today: it exercises the spoke-CA
+private key and it re-records `certNotAfter` on the connection. Note that the
+spoke-CA key is in memory on **every** unsealed node (standbys hydrate it to
+serve the listener), so a standby *could* sign locally. It must not: that would
+give the cluster N independent issuers with no single audit point. A standby
+holding a spoke stream forwards the CSR to the active node via
+`SignSpokeCSR`, returns the signed cert to the spoke over the existing stream,
+and updates its own `spokeConnection.certNotAfter` under the same lock as
+today. If the relay backend later persists per-spoke records, this is the seam
+those writes flow through, and `logical.ErrReadOnly` on a standby becomes the
+trigger to forward rather than an error to return.
+
+### Prerequisite: stop the listener on seal
+
+`proxyServerInstance` is a package-level singleton and `StartProxyServer` is
+guarded by `proxyServerStartedPort`, with **no stop path at all**. Two
+consequences, one good and one that must be fixed before the above is safe:
+
+- *Good*: the listener and the spoke map are not tied to the backend's
+  lifecycle, so a standby-to-active transition (which re-runs the backend's
+  `InitializeFunc`) does not drop spoke streams. This is what lets streams
+  survive a leadership change; the design leans on it.
+- *Bug, pre-existing*: a **sealed** node also keeps the listener bound, keeps
+  accepting spoke streams, and keeps the spoke-CA in `bootstrap.Global()`
+  memory. It can serve nothing, but a spoke connecting through an LB will
+  happily park on it and the active node will never see that spoke (before this
+  design) or will forward to a node that cannot execute anything (after it).
+
+Add `StopProxyServer()`: drain and close the gRPC server, fail all parked
+waiters, clear the spoke map, zero `proxyServerStartedPort`, and clear the
+bootstrap identity. Call it from the relay backend's `Cleanup` (seal path).
+A sealed node must announce nothing and hold nothing.
 
 ### Wrong-node rejection (fallback for directly-addressed hubs)
 
@@ -508,16 +577,43 @@ implemented, that is an optimisation (it avoids the extra hop) rather than a
 correctness requirement, and the two compose cleanly: streams that land on a
 standby during a failover window keep working instead of erroring.
 
+### Failover timeline
+
+The leadership change is the case this design exists to make boring. Nodes
+`hub-0` (active, holds no spoke), `hub-1` (standby, holds spoke `s1`),
+`hub-2` (standby, holds spoke `s2`); announce interval 5s.
+
+```
+t+0s    hub-0 (active) dies.
+        s1 and s2 are NOT affected: their streams terminate on hub-1 and hub-2,
+        which are alive. No spoke reconnects. No spoke even notices.
+t+~1s   raft elects hub-1. hub-1 runs postUnseal as active. Its relay backend
+        re-initializes; StartProxyServer is a no-op (already bound), so the
+        s1 stream it holds is untouched.
+t+~1s   hub-1's registry is empty. It holds s1 locally, so s1 already works.
+t+<=5s  hub-2 observes the leadership change, immediately announces {s2} to
+        hub-1. hub-1's registry now resolves s2 -> hub-2's cluster addr.
+        Credential ops for s2 forward and succeed.
+```
+
+Worst case for a spoke on a *surviving* node is one announce interval, and only
+for spokes that were **not** on the node that was promoted. Nothing reconnects,
+no cert is re-issued, no bootstrap token is spent. Compare with the
+pre-forwarding behaviour, where every spoke on a standby was permanently broken
+and every failover re-rolled which spokes were broken.
+
 ### Failure modes added by HA
 
 | Failure | What happens | Recovery |
 | --- | --- | --- |
-| Spoke stream lands on a standby | Active node resolves the owner from the registry and forwards `RunCommand` over the cluster port. One extra RTT; no user-visible failure. | None needed |
-| Leadership changes while spokes are connected | Streams stay where they are. The new leader inherits the registry from the next heartbeat round and forwards. Spokes do not reconnect. | Automatic |
-| Node holding a spoke stream dies | Its cluster connection drops; the registry entry ages out on the heartbeat TTL. The spoke's own keepalive/heartbeat notices within ~40s and it re-dials, landing somewhere alive. | Automatic |
-| Registry stale (spoke moved between heartbeats) | Forward hits a node that no longer holds the spoke; it returns a typed `spoke not connected` and the active node retries the lookup once before surfacing the error. | Automatic (bounded retry) |
-| `RenewCert` arrives on a standby | Forwarded to the active node for signing; the standby returns the signed cert on the existing stream and updates its local `certNotAfter`. | Automatic |
-| Cluster port unreachable between hub nodes (misconfigured `cluster_addr`) | Forwarding fails; credential ops for spokes on other nodes error with a clear "cannot reach spoke owner <addr>". `bao relay list` shows the spoke under its owning node, so the split is visible. | Fix `cluster_addr`, the same prerequisite HTTP forwarding already has |
+| Spoke stream lands on a standby | Active node resolves the owner from the registry and forwards `RunCommand` over the cluster port. One extra RTT; no user-visible failure. This is the **normal** steady state behind a load balancer, not an error. | None needed |
+| Leadership changes while spokes are connected | Streams stay where they are (the proxy singleton outlives the backend's re-init). The new leader's registry refills on the next announce, at most one announce interval. Spokes do not reconnect. | Automatic; see the timeline above |
+| Node holding a spoke stream dies | Its announcements stop; the registry entry expires after 3 missed announces. The spoke's own gRPC keepalive plus app heartbeat notice within ~40s and it re-dials, landing on a live node, which announces it. | Automatic |
+| Registry stale (spoke moved between announces) | The forward hits a node that no longer holds the spoke; that node returns a typed `spoke not connected`, the active node re-resolves once, then surfaces the error. | Automatic (bounded retry) |
+| Spoke connects to a **sealed** node | Must not happen once `StopProxyServer` lands (see *Prerequisite*): a sealed node holds no listener. Before that fix, the spoke parks on a node that can do nothing and no forwarding can rescue it. | Fix is a prerequisite of this design, not a follow-up |
+| `RenewCert` arrives on a standby | Forwarded to the active node for signing (`SignSpokeCSR`); the standby returns the signed cert on the existing stream and updates its local `certNotAfter`. One issuer, one audit trail. | Automatic |
+| Cluster port unreachable between hub nodes (misconfigured `cluster_addr`) | Forwarding fails; credential ops for spokes owned by other nodes error with "cannot reach spoke owner <addr>". `bao relay list` still shows the spoke under its owning node, so the split is visible rather than mysterious. | Fix `cluster_addr`, the same prerequisite HTTP request forwarding already has |
+| Announce arrives at a node that is no longer active | The receiver rejects it with `FailedPrecondition` and its view of the current leader; the announcer re-resolves via `Core.Leader()` and re-announces. Prevents a demoted node from accumulating a phantom registry. | Automatic |
 
 ### Observability
 
