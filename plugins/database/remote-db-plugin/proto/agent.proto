@@ -29,6 +29,73 @@ message RenewCertResponse {
   bytes ca_cert_pem = 2;
 }
 
+// RelayForwarding rides the hub cluster port (consts.RelayForwardingALPN) to
+// route spoke traffic between hub nodes in an HA hub. It is authenticated by
+// the cluster's own mTLS (the same trust domain as HTTP request forwarding),
+// not by the spoke-CA. See remote-db-plugin/DESIGN.md, section "HA".
+service RelayForwarding {
+  // AnnounceSpokes: a node that terminates spoke streams and is NOT the active
+  // node pushes its FULL local spoke set to the active node. Sent on change
+  // (connect/drop), periodically (self-healing full re-announce), and
+  // immediately on observing a leadership change.
+  rpc AnnounceSpokes(AnnounceSpokesRequest) returns (AnnounceSpokesResponse);
+
+  // RunCommand: the active node forwards a credential command to the node that
+  // holds the spoke stream. The receiver runs its own identical local path.
+  rpc RunCommand(RelayRunCommandRequest) returns (RelayRunCommandResponse);
+
+  // SignSpokeCSR: the node holding a spoke stream forwards a renewal CSR to the
+  // active node, so cert issuance stays a single-issuer authority operation.
+  rpc SignSpokeCSR(RelaySignCSRRequest) returns (RelaySignCSRResponse);
+}
+
+message AnnounceSpokesRequest {
+  // node_cluster_addr is where the active node dials back to reach the
+  // announcer (RunCommand). Learned from the announcement itself, so the
+  // registry needs no separate peer-discovery input.
+  string node_cluster_addr = 1;
+  // node_id is the announcer's raft node id, for display only.
+  string node_id = 2;
+  // spokes is the announcer's FULL local spoke set, not a delta. A full
+  // re-announce is what makes the registry idempotent and self-healing.
+  repeated SpokeEntry spokes = 3;
+}
+
+message AnnounceSpokesResponse {}
+
+message SpokeEntry {
+  string spoke_name = 1;
+  int64 connected_at_unix = 2;
+  int64 last_seen_unix = 3;
+  int64 cert_not_after = 4;
+}
+
+message RelayRunCommandRequest {
+  string spoke_name = 1;
+  string command = 2;
+  int64 timeout_ms = 3;
+}
+
+message RelayRunCommandResponse {
+  string output = 1;
+  string error = 2;
+}
+
+message RelaySignCSRRequest {
+  // csr_pem is the spoke's renewal CSR, PEM-encoded PKCS#10.
+  bytes csr_pem = 1;
+  // spoke_name is the verified peer-cert CN the holding node authenticated on
+  // the spoke stream. The active node signs for this CN, not for whatever the
+  // CSR claims, and rejects a mismatch.
+  string spoke_name = 2;
+  int64 ttl_seconds = 3;
+}
+
+message RelaySignCSRResponse {
+  bytes cert_pem = 1;
+  bytes ca_cert_pem = 2;
+}
+
 message AgentMessage {
   string client_name = 1;
   string target_name = 5;

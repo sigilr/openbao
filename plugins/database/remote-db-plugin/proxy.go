@@ -23,6 +23,7 @@ import (
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
+	"github.com/openbao/openbao/vault/relayfwd"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -53,14 +54,107 @@ const (
 	MaxMessageBytes = 16 * 1024 * 1024
 )
 
-// proxyServer is the singleton gRPC server that brokers requests between the
-// hub and spoke-agents. It is started exactly once by StartProxyServer, which
-// is called from the relay backend (on `relay/ca/init` and on backend
-// hydration after a restart). Database mounts no longer touch its lifecycle.
+// proxyServer is the gRPC server that brokers requests between the hub and
+// spoke-agents. In production there is exactly one per process (one OpenBao
+// node = one process), reached through the default instance and the package
+// funcs below. It is instance-scoped rather than a bare singleton so that an
+// in-process multi-node test cluster (three *Core in one process) can give each
+// node its own proxy server, spoke map, and listener, which is what makes the
+// HA forwarding path testable in-process. Each Core resolves its instance by
+// raft node id via proxyServerForNode.
+//
+// Its lifecycle (listener, gRPC server, announcer) lives on the instance, not
+// in package globals, so two instances in one process do not stomp each other.
 type proxyServer struct {
 	agentproto.UnimplementedAgentServiceServer
 	mu     sync.RWMutex
 	spokes map[string]*spokeConnection
+
+	// nodeMu guards node and registry, which are populated by the relay backend
+	// (SetRelayNode) once the local Core's HA view is available. On a
+	// single-node hub node stays nil and every path below reduces to the
+	// original local-only behavior.
+	nodeMu   sync.RWMutex
+	node     relayfwd.Node
+	registry *spokeRegistry
+
+	// lifecycleMu guards the listener/announcer lifecycle fields below.
+	lifecycleMu   sync.Mutex
+	grpcSrv       *grpc.Server  // the running spoke listener's server, for Stop
+	startedPort   int           // 0 = not started
+	announcerStop chan struct{} // closed to stop the announcer; nil when stopped
+}
+
+func newProxyServer() *proxyServer {
+	return &proxyServer{spokes: make(map[string]*spokeConnection)}
+}
+
+// proxyServers holds every proxyServer in this process, keyed by raft node id
+// ("" for a non-raft single node). In production this map has exactly one
+// entry; an in-process test cluster has one per node. proxyServerInstance is
+// the "" default, kept for the package-level funcs and the unit tests that use
+// them.
+var (
+	proxyServersMu sync.Mutex
+	proxyServers   = map[string]*proxyServer{}
+)
+
+// proxyServerForNode returns (creating on first use) the proxyServer bound to
+// the given node, keyed by its raft node id. A nil node or an empty node id
+// maps to the default "" instance, so a non-raft single node and the package
+// funcs share one server.
+func proxyServerForNode(node relayfwd.Node) *proxyServer {
+	key := ""
+	if node != nil {
+		key = node.NodeID()
+	}
+	return proxyServerForKey(key)
+}
+
+// proxyServerForKey returns (creating on first use) the instance for a raw key.
+func proxyServerForKey(key string) *proxyServer {
+	proxyServersMu.Lock()
+	defer proxyServersMu.Unlock()
+	ps, ok := proxyServers[key]
+	if !ok {
+		ps = newProxyServer()
+		proxyServers[key] = ps
+	}
+	return ps
+}
+
+// activeProxyServer returns the proxyServer PluginProxy should route through:
+// the instance whose node is the active (leader) node. PluginProxy runs only on
+// the active node and holds no node handle of its own, so it discovers the
+// active instance here. In a normal one-node-per-process deployment this is the
+// sole instance; the scan only has more than one candidate in an in-process
+// test cluster, where the active node's instance is still the right one.
+func activeProxyServer() *proxyServer {
+	proxyServersMu.Lock()
+	defer proxyServersMu.Unlock()
+	var fallback *proxyServer
+	for _, ps := range proxyServers {
+		fallback = ps
+		if n := ps.getNode(); n != nil && n.IsActive() {
+			return ps
+		}
+	}
+	if fallback != nil {
+		return fallback
+	}
+	return proxyServerInstance
+}
+
+func (s *proxyServer) getNode() relayfwd.Node {
+	s.nodeMu.RLock()
+	defer s.nodeMu.RUnlock()
+	return s.node
+}
+
+func (s *proxyServer) getRegistry() *spokeRegistry {
+	s.nodeMu.RLock()
+	defer s.nodeMu.RUnlock()
+	return s.registry
 }
 
 // pendingResponse carries a successful output or an error back to a waiting
@@ -191,22 +285,38 @@ func (c *spokeConnection) failAll(errMsg string) {
 	}
 }
 
-var (
-	proxyServerInstance = &proxyServer{spokes: make(map[string]*spokeConnection)}
-
-	proxyServerLifecycleMu sync.Mutex
-	proxyServerStartedPort int // 0 = not started
-)
+// proxyServerInstance is the default ("") proxy server: the one production
+// single-node hubs and the package-level funcs use. It is also registered in
+// proxyServers under the "" key so proxyServerForNode(nil) returns it.
+var proxyServerInstance = func() *proxyServer {
+	ps := newProxyServer()
+	proxyServers[""] = ps
+	return ps
+}()
 
 func getProxyServer() *proxyServer { return proxyServerInstance }
 
-// StartProxyServer brings up the mTLS gRPC listener on the given port. It is
-// idempotent: calling it twice with the same port is a no-op; calling it with
-// a different port returns an error rather than rebinding (a port change
-// requires a process restart).
+// StartProxyServer brings up the default instance's mTLS gRPC listener. Kept as
+// a package func for the unit tests and any single-node caller that has no node
+// handle. Production goes through StartProxyServerForNode.
+func StartProxyServer(port int) error {
+	return proxyServerInstance.start(port)
+}
+
+// StartProxyServerForNode brings up the listener for the proxy server bound to
+// the given node. This is what the relay backend calls, so each Core in an
+// in-process cluster binds its own port.
+func StartProxyServerForNode(node relayfwd.Node, port int) error {
+	return proxyServerForNode(node).start(port)
+}
+
+// start brings up this instance's mTLS gRPC listener on the given port. It is
+// idempotent: calling it twice with the same port is a no-op; calling it with a
+// different port returns an error rather than rebinding (a port change requires
+// a process restart).
 //
 // Callers must have already populated bootstrap.Global() via SetIdentity.
-func StartProxyServer(port int) error {
+func (s *proxyServer) start(port int) error {
 	if port <= 0 {
 		return fmt.Errorf("invalid port %d", port)
 	}
@@ -214,13 +324,13 @@ func StartProxyServer(port int) error {
 		return fmt.Errorf("hub identity not initialized; run `bao relay init` first")
 	}
 
-	proxyServerLifecycleMu.Lock()
-	defer proxyServerLifecycleMu.Unlock()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 
-	if proxyServerStartedPort != 0 {
-		if proxyServerStartedPort != port {
+	if s.startedPort != 0 {
+		if s.startedPort != port {
 			return fmt.Errorf("proxy listener already started on :%d; cannot rebind to :%d without process restart",
-				proxyServerStartedPort, port)
+				s.startedPort, port)
 		}
 		return nil
 	}
@@ -246,15 +356,94 @@ func StartProxyServer(port int) error {
 			PermitWithoutStream: true,
 		}),
 	)
-	agentproto.RegisterAgentServiceServer(srv, proxyServerInstance)
+	agentproto.RegisterAgentServiceServer(srv, s)
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			log.Printf("[proxy] gRPC server stopped: %v", err)
 		}
 	}()
-	proxyServerStartedPort = port
+	s.grpcSrv = srv
+	s.startedPort = port
 	log.Printf("[proxy] mTLS server listening on :%d", port)
 	return nil
+}
+
+// StopProxyServer tears the default instance down (unit tests, single-node).
+func StopProxyServer() { proxyServerInstance.stop() }
+
+// StopProxyServerForNode tears down the proxy server bound to the given node.
+// The relay backend calls this from its Clean hook on a genuine seal.
+func StopProxyServerForNode(node relayfwd.Node) { proxyServerForNode(node).stop() }
+
+// stop tears the proxy listener down. It is the seal-path inverse of start,
+// called from the relay backend's Cleanup so a sealed node announces nothing and
+// holds nothing (see DESIGN.md "Prerequisite: stop the listener on seal").
+//
+// It gracefully stops the gRPC server (which returns the Connect handlers and
+// runs their teardown defers), stops the announcer, then fails any parked
+// waiters and clears the spoke map defensively, zeroes the started-port guard so
+// a later unseal can rebind, and clears the bootstrap identity so the spoke-CA
+// key does not linger in memory on a sealed node.
+//
+// Idempotent: calling it when nothing is running is a no-op. Note the instance
+// itself is intentionally NOT discarded — a standby that unseals read-only keeps
+// its listener across a standby-to-active transition (which re-runs the
+// backend's InitializeFunc but not Cleanup), so spoke streams survive a
+// leadership change. Only an actual seal calls this.
+func (s *proxyServer) stop() {
+	s.lifecycleMu.Lock()
+	srv := s.grpcSrv
+	s.grpcSrv = nil
+	s.startedPort = 0
+	if s.announcerStop != nil {
+		close(s.announcerStop)
+		s.announcerStop = nil
+	}
+	s.lifecycleMu.Unlock()
+
+	if srv != nil {
+		// GracefulStop returns once all in-flight RPCs (including the
+		// long-lived Connect streams, which we cancel below by closing their
+		// done channels) have finished. Force a hard Stop after a short grace
+		// window so a wedged stream cannot hold the seal path open.
+		stopped := make(chan struct{})
+		go func() {
+			srv.GracefulStop()
+			close(stopped)
+		}()
+		go func() {
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
+			select {
+			case <-stopped:
+			case <-timer.C:
+				srv.Stop()
+			}
+		}()
+	}
+
+	// Fail every parked waiter and drop every connection from the map. The
+	// Connect handlers' own defers also do this as the server stops, but doing
+	// it here makes "sealed => empty map" hold immediately and independently of
+	// how fast GracefulStop drains.
+	s.mu.Lock()
+	conns := s.spokes
+	s.spokes = make(map[string]*spokeConnection)
+	s.mu.Unlock()
+	for _, c := range conns {
+		select {
+		case <-c.done:
+		default:
+			close(c.done)
+		}
+		c.failAll("hub node sealed")
+	}
+
+	// Drop the spoke-CA key + hub cert from memory. A sealed node must not hold
+	// signing material.
+	bootstrap.Global().Clear()
+
+	log.Printf("[proxy] listener stopped (node sealed)")
 }
 
 func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) error {
@@ -455,6 +644,16 @@ func (s *proxyServer) RenewCert(ctx context.Context, req *agentproto.RenewCertRe
 		return nil, fmt.Errorf("csr_pem is required")
 	}
 
+	// The spoke-CA key is in memory on every unsealed node, so a standby COULD
+	// sign locally. It must not: that would give the cluster N independent
+	// issuers with no single audit point. If this node is not the active node,
+	// forward the CSR to the active node (RelayForwarding.SignSpokeCSR), then
+	// return the signed cert to the spoke over this same live stream. See
+	// DESIGN.md "Authority operations go to the active node".
+	if node := s.getNode(); node != nil && !node.IsActive() {
+		return s.forwardRenewCert(ctx, node, peerCN, req)
+	}
+
 	csrDER, err := bootstrap.DecodeCSRPEM(req.CsrPem)
 	if err != nil {
 		return nil, err
@@ -531,14 +730,50 @@ func certNotAfterFromPEM(certPEM []byte) (time.Time, error) {
 	return cert.NotAfter, nil
 }
 
+// RunCommand routes a request to spokeName. It tries the local connected-spoke
+// map first: on a single-node hub (and whenever the spoke's stream terminates
+// on this node) this is byte-for-byte the original hot path. Only when the
+// spoke is NOT local does it consult the HA registry and forward to the node
+// that holds the stream (DESIGN.md "Route in proxyServer.RunCommand").
 func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string) (string, error) {
 	s.mu.RLock()
 	conn, ok := s.spokes[spokeName]
 	s.mu.RUnlock()
-	if !ok {
+	if ok {
+		return s.runLocalConn(ctx, conn, spokeName, command)
+	}
+
+	// Not local. On a single-node hub (node == nil) or when we are not the
+	// active node, there is nothing to forward to: preserve the original error.
+	node := s.getNode()
+	reg := s.getRegistry()
+	if node == nil || reg == nil || !node.IsActive() {
 		return "", fmt.Errorf("spoke %q not connected", spokeName)
 	}
 
+	loc, ok := reg.resolve(spokeName)
+	if !ok {
+		return "", fmt.Errorf("spoke %q not connected", spokeName)
+	}
+	out, err := s.forwardRunCommand(ctx, node, loc, spokeName, command)
+	if err != nil && isSpokeNotConnected(err) {
+		// Stale registry entry: the recorded owner no longer holds the stream.
+		// Drop it and re-resolve exactly once (a fresh announce may have moved
+		// the spoke to another node), then surface whatever we get.
+		reg.forget(spokeName)
+		if loc2, ok := reg.resolve(spokeName); ok && loc2.NodeClusterAddr != loc.NodeClusterAddr {
+			return s.forwardRunCommand(ctx, node, loc2, spokeName, command)
+		}
+		return "", fmt.Errorf("spoke %q not connected", spokeName)
+	}
+	return out, err
+}
+
+// runLocalConn is the original in-process request/response exchange over a spoke
+// stream this node terminates. Shared by the direct RunCommand caller and the
+// RelayForwarding.RunCommand handler (a forwarded command from the active node),
+// so a forwarded frame takes the identical local path a direct one would.
+func (s *proxyServer) runLocalConn(ctx context.Context, conn *spokeConnection, spokeName, command string) (string, error) {
 	reqID, err := newRequestID()
 	if err != nil {
 		return "", err
@@ -645,7 +880,10 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 		return dbplugin.InitializeResponse{}, err
 	}
 
-	if ProxyServerPort() == 0 {
+	// PluginProxy runs on the active node and holds no node handle, so it routes
+	// through the active node's proxy server (activeProxyServer), which in a
+	// normal one-node-per-process deployment is the sole instance.
+	if activeProxyServer().port() == 0 {
 		return dbplugin.InitializeResponse{}, fmt.Errorf(
 			"proxy listener not running; run `bao relay init` on the hub before configuring database mounts",
 		)
@@ -717,16 +955,22 @@ func (p *PluginProxy) Initialize(ctx context.Context, req dbplugin.InitializeReq
 	return dbplugin.InitializeResponse{Config: initResp.Config}, nil
 }
 
-// ProxyServerPort returns the port the proxy is bound to, or 0 if not started.
-// Used by PluginProxy.Initialize to fail fast when the operator forgot to run
-// `bao relay init`.
-func ProxyServerPort() int {
-	proxyServerLifecycleMu.Lock()
-	defer proxyServerLifecycleMu.Unlock()
-	return proxyServerStartedPort
+// port returns the port this instance's listener is bound to, or 0.
+func (s *proxyServer) port() int {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	return s.startedPort
 }
 
-// SpokeStatus is the health snapshot used by `bao relay list`.
+// ProxyServerPort returns the default instance's bound port (unit tests,
+// single-node). Production reads ProxyServerPortForNode.
+func ProxyServerPort() int { return proxyServerInstance.port() }
+
+// ProxyServerPortForNode returns the bound port of the proxy server for the
+// given node.
+func ProxyServerPortForNode(node relayfwd.Node) int { return proxyServerForNode(node).port() }
+
+// SpokeStatus is the health snapshot used by `bao relay list` and relay/spokes.
 type SpokeStatus struct {
 	Name        string
 	ConnectedAt time.Time
@@ -735,28 +979,129 @@ type SpokeStatus struct {
 	// CertNotAfter is the spoke's current mTLS client-cert expiry. Zero when
 	// unknown (e.g. no verified peer cert was captured).
 	CertNotAfter time.Time
+	// NodeClusterAddr / NodeID identify the hub node that terminates this
+	// spoke's stream. NodeIsActive reports whether that node is the active
+	// (leader) node. In an HA hub a spoke on a standby is normal and fully
+	// functional: the active node forwards to it. These are empty/true on a
+	// single-node hub.
+	NodeClusterAddr string
+	NodeID          string
+	NodeIsActive    bool
 }
 
-// ListConnectedSpokes returns the health snapshot of every spoke with an open
-// Connect stream, sorted by name. Point-in-time and lock-free at the caller —
-// safe to race with disconnects.
-func ListConnectedSpokes() []SpokeStatus {
-	s := getProxyServer()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]SpokeStatus, 0, len(s.spokes))
+// HubNode is one hub node that terminates at least one spoke stream. The
+// top-level hub_nodes list in relay/spokes is built from these so an operator
+// can see the cluster's stream ownership at a glance.
+type HubNode struct {
+	ClusterAddr string
+	NodeID      string
+	IsActive    bool
+	SpokeCount  int
+}
+
+// ListConnectedSpokes returns the default instance's snapshot (unit tests,
+// single-node). Production reads ListConnectedSpokesForNode.
+func ListConnectedSpokes() []SpokeStatus { return proxyServerInstance.listConnectedSpokes() }
+
+// ListConnectedSpokesForNode returns the cluster-wide snapshot for the proxy
+// server bound to the given node.
+func ListConnectedSpokesForNode(node relayfwd.Node) []SpokeStatus {
+	return proxyServerForNode(node).listConnectedSpokes()
+}
+
+// listConnectedSpokes returns the cluster-wide health snapshot: the spokes whose
+// streams terminate on this node PLUS, when this is the active node, the spokes
+// other nodes have announced. Sorted by name. Point-in-time — safe to race with
+// disconnects. On a single-node hub this reduces to the local map.
+func (s *proxyServer) listConnectedSpokes() []SpokeStatus {
+	node := s.getNode()
+	reg := s.getRegistry()
+
+	selfActive := true // single-node default
+	var selfAddr, selfID string
+	if node != nil {
+		selfActive = node.IsActive()
+		selfAddr = node.ClusterAddr()
+		selfID = node.NodeID()
+	}
+
 	now := time.Now()
+	s.mu.RLock()
+	out := make([]SpokeStatus, 0, len(s.spokes))
+	local := make(map[string]struct{}, len(s.spokes))
 	for name, c := range s.spokes {
 		last := c.lastSeenAt()
+		local[name] = struct{}{}
 		out = append(out, SpokeStatus{
-			Name:         name,
-			ConnectedAt:  c.connectedAt,
-			LastSeen:     last,
-			Healthy:      now.Sub(last) < SpokeStaleAfter,
-			CertNotAfter: c.certNotAfterAt(),
+			Name:            name,
+			ConnectedAt:     c.connectedAt,
+			LastSeen:        last,
+			Healthy:         now.Sub(last) < SpokeStaleAfter,
+			CertNotAfter:    c.certNotAfterAt(),
+			NodeClusterAddr: selfAddr,
+			NodeID:          selfID,
+			NodeIsActive:    selfActive,
 		})
 	}
+	s.mu.RUnlock()
+
+	// Merge spokes owned by other nodes from the registry (active node only;
+	// the registry is empty elsewhere). A spoke that is both local and in the
+	// registry is served locally, so the local entry wins.
+	if reg != nil {
+		for _, loc := range reg.snapshot() {
+			if _, isLocal := local[loc.SpokeName]; isLocal {
+				continue
+			}
+			out = append(out, SpokeStatus{
+				Name:            loc.SpokeName,
+				ConnectedAt:     loc.ConnectedAt,
+				LastSeen:        loc.LastSeen,
+				Healthy:         now.Sub(loc.LastSeen) < SpokeStaleAfter,
+				CertNotAfter:    loc.CertNotAfter,
+				NodeClusterAddr: loc.NodeClusterAddr,
+				NodeID:          loc.NodeID,
+				NodeIsActive:    false, // registry only holds non-active nodes' spokes
+			})
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// ListHubNodes returns the default instance's hub-node view (unit tests,
+// single-node). Production reads ListHubNodesForNode.
+func ListHubNodes() []HubNode { return proxyServerInstance.listHubNodes() }
+
+// ListHubNodesForNode returns the hub-node view for the proxy server bound to
+// the given node.
+func ListHubNodesForNode(node relayfwd.Node) []HubNode {
+	return proxyServerForNode(node).listHubNodes()
+}
+
+// listHubNodes returns the distinct hub nodes that terminate at least one spoke
+// stream, derived from listConnectedSpokes. It is a best-effort view: a hub node
+// with zero spokes does not appear (the relay has no other cheap signal of raft
+// membership), so this reports "nodes owning streams", not "all raft peers".
+func (s *proxyServer) listHubNodes() []HubNode {
+	spokes := s.listConnectedSpokes()
+	byAddr := make(map[string]*HubNode)
+	order := make([]string, 0)
+	for _, sp := range spokes {
+		key := sp.NodeClusterAddr + "|" + sp.NodeID
+		hn, ok := byAddr[key]
+		if !ok {
+			hn = &HubNode{ClusterAddr: sp.NodeClusterAddr, NodeID: sp.NodeID, IsActive: sp.NodeIsActive}
+			byAddr[key] = hn
+			order = append(order, key)
+		}
+		hn.SpokeCount++
+	}
+	out := make([]HubNode, 0, len(order))
+	for _, k := range order {
+		out = append(out, *byAddr[k])
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
 	return out
 }
 
@@ -884,7 +1229,7 @@ func (p *PluginProxy) callPlugin(ctx context.Context, request map[string]interfa
 	// Wire format is now bare JSON. The "plugin-runner <json>" prefix used by
 	// the old subprocess-per-request design is gone — the spoke daemon
 	// dispatches to a long-lived in-process plugin instance.
-	output, err := getProxyServer().RunCommand(ctx, p.spokeName, string(reqJSON))
+	output, err := activeProxyServer().RunCommand(ctx, p.spokeName, string(reqJSON))
 	if err != nil {
 		return "", err
 	}
