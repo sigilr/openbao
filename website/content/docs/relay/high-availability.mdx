@@ -1,0 +1,183 @@
+---
+sidebar_label: High availability
+description: |-
+  How the relay routes spoke streams across an HA hub cluster, so a spoke that
+  lands on a standby node keeps working and a leadership change becomes a
+  routing detail rather than a relay outage.
+---
+
+# High availability
+
+Everything in [Setup](./setup.mdx) describes a single hub process. This page
+covers the relay behind an **HA hub**: raft storage, multiple nodes, one active
+node and one or more standbys.
+
+## The problem HA introduces
+
+OpenBao unseals standby nodes in read-only mode, and that read-only path sets up
+mounts. So the `relay/` backend initializes on **every** unsealed node, loads the
+certificate authority from storage, and binds its gRPC listener on standbys too.
+
+Binding the listener everywhere is correct: a spoke reached through a single
+address (a Kubernetes Service, a load balancer, a VIP) dials that address and
+lands on whichever node the balancer picked, which may be a standby. But three
+pieces of relay state are **process-local** to the node that terminated the
+stream:
+
+| State | Lives on | Consequence when the spoke lands on a standby |
+| --- | --- | --- |
+| The connected-spoke map | The node that terminated the mTLS stream | The active node cannot see a spoke parked on a standby. |
+| The in-flight request/response pairing | The same node | The active node has nowhere to send a credential frame. |
+| The database mount instances | Only the active node (standbys never serve writes) | The node that needs the stream is never the node that holds it. |
+
+Without the routing described below, a spoke that lands on a standby would look
+disconnected to the active node, and every `NewUser` / `UpdateUser` /
+`DeleteUser` for a mount configured for that spoke would fail with "spoke not
+connected", intermittently and depending on which node the balancer happened to
+pick.
+
+## How the relay solves it: forward the frame, not the stream
+
+The relay keeps the stream where it landed and makes the **hub cluster** able to
+reach it, using the same cluster port and mTLS trust domain that OpenBao already
+uses for HTTP request forwarding.
+
+```text
+       spoke S ── mTLS gRPC ──►  hub node B  (standby; terminates the stream)
+                                      ▲
+                                      │ forwarded RunCommand
+                                      │ (cluster port)
+                                      │
+  database/creds/... ─► mount ─►  hub node A  (active; owns the mount)
+```
+
+Four mechanisms make this work:
+
+1. **Listener on every unsealed node.** Standbys accept spoke streams. Accepting
+   a stream is an in-memory mTLS verification against the certificate authority;
+   it needs no storage writes, so it is safe on a read-only standby.
+
+2. **A forwarding service on the cluster port.** The relay registers its own
+   application-layer-protocol name alongside the request-forwarding one. Because
+   every node holds the same cluster certificate, this authenticates
+   active-to-standby and standby-to-active alike, with no new key material.
+
+3. **A spoke registry built by announcement.** Every node that terminates spoke
+   streams and is not the active node announces its full local spoke set to the
+   active node: immediately when a stream connects or drops, immediately on a
+   leadership transition, and periodically (every 5 seconds) as a self-healing
+   backstop. The active node keeps a `spoke -> owning node` map, expiring an
+   entry after three missed announces. The map is **derived state**: never
+   persisted, never replicated through raft. When two nodes momentarily claim the
+   same spoke (the window right after a migration), the freshest stream wins.
+
+4. **Routing in the credential path.** When a credential operation needs a spoke,
+   the active node checks its local map first (a single-node hub keeps a
+   byte-for-byte identical hot path), and otherwise resolves the owner from the
+   registry and forwards the operation to it. The node that holds the stream runs
+   its own identical local path and returns the result. The spoke never learns
+   that its frames took an extra hop. A stale registry entry (the owner answers
+   "spoke not connected") triggers exactly one re-resolve before the error
+   surfaces.
+
+Certificate signing stays on the active node: a standby that holds a spoke stream
+forwards a renewal request to the active node for signing, so the cluster keeps a
+single auditable certificate issuer even though the certificate authority key is
+in memory on every unsealed node.
+
+## What a leadership change looks like
+
+A failover is the case this design exists to make boring. Consider `hub-0`
+(active, holds no spoke), `hub-1` (standby, holds spoke `s1`), and `hub-2`
+(standby, holds spoke `s2`), with a 5 second announce interval.
+
+```text
+t+0s    hub-0 (active) dies.
+        s1 and s2 are NOT affected: their streams terminate on hub-1 and
+        hub-2, which are alive. No spoke reconnects, no spoke even notices.
+t+~1s   raft elects hub-1. Its relay listener is already bound, so the s1
+        stream it holds is untouched. hub-1 holds s1 locally, so s1 works
+        immediately.
+t+<=5s  hub-2 stays standby, observes the new leader, and announces {s2} to
+        hub-1. hub-1's registry now resolves s2 to hub-2. Credential ops for
+        s2 forward and succeed.
+```
+
+The worst case for a spoke on a surviving node is one announce interval, and only
+for spokes that were **not** on the node that got promoted. Nothing reconnects,
+no certificate is re-issued, no bootstrap token is spent.
+
+## Observability
+
+`bao relay list` and the `relay/spokes` endpoint are cluster-wide on an HA hub.
+The active node merges its own map with the registry and reports which node owns
+each stream:
+
+```text
+Listener: :50053   Nodes: 3 (this node is active)
+Connected: 2 total, 2 healthy (stale after 45s)
+
+NAME       NODE            LAST SEEN  UPTIME  CERT EXP  HEALTH
+spoke-1    hub-0 (active)  0s ago     11m     29d       OK
+spoke-2    hub-2 (standby) 1s ago     4m      29d       OK
+```
+
+The `relay/spokes` response gains `node_cluster_addr` and `node_is_active` per
+spoke, plus a top-level `hub_nodes` list seeded from every raft peer, so a node
+that terminates zero spokes still appears. A `relay/spokes` read that lands on a
+standby forwards to the active node so the operator always sees the whole
+cluster; if that forward fails, the standby returns its own partial view with a
+warning rather than erroring.
+
+:::info
+
+A spoke connected to a standby node is the expected steady state behind a load
+balancer, not a problem to fix. The `NODE` column tells you where each stream
+lives; it does not indicate a fault.
+
+:::
+
+## Optional: pin spokes to the active node
+
+Forwarding makes "wrong node" a non-error, so the default behavior accepts a
+spoke stream wherever it lands. Some deployments instead address each hub node
+individually (no load balancer in front, each node has its own reachable relay
+endpoint) and would rather have every spoke talk directly to the active node.
+
+Set `BAO_RELAY_PIN_SPOKES_TO_ACTIVE=1` (or `true`) on the hub nodes to enable
+this policy. A non-active node then refuses an incoming spoke stream, before
+recording anything, and returns a redirect carrying the active node's relay
+endpoint. `bao relay run` chases the redirect: it re-dials the endpoint, retries
+with a fixed backoff, and caps the chase so two nodes that redirect at each other
+cannot loop forever.
+
+This policy assumes a homogeneous relay port across the cluster (every node's
+`bao relay init` used the same port), because the redirect endpoint is derived
+from the leader's cluster-address host and the node's own relay listener port.
+
+:::note
+
+Enable pinning only when nodes are individually addressable and you would rather
+pay a reconnect on failover than one intra-cluster round trip per credential
+operation. Behind a single load balancer, leave it off; forwarding makes it moot.
+
+:::
+
+## Deployment note
+
+Orthogonally, a Kubernetes hub can point its client Service at the leader so that
+both the API and the relay port usually land on the active node, avoiding the
+extra hop in the common case. With forwarding in place, that is an optimization
+rather than a correctness requirement: streams that land on a standby during a
+failover window keep working instead of erroring.
+
+## HA failure modes
+
+| Failure | What happens | Recovery |
+| --- | --- | --- |
+| Spoke stream lands on a standby | The active node resolves the owner from the registry and forwards the operation. One extra round trip, no user-visible failure. This is the normal steady state behind a load balancer. | None needed |
+| Leadership changes while spokes are connected | Streams stay where they are. The new leader's registry refills within at most one announce interval. Spokes do not reconnect. | Automatic |
+| Node holding a spoke stream dies | Its announcements stop and the registry entry expires after three missed announces. The spoke's keepalive and heartbeat notice within about 40 seconds and it re-dials onto a live node, which announces it. | Automatic |
+| Registry stale (spoke moved between announces) | The forward hits a node that no longer holds the spoke; it returns a typed "spoke not connected", the active node re-resolves once, then surfaces the error. | Automatic (bounded retry) |
+| Renewal request arrives on a standby | Forwarded to the active node for signing; the standby returns the signed certificate over the existing stream. One issuer, one audit trail. | Automatic |
+| Cluster port unreachable between hub nodes (misconfigured `cluster_addr`) | Forwarding fails; credential ops for spokes owned by other nodes error with "cannot reach spoke owner". `bao relay list` still shows the spoke under its owning node, so the split is visible. | Fix `cluster_addr`, the same prerequisite HTTP request forwarding already has |

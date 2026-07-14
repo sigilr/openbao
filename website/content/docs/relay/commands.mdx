@@ -1,0 +1,205 @@
+---
+sidebar_label: Command reference
+description: |-
+  The bao relay command surface: bootstrap, join, run, list, token
+  management, certificate authority operations, and certificate renewal, plus
+  the relay security boundary.
+---
+
+# Command reference
+
+The relay ships inside the `bao` binary. This page summarizes every `bao relay`
+subcommand and the day-2 operations that keep a deployment healthy. For an
+end-to-end walkthrough, start with [Setup and joining spokes](./setup.mdx).
+
+Hub-side subcommands (`init`, `list`, `token ...`, `ca ...`) talk to the hub's
+OpenBao API and use the standard connection flags (`-address`, `-ca-cert`,
+`-tls-skip-verify`, and so on). Spoke-side subcommands (`run`, `renew`) talk to
+the hub's relay gRPC port and read credentials from a directory.
+
+## Bootstrap and join
+
+### bao relay init
+
+Bootstraps the hub: mounts `relay/` if needed, generates the spoke certificate
+authority and hub TLS identity, starts the relay listener, issues a first
+bootstrap token, and prints the join command.
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-hub-endpoint` | (required) | Address spokes dial; also the port the relay listener binds. |
+| `-hub-dns-sans` | (none) | Comma-separated DNS names to add to the hub TLS certificate. `-hub-dns-sans=a,b` adds two names. |
+| `-hub-ip-sans` | (none) | Comma-separated IP subject alternative names. |
+| `-allowed-spoke-name` | (any) | Restrict the issued token to a single spoke name. |
+| `-token-ttl` | `24h` | Lifetime of the bootstrap token. |
+| `-description` | (none) | Human-readable note stored with the token. |
+| `-force` | `false` | Re-run against an already-initialized hub. |
+| `-print-join-only` | `false` | Print the join command and exit without mutating state. |
+| `-mount` | `relay` | Mount path of the relay backend. |
+
+### bao relay join
+
+Runs on the spoke. Fetches the cluster-info bundle, verifies the hub's JWS
+signature and the SPKI pin, generates a keypair, has the hub sign a certificate,
+and writes `cert.pem`, `key.pem`, and `ca.pem` into the credentials directory.
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-token` | (required) | Bootstrap token from `bao relay init` or `bao relay token create`. |
+| `-hub-addr` | (required) | Hub relay endpoint recorded for the printed `run` command. |
+| `-hub-cert-hash` | (required) | `sha256:...` SPKI pin of the spoke certificate authority. |
+| `-spoke-name` | (required) | Identity for this spoke; becomes the certificate common name. |
+| `-credentials-dir` | (required) | Where to write the credentials. |
+| `-force` | `false` | Overwrite a non-empty credentials directory. |
+| `-skip-cert-hash-check` | `false` | Skip SPKI pin verification. Do not use outside controlled testing. |
+
+### bao relay run
+
+The long-running spoke daemon. Loads and verifies credentials, holds the mTLS
+stream to the hub, dispatches requests to the in-process database plugin, caches
+the plugin instance, and renews its own certificate before expiry. See the
+[Setup page](./setup.mdx#3-run-the-spoke-daemon) for the full flag table.
+
+## Observability
+
+### bao relay list
+
+Lists connected spokes with liveness and certificate expiry. On an HA hub it is
+cluster-wide and adds a `NODE` column. See
+[High availability](./high-availability.mdx#observability).
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-mount` | `relay` | Mount path of the relay backend. |
+
+## Token management
+
+Bootstrap tokens are single trust anchors for joining new spokes. Issue one per
+join, keep the TTL short, and revoke unused tokens.
+
+### bao relay token create
+
+```shell-session
+$ bao relay token create \
+    -ttl=24h \
+    -allowed-spoke-name=spoke-2 \
+    -description="join spoke-2"
+```
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-ttl` | `24h` | Token lifetime. |
+| `-allowed-spoke-name` | (any) | Restrict the token to a single spoke name. |
+| `-description` | (none) | Note stored with the token. |
+| `-mount` | `relay` | Mount path of the relay backend. |
+
+### bao relay token list
+
+Lists outstanding tokens with their id, expiry, usages, and any
+`allowed_spoke_name` restriction. The secret half is never shown after creation.
+
+### bao relay token revoke
+
+Revokes a token by id so it can no longer be used to join.
+
+## Certificate authority operations
+
+### bao relay ca status
+
+Shows the certificate authority and hub certificate subjects, expiry, subject
+alternative names, and the listener port.
+
+### bao relay ca rotate
+
+Re-issues the hub TLS certificate from the existing certificate authority. This
+is transparent to running spokes because they still trust the same certificate
+authority.
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-hub-dns-sans` | (unchanged) | Replace the DNS subject alternative names on the hub certificate. |
+| `-hub-ip-sans` | (unchanged) | Replace the IP subject alternative names. |
+| `-full` | `false` | Regenerate the spoke certificate authority itself. Destructive; see below. |
+| `-yes` | `false` | Skip the confirmation prompt. |
+| `-mount` | `relay` | Mount path of the relay backend. |
+
+:::danger
+
+`bao relay ca rotate -full` regenerates the spoke certificate authority. Every
+issued spoke certificate becomes invalid on its next handshake. You must re-join
+every spoke and redistribute the new `ca.pem` out of band. There is no in-band
+channel that survives a full rotation. Use it only to recover from a suspected
+certificate authority key compromise.
+
+:::
+
+### Refreshing the advertised endpoint
+
+To change what cluster-info advertises (and the subject alternative names on the
+hub certificate) without touching the certificate authority, write directly to
+the backend:
+
+```shell-session
+$ bao write relay/ca/update-endpoint \
+    hub_endpoint=newhub:50053 \
+    hub_dns_sans=newhub
+```
+
+This affects what **future** `bao relay join` calls discover. Already-running
+spoke daemons keep dialing whatever `-server` they were launched with; if that
+host moves, update their configuration out of band. The bound port cannot change
+here; that requires a process restart with the new endpoint already persisted.
+
+## Certificate renewal
+
+`bao relay run` renews the spoke certificate automatically. On a ticker
+(`-renew-check-every`, default `1h`) it checks the certificate age and, once the
+certificate is past `-renew-threshold` of its lifetime (default `0.5`, its
+half-life), it requests a fresh certificate over the existing mTLS stream and
+swaps it in place under the credentials directory. The spoke does not reconnect.
+
+Because renewal happens in place, renew well before expiry: a live gRPC
+connection keeps using the old certificate until it reconnects. The default
+threshold leaves ample margin.
+
+To force a renewal outside the daemon, use `bao relay renew`. Like `bao relay
+run`, it verifies the local certificate chains to the bundled `ca.pem` before
+dialing, so an inconsistent credentials directory (a certificate and `ca.pem`
+from different rotations, an expired certificate, a key-usage mismatch) fails at
+startup with a specific cause rather than an opaque handshake error later.
+
+The hub caps a signed certificate at 90 days; a renewal with no explicit TTL gets
+the 30 day default, matching what `bao relay join` initially issues.
+
+## Security
+
+The relay authenticates each surface independently.
+
+| Surface | Authenticated by |
+| --- | --- |
+| `relay/cluster-info`, `relay/sign-csr` (join) | Bootstrap token plus a JWS (HS256) signature over the response payload. These paths are unauthenticated to the OpenBao API on purpose (they self-authenticate via the token) and TLS to the API is verified with the standard flags. Every token failure returns the same generic "token unknown or expired" so a holder of one valid token cannot probe other token ids; real reasons are logged server-side. |
+| Hub relay gRPC listener | Mutual TLS with a TLS 1.3 floor on both sides. The hub presents a certificate signed by the spoke certificate authority; the client must present one signed by the same authority. Spoke identity comes from the verified peer certificate common name, not from any wire field. |
+| Hub cluster port (HA forwarding) | The cluster listener's existing mutual TLS, using the cluster's own certificate authority and per-node certificates: the same trust domain that carries HTTP request forwarding. A node cannot forward frames for a spoke it does not terminate. |
+| Certificate authority and hub key material | Persisted seal-wrapped. Present in memory on every unsealed node so standbys can serve the listener, so the key's blast radius is the whole hub cluster. Signing is nonetheless funneled through the active node so there is one auditable issuer. |
+| Bootstrap tokens | Persisted seal-wrapped. The secret half is stored so the hub can compute the JWS HMAC; seal-wrap mitigates. |
+
+### Hardening recommendations
+
+These are operator-side knobs, not enforced by the code:
+
+- **Rate-limit the unauthenticated discovery paths.** Both `relay/cluster-info`
+  and `relay/sign-csr` are unauthenticated. Apply a quota:
+
+  ```shell-session
+  $ bao write sys/quotas/rate-limit/relay-cluster-info \
+      path=relay/cluster-info rate=10 interval=1m
+  $ bao write sys/quotas/rate-limit/relay-sign-csr \
+      path=relay/sign-csr rate=10 interval=1m
+  ```
+
+- **Wrap or audit-scrub the token in `bao relay token create`.** The token
+  appears in cleartext in the API response. Enable response wrapping, or scrub it
+  from audit devices that forward elsewhere.
+
+- **Restrict `relay/bootstrap-tokens` to a small operator group** via a policy on
+  the token used to call `bao relay token create`.
