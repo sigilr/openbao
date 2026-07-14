@@ -434,14 +434,20 @@ message RelayRunCommandResponse { string output = 1; string error = 2; }
 Every node that terminates spoke streams and is **not** the active node calls
 `AnnounceSpokes` on the active node:
 
-- **On change**: a stream connects or drops, so the propagation delay in the
-  common case is one intra-cluster RTT.
 - **Periodically** (default 5s, aligned with `clusterHeartbeatInterval`), a
-  full re-announce. This is what makes the registry self-healing: it is
-  idempotent, carries the complete local set rather than a delta, and needs no
-  reconciliation protocol.
-- **Immediately on observing a leadership change**, which is the case that
-  matters most (see the failover timeline below).
+  full re-announce. This is the base mechanism and what makes the registry
+  self-healing: it is idempotent, carries the complete local set rather than a
+  delta, and needs no reconciliation protocol. A stream that connects or drops
+  therefore propagates within one announce interval, off the periodic tick,
+  rather than via a dedicated per-stream announce.
+- **Immediately on a leadership transition that re-initializes this node**
+  (startup, or a graceful step-down to standby): the relay backend re-runs
+  `SetRelayNode`, which pokes the announcer to re-announce at once instead of
+  waiting for the next tick. A node that stays standby while merely observing a
+  new leader is not re-initialized, so it re-announces on the next periodic
+  tick, whose `leader != lastLeader` check detects the change, bounded by one
+  announce interval. Either way the case that matters most (failover) is
+  covered; see the timeline below.
 
 The active node keeps `spoke_name -> {cluster_addr, node_id, last_seen, ...}`,
 expiring entries after 3 missed announces. Its own streams are never announced;
@@ -596,9 +602,10 @@ t+~1s   raft elects hub-1. hub-1 runs postUnseal as active. Its relay backend
         re-initializes; StartProxyServer is a no-op (already bound), so the
         s1 stream it holds is untouched.
 t+~1s   hub-1's registry is empty. It holds s1 locally, so s1 already works.
-t+<=5s  hub-2 observes the leadership change, immediately announces {s2} to
-        hub-1. hub-1's registry now resolves s2 -> hub-2's cluster addr.
-        Credential ops for s2 forward and succeed.
+t+<=5s  hub-2 stays standby but observes the new leader on its next announce
+        tick (leader != lastLeader) and announces {s2} to hub-1. hub-1's
+        registry now resolves s2 -> hub-2's cluster addr. Credential ops for
+        s2 forward and succeed.
 ```
 
 Worst case for a spoke on a *surviving* node is one announce interval, and only
