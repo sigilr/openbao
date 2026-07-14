@@ -228,6 +228,46 @@ func TestErrSpokeNotConnected_Sentinel(t *testing.T) {
 	}
 }
 
+// TestAnnouncer_ReannouncePoke: a poke (as SetRelayNode fires on a leadership
+// transition) drives an immediate announce, without waiting for the periodic
+// tick. The announce interval is set to an hour so any announce the test sees
+// can only have come from the poke.
+func TestAnnouncer_ReannouncePoke(t *testing.T) {
+	restore := TestingSetAnnounceInterval(time.Hour)
+	defer TestingSetAnnounceInterval(restore)
+
+	owner := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(time.Hour),
+		node:     &fakeNode{active: true},
+	}
+	lis := newOwnerServer(t, owner)
+
+	standby := newProxyServer()
+	standby.registry = newSpokeRegistry(time.Hour)
+	standby.node = &fakeNode{active: false, leader: "https://owner:8201", dial: dialBuf(lis)}
+	attachFakeSpoke(standby, "s1", func(string) (string, string) { return "", "" })
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go standby.runAnnouncer(stop)
+
+	standby.pokeReannounce()
+
+	// The poke must drive the announce well inside the (1h) tick.
+	deadline := time.After(3 * time.Second)
+	for {
+		if _, ok := owner.registry.resolve("s1"); ok {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("poke did not trigger an immediate announce to the active node")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 // TestAnnounceSpokes_RejectedByNonActive: an announce arriving at a node that is
 // not active is rejected with FailedPrecondition (so a demoted node accrues no
 // phantom registry).

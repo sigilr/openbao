@@ -84,6 +84,14 @@ type proxyServer struct {
 	startedPort   int           // 0 = not started
 	announcerStop chan struct{} // closed to stop the announcer; nil when stopped
 
+	// reannounce is a coalescing wake-up for the announcer: SetRelayNode pokes it
+	// (non-blocking) whenever the relay backend re-initializes this node's HA
+	// view, which happens on startup and on a leadership transition that re-runs
+	// the backend (e.g. a graceful step-down to standby). It makes the re-announce
+	// event-driven for those cases instead of waiting up to announceInterval.
+	// Buffered depth 1 so a poke is never lost and never blocks the caller.
+	reannounce chan struct{}
+
 	// peerMu guards peerConns: cached gRPC connections to other hub nodes'
 	// cluster ports, one per peer cluster address. gRPC ClientConns are safe for
 	// concurrent use and reconnect internally, so a single connection is reused
@@ -94,8 +102,9 @@ type proxyServer struct {
 
 func newProxyServer() *proxyServer {
 	return &proxyServer{
-		spokes:    make(map[string]*spokeConnection),
-		peerConns: make(map[string]*grpc.ClientConn),
+		spokes:     make(map[string]*spokeConnection),
+		peerConns:  make(map[string]*grpc.ClientConn),
+		reannounce: make(chan struct{}, 1),
 	}
 }
 

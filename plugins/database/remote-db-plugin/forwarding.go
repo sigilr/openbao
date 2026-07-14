@@ -115,17 +115,44 @@ func SetRelayNode(node relayfwd.Node) {
 	s.nodeMu.Unlock()
 
 	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
 	if s.announcerStop == nil {
 		stop := make(chan struct{})
 		s.announcerStop = stop
 		go s.runAnnouncer(stop)
+	}
+	s.lifecycleMu.Unlock()
+
+	// Poke the announcer to re-announce now. This call is the relay backend
+	// re-initializing this node's HA view (startup, or a leadership transition
+	// that re-runs the backend), so it is exactly the event that should trigger
+	// an immediate re-announce rather than waiting for the next tick. Non-blocking
+	// with a depth-1 buffer: a poke is coalesced, never lost, and never blocks.
+	s.pokeReannounce()
+}
+
+// pokeReannounce wakes the announcer without blocking. Safe on a proxyServer
+// built by a struct literal in a test (nil channel): the default branch is taken.
+func (s *proxyServer) pokeReannounce() {
+	select {
+	case s.reannounce <- struct{}{}:
+	default:
 	}
 }
 
 // runAnnouncer periodically pushes this node's full local spoke set to the
 // active node, and also re-announces immediately when it observes a leadership
 // change. See DESIGN.md "The spoke registry is built by announcement".
+//
+// Two triggers drive an immediate (not next-tick) re-announce:
+//   - The reannounce poke from SetRelayNode: fired when the relay backend
+//     re-initializes this node's HA view (startup, or a leadership transition
+//     that re-runs the backend, such as a graceful step-down to standby). This
+//     is event-driven off the existing transition callback, no core plumbing.
+//   - The leader != lastLeader check on the periodic tick: the backstop for a
+//     node that observes a NEW leader without its own backend re-initializing
+//     (a standby that stays standby across a failover). Core exposes no
+//     non-intrusive hook for that edge, so its reaction is bounded by
+//     announceInterval, which matches the DESIGN failover timeline.
 func (s *proxyServer) runAnnouncer(stop <-chan struct{}) {
 	ticker := time.NewTicker(announceInterval)
 	defer ticker.Stop()
@@ -134,9 +161,14 @@ func (s *proxyServer) runAnnouncer(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
+		case <-s.reannounce:
+			// Event-driven re-announce. announceOnce is guarded by the same
+			// node==active / sealed checks, so a node that just became active
+			// correctly announces nothing.
+			lastLeader = s.announceOnce()
 		case <-ticker.C:
 			leader := s.announceOnce()
-			// The 5s tick already bounds propagation to one announce interval;
+			// The periodic tick bounds propagation to one announce interval;
 			// re-announcing the instant the leader changes closes the gap on
 			// the case that matters most (failover). announceOnce returns the
 			// leader it targeted so we can detect the change cheaply.
