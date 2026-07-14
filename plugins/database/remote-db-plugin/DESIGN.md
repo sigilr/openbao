@@ -434,24 +434,32 @@ message RelayRunCommandResponse { string output = 1; string error = 2; }
 Every node that terminates spoke streams and is **not** the active node calls
 `AnnounceSpokes` on the active node:
 
+- **On change** (a spoke stream connects or drops): the `Connect` handler pokes
+  the announcer, so the change reaches the active node's registry in about one
+  intra-cluster RTT rather than waiting for the next tick. The poke is a
+  non-blocking, coalescing wake-up and a no-op on the active node, so a reconnect
+  burst is cheap.
 - **Periodically** (default 5s, aligned with `clusterHeartbeatInterval`), a
-  full re-announce. This is the base mechanism and what makes the registry
-  self-healing: it is idempotent, carries the complete local set rather than a
-  delta, and needs no reconciliation protocol. A stream that connects or drops
-  therefore propagates within one announce interval, off the periodic tick,
-  rather than via a dedicated per-stream announce.
+  full re-announce. This is what makes the registry self-healing: it is
+  idempotent, carries the complete local set rather than a delta, and needs no
+  reconciliation protocol. It backstops any poke that raced a teardown.
 - **Immediately on a leadership transition that re-initializes this node**
   (startup, or a graceful step-down to standby): the relay backend re-runs
-  `SetRelayNode`, which pokes the announcer to re-announce at once instead of
-  waiting for the next tick. A node that stays standby while merely observing a
-  new leader is not re-initialized, so it re-announces on the next periodic
-  tick, whose `leader != lastLeader` check detects the change, bounded by one
-  announce interval. Either way the case that matters most (failover) is
-  covered; see the timeline below.
+  `SetRelayNode`, which pokes the same announcer. A node that stays standby while
+  merely observing a new leader is not re-initialized, so it re-announces on the
+  next periodic tick, whose `leader != lastLeader` check detects the change,
+  bounded by one announce interval. Either way the case that matters most
+  (failover) is covered; see the timeline below.
 
 The active node keeps `spoke_name -> {cluster_addr, node_id, last_seen, ...}`,
 expiring entries after 3 missed announces. Its own streams are never announced;
-they are found in the local map first.
+they are found in the local map first. When two nodes' announces claim the same
+spoke (the window after a migration where the former owner has not yet noticed
+the disconnect), the fresher stream wins: ownership moves to another node only
+when the incoming announce's `connected_at` is not older than the recorded one.
+A spoke's stream is a single live connection, so the node it connected to most
+recently is the real owner, and a stale re-claim from a former owner is rejected
+rather than routed to.
 
 The announcement carries the announcer's `node_cluster_addr`, which is the
 detail that makes this self-contained: the active node learns **where to dial
