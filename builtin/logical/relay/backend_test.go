@@ -30,6 +30,7 @@ func (s stubNode) ClusterAddr() string { return "https://127.0.0.1:8201" }
 // pointed at the same instance.
 func (s stubNode) NodeID() string                     { return "" }
 func (s stubNode) LeaderClusterAddr() (string, error) { return "https://127.0.0.1:8201", nil }
+func (s stubNode) Peers() []relayfwd.PeerInfo         { return nil }
 func (s stubNode) DialForwarding(context.Context, string) (*grpc.ClientConn, error) {
 	return nil, nil
 }

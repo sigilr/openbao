@@ -13,7 +13,9 @@ import (
 	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"github.com/openbao/openbao/vault/relayfwd"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -34,6 +36,7 @@ func (n *fakeNode) Sealed() bool                       { return n.sealed }
 func (n *fakeNode) ClusterAddr() string                { return "https://self:8201" }
 func (n *fakeNode) NodeID() string                     { return "self" }
 func (n *fakeNode) LeaderClusterAddr() (string, error) { return n.leader, nil }
+func (n *fakeNode) Peers() []relayfwd.PeerInfo         { return nil }
 func (n *fakeNode) DialForwarding(ctx context.Context, _ string) (*grpc.ClientConn, error) {
 	return n.dial(ctx)
 }
@@ -221,6 +224,105 @@ func TestAnnounceSpokes_AppliedByActive(t *testing.T) {
 	loc, ok := s.registry.resolve("s1")
 	if !ok || loc.NodeClusterAddr != "https://b:8201" {
 		t.Fatalf("announce not recorded: %+v ok=%v", loc, ok)
+	}
+}
+
+// TestRejectSpokeIfPinned covers the optional pin-spokes-to-active policy: off
+// by default it accepts everywhere; on, the active node still accepts but a
+// non-active node rejects with FailedPrecondition carrying the active node's
+// relay endpoint as a RelayRedirect detail.
+func TestRejectSpokeIfPinned(t *testing.T) {
+	standby := &proxyServer{
+		spokes:      map[string]*spokeConnection{},
+		node:        &fakeNode{active: false, leader: "https://leader-host:8201"},
+		startedPort: 50053,
+	}
+
+	// Off by default: a non-active node accepts the stream.
+	if err := standby.rejectSpokeIfPinned(); err != nil {
+		t.Fatalf("policy off must accept the stream, got %v", err)
+	}
+
+	prev := pinSpokesToActive
+	pinSpokesToActive = true
+	defer func() { pinSpokesToActive = prev }()
+
+	// With the policy on, the active node still accepts.
+	active := &proxyServer{spokes: map[string]*spokeConnection{}, node: &fakeNode{active: true}}
+	if err := active.rejectSpokeIfPinned(); err != nil {
+		t.Fatalf("active node must accept even with the policy on, got %v", err)
+	}
+
+	// A non-active node rejects and points the spoke at the leader's relay
+	// endpoint (leader host + this node's relay port, homogeneous-port
+	// assumption).
+	err := standby.rejectSpokeIfPinned()
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition, got %v", err)
+	}
+	endpoint := ""
+	for _, d := range st.Details() {
+		if r, ok := d.(*agentproto.RelayRedirect); ok {
+			endpoint = r.RelayEndpoint
+		}
+	}
+	if endpoint != "leader-host:50053" {
+		t.Fatalf("redirect endpoint = %q, want leader-host:50053", endpoint)
+	}
+}
+
+// TestClusterSpokesView_ForwardsToActive: a relay/spokes read on a standby
+// (empty registry) forwards to the active node and returns its merged view, so
+// the operator sees every spoke regardless of which node they read.
+func TestClusterSpokesView_ForwardsToActive(t *testing.T) {
+	owner := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(DefaultAnnounceInterval),
+		node:     &fakeNode{active: true},
+	}
+	attachFakeSpoke(owner, "s1", func(string) (string, string) { return "", "" })
+	lis := newOwnerServer(t, owner)
+
+	standby := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(DefaultAnnounceInterval),
+		node:     &fakeNode{active: false, leader: "https://owner:8201", dial: dialBuf(lis)},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	view := standby.clusterSpokesView(ctx, standby.node)
+	if !view.FromActive {
+		t.Fatal("standby view should be marked forwarded-from-active")
+	}
+	found := false
+	for _, sp := range view.Spokes {
+		if sp.Name == "s1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("forwarded view missing spoke s1: %+v", view.Spokes)
+	}
+}
+
+// TestClusterSpokesView_StandbyFallsBackOnForwardFailure: when a standby cannot
+// reach the active node, relay/spokes returns its own partial local view flagged
+// FromActive=false rather than erroring.
+func TestClusterSpokesView_StandbyFallsBackOnForwardFailure(t *testing.T) {
+	standby := &proxyServer{
+		spokes:   map[string]*spokeConnection{},
+		registry: newSpokeRegistry(DefaultAnnounceInterval),
+		node: &fakeNode{active: false, leader: "https://dead:8201", dial: func(context.Context) (*grpc.ClientConn, error) {
+			return nil, context.DeadlineExceeded
+		}},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	view := standby.clusterSpokesView(ctx, standby.node)
+	if view.FromActive {
+		t.Fatal("failed forward must yield a partial view (FromActive=false)")
 	}
 }
 

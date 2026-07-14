@@ -83,10 +83,20 @@ type proxyServer struct {
 	grpcSrv       *grpc.Server  // the running spoke listener's server, for Stop
 	startedPort   int           // 0 = not started
 	announcerStop chan struct{} // closed to stop the announcer; nil when stopped
+
+	// peerMu guards peerConns: cached gRPC connections to other hub nodes'
+	// cluster ports, one per peer cluster address. gRPC ClientConns are safe for
+	// concurrent use and reconnect internally, so a single connection is reused
+	// across announces and forwards instead of being dialed and closed per call.
+	peerMu    sync.Mutex
+	peerConns map[string]*grpc.ClientConn
 }
 
 func newProxyServer() *proxyServer {
-	return &proxyServer{spokes: make(map[string]*spokeConnection)}
+	return &proxyServer{
+		spokes:    make(map[string]*spokeConnection),
+		peerConns: make(map[string]*grpc.ClientConn),
+	}
 }
 
 // proxyServers holds every proxyServer in this process, keyed by raft node id
@@ -439,6 +449,9 @@ func (s *proxyServer) stop() {
 		c.failAll("hub node sealed")
 	}
 
+	// Close cached connections to peer hub nodes.
+	s.closePeerConns()
+
 	// Drop the spoke-CA key + hub cert from memory. A sealed node must not hold
 	// signing material.
 	bootstrap.Global().Clear()
@@ -458,6 +471,14 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	spokeName := leaf.Subject.CommonName
 	if spokeName == "" {
 		return fmt.Errorf("client cert has no Common Name")
+	}
+
+	// Optional pin-spokes-to-active policy (off by default): a non-active node
+	// refuses the stream and redirects the spoke to the leader's relay endpoint.
+	// Checked before installing the connection so a rejected stream is never
+	// recorded in the spoke map.
+	if err := s.rejectSpokeIfPinned(); err != nil {
+		return err
 	}
 
 	conn := newSpokeConnection(stream)
@@ -989,9 +1010,9 @@ type SpokeStatus struct {
 	NodeIsActive    bool
 }
 
-// HubNode is one hub node that terminates at least one spoke stream. The
-// top-level hub_nodes list in relay/spokes is built from these so an operator
-// can see the cluster's stream ownership at a glance.
+// HubNode is one hub node in the cluster. The top-level hub_nodes list in
+// relay/spokes is built from these so an operator can see the cluster's stream
+// ownership at a glance.
 type HubNode struct {
 	ClusterAddr string
 	NodeID      string
@@ -999,15 +1020,22 @@ type HubNode struct {
 	SpokeCount  int
 }
 
-// ListConnectedSpokes returns the default instance's snapshot (unit tests,
-// single-node). Production reads ListConnectedSpokesForNode.
-func ListConnectedSpokes() []SpokeStatus { return proxyServerInstance.listConnectedSpokes() }
-
-// ListConnectedSpokesForNode returns the cluster-wide snapshot for the proxy
-// server bound to the given node.
-func ListConnectedSpokesForNode(node relayfwd.Node) []SpokeStatus {
-	return proxyServerForNode(node).listConnectedSpokes()
+// SpokesView is the cluster-wide relay/spokes payload. FromActive reports
+// whether it reflects the active node's merged view (the complete picture):
+// true on the active node and on a standby whose read was forwarded to the
+// active, false on a standby that fell back to its own partial local view
+// because forwarding failed.
+type SpokesView struct {
+	Spokes            []SpokeStatus
+	HubNodes          []HubNode
+	ListenerPort      int
+	StaleAfterSeconds int64
+	FromActive        bool
 }
+
+// ListConnectedSpokes returns the default instance's snapshot (unit tests,
+// single-node). Production reads the whole-cluster view via ClusterSpokesForNode.
+func ListConnectedSpokes() []SpokeStatus { return proxyServerInstance.listConnectedSpokes() }
 
 // listConnectedSpokes returns the cluster-wide health snapshot: the spokes whose
 // streams terminate on this node PLUS, when this is the active node, the spokes
@@ -1070,36 +1098,42 @@ func (s *proxyServer) listConnectedSpokes() []SpokeStatus {
 }
 
 // ListHubNodes returns the default instance's hub-node view (unit tests,
-// single-node). Production reads ListHubNodesForNode.
+// single-node). Production reads the whole-cluster view via ClusterSpokesForNode.
 func ListHubNodes() []HubNode { return proxyServerInstance.listHubNodes() }
 
-// ListHubNodesForNode returns the hub-node view for the proxy server bound to
-// the given node.
-func ListHubNodesForNode(node relayfwd.Node) []HubNode {
-	return proxyServerForNode(node).listHubNodes()
-}
-
-// listHubNodes returns the distinct hub nodes that terminate at least one spoke
-// stream, derived from listConnectedSpokes. It is a best-effort view: a hub node
-// with zero spokes does not appear (the relay has no other cheap signal of raft
-// membership), so this reports "nodes owning streams", not "all raft peers".
+// listHubNodes returns every hub node in the cluster with its spoke count. It
+// seeds from the HA peer membership (node.Peers()), so a hub node that
+// terminates zero spokes still appears, then adds per-node spoke counts from
+// listConnectedSpokes. On a single-node hub or a standby (empty peer cache) it
+// reduces to the nodes that own streams.
 func (s *proxyServer) listHubNodes() []HubNode {
-	spokes := s.listConnectedSpokes()
-	byAddr := make(map[string]*HubNode)
+	byKey := make(map[string]*HubNode)
 	order := make([]string, 0)
-	for _, sp := range spokes {
-		key := sp.NodeClusterAddr + "|" + sp.NodeID
-		hn, ok := byAddr[key]
+	get := func(addr, id string, active bool) *HubNode {
+		key := addr + "|" + id
+		hn, ok := byKey[key]
 		if !ok {
-			hn = &HubNode{ClusterAddr: sp.NodeClusterAddr, NodeID: sp.NodeID, IsActive: sp.NodeIsActive}
-			byAddr[key] = hn
+			hn = &HubNode{ClusterAddr: addr, NodeID: id, IsActive: active}
+			byKey[key] = hn
 			order = append(order, key)
 		}
-		hn.SpokeCount++
+		return hn
 	}
+
+	// Seed with the full peer set so zero-spoke nodes are visible.
+	if node := s.getNode(); node != nil {
+		for _, p := range node.Peers() {
+			get(p.ClusterAddr, p.NodeID, p.IsActive)
+		}
+	}
+	// Add spoke counts (and any owning node the peer set did not list).
+	for _, sp := range s.listConnectedSpokes() {
+		get(sp.NodeClusterAddr, sp.NodeID, sp.NodeIsActive).SpokeCount++
+	}
+
 	out := make([]HubNode, 0, len(order))
 	for _, k := range order {
-		out = append(out, *byAddr[k])
+		out = append(out, *byKey[k])
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
 	return out

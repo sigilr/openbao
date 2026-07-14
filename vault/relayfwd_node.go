@@ -63,6 +63,34 @@ func (n *relayNode) ClusterAddr() string { return n.core.ClusterAddr() }
 
 func (n *relayNode) NodeID() string { return n.core.GetRaftNodeID() }
 
+// Peers returns this node plus, on the active node, every standby that has
+// echoed within the HA heartbeat window (clusterPeerClusterAddrsCache). The
+// cache carries each peer's cluster address and raft node id. On a standby the
+// cache is empty, so only the local node is returned; the merged relay/spokes
+// view is built on the active node, which is where relay/spokes forwards to.
+func (n *relayNode) Peers() []relayfwd.PeerInfo {
+	c := n.core
+	peers := []relayfwd.PeerInfo{{
+		ClusterAddr: c.ClusterAddr(),
+		NodeID:      c.GetRaftNodeID(),
+		IsActive:    n.IsActive(),
+	}}
+	if c.clusterPeerClusterAddrsCache != nil {
+		for addr, item := range c.clusterPeerClusterAddrsCache.Items() {
+			nodeID := ""
+			if item.Object.NodeInfo != nil {
+				nodeID = item.Object.NodeInfo.NodeID
+			}
+			peers = append(peers, relayfwd.PeerInfo{
+				ClusterAddr: addr,
+				NodeID:      nodeID,
+				IsActive:    false, // echo-cached peers are followers of this active node
+			})
+		}
+	}
+	return peers
+}
+
 // LeaderClusterAddr returns the leader's cluster address, which is where a
 // standby sends spoke announcements. Empty (with nil error) when leadership is
 // currently unknown; the caller retries on the next announce tick.

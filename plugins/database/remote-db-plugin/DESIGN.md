@@ -526,22 +526,27 @@ A sealed node must announce nothing and hold nothing.
 
 ### Wrong-node rejection (fallback for directly-addressed hubs)
 
-Independently of forwarding, `Connect` gains a preference check. When a hub is
-addressed **per node** (no LB in front, each node has its own reachable
-`relay_addr`), it is better for the spoke to just talk to the right node:
+Independently of forwarding, `Connect` carries a preference check, gated by the
+`BAO_RELAY_PIN_SPOKES_TO_ACTIVE` hub-node environment variable (`1` or `true`).
+When a hub is addressed **per node** (no LB in front, each node has its own
+reachable relay endpoint), it can be better for the spoke to just talk to the
+active node:
 
-- The hub advertises a per-node relay endpoint (a `relay_addr` analogue of
-  `api_addr`; absent it, the endpoint from `ca/bundle` is used, which is what a
-  single-address deployment wants).
-- A node that is not the preferred terminator may reject the registration frame
-  with `codes.FailedPrecondition` plus an error detail carrying the active
-  node's relay endpoint.
-- `bao relay run` already has reconnect logic; it re-dials the endpoint from the
-  detail, with backoff and a cap on redirect chasing.
+- A non-active node refuses the stream (before it records anything in its spoke
+  map) with `codes.FailedPrecondition` plus a `RelayRedirect` status detail
+  carrying the active node's relay endpoint. The endpoint is derived from the
+  leader's cluster-address host and this node's own relay listener port, so it
+  assumes a homogeneous relay port across the cluster (every node's
+  `bao relay init` used the same port), which is the deployment shape this policy
+  targets.
+- `bao relay run` chases the redirect: it re-dials the endpoint from the detail
+  (re-pointing SNI at the new host unless `-server-name` was pinned), with a
+  fixed backoff and a cap (`redirectChaseLimit`) so two nodes that redirect at
+  each other cannot spin forever.
 
-This is the gRPC-shaped analogue of the 307, and it is **optional policy**:
-with forwarding in place, "wrong node" is not an error, so the default is to
-accept the stream wherever it lands. Enable rejection only when nodes are
+This is the gRPC-shaped analogue of the 307, and it is **optional policy, off by
+default**: with forwarding in place, "wrong node" is not an error, so the default
+is to accept the stream wherever it lands. Enable rejection only when nodes are
 individually addressable and you would rather pay a reconnect than an RTT per
 credential op. Behind a single LB, leave it off; forwarding makes it moot.
 
@@ -630,8 +635,24 @@ spoke-2    hub-2 (standby) 1s ago     4m      29d       OK
 ```
 
 `relay/spokes` gains `node_cluster_addr` and `node_is_active` per spoke, plus a
-top-level `hub_nodes` list. This is what makes the "why is my spoke not
-connected" class of bug diagnosable instead of mysterious.
+top-level `hub_nodes` list. The `hub_nodes` list is seeded from every raft peer
+this node knows about (the active node's echo-heartbeat cache), so a node that
+terminates zero spokes still appears, and its `spoke_count` reflects streams
+owned rather than raft membership alone. This is what makes the "why is my spoke
+not connected" class of bug diagnosable instead of mysterious.
+
+Because only the active node accumulates the merged registry, a `relay/spokes`
+read that lands on a standby **forwards to the active node** (`ListSpokes` over
+the cluster port) and returns its cluster-wide view. If the standby cannot reach
+the active node it falls back to its own partial local view and attaches a
+warning, so the endpoint always answers rather than erroring.
+
+Peer connections used for forwarding (`RunCommand`, `AnnounceSpokes`,
+`SignSpokeCSR`, `ListSpokes`) are **cached one `*grpc.ClientConn` per peer** and
+reused across calls, mirroring `refreshRequestForwardingConnection` for HTTP
+forwarding; a call that reveals a dead peer (`codes.Unavailable`) drops the entry
+so the next call redials. This avoids the per-call dial/close churn (and its
+transient "use of closed network connection" noise) of a naive design.
 
 ---
 

@@ -18,6 +18,13 @@ import (
 	"google.golang.org/grpc"
 )
 
+// PeerInfo identifies one hub node for the cluster-wide observability view.
+type PeerInfo struct {
+	ClusterAddr string
+	NodeID      string
+	IsActive    bool
+}
+
 // Node is the view of the local hub cluster node that the relay backend needs
 // to route spoke traffic across an HA hub. A Core-backed implementation lives
 // in package vault; the relay backend obtains it from its extended system view
@@ -54,6 +61,14 @@ type Node interface {
 	// error means "leadership currently unknown" (e.g. mid-election); the
 	// caller should retry on the next announce tick.
 	LeaderClusterAddr() (string, error)
+
+	// Peers returns every hub node this node knows about: itself plus, on the
+	// active node, the standbys that have echoed within the HA heartbeat window.
+	// Used to report a cluster-wide hub-node list (including nodes that
+	// terminate zero spokes) in relay/spokes. On a standby the echo cache is
+	// empty, so this returns just the local node; the merged view is built on
+	// the active node, which relay/spokes forwards to.
+	Peers() []PeerInfo
 
 	// DialForwarding returns a gRPC client connection to the given peer cluster
 	// address over the RelayForwarding ALPN, using this node's cluster

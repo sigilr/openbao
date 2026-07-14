@@ -135,22 +135,74 @@ func (c *RelayRunCommand) Flags() *FlagSets {
 func (c *RelayRunCommand) AutocompleteArgs() complete.Predictor { return nil }
 func (c *RelayRunCommand) AutocompleteFlags() complete.Flags    { return c.Flags().Completions() }
 
+// redirectChaseLimit bounds how many consecutive hub redirects bao relay run
+// will follow before giving up, so a misconfigured cluster (two nodes each
+// redirecting to the other) can't spin forever. Only the optional
+// pin-spokes-to-active hub policy issues redirects; a standard HA hub never
+// does, so this cap is invisible in the default deployment.
+const redirectChaseLimit = 5
+
+// redirectBackoff is the pause before chasing a hub redirect, so a flapping
+// leader doesn't drive a tight reconnect loop.
+const redirectBackoff = 2 * time.Second
+
 func (c *RelayRunCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
 		c.UI.Error(err.Error())
 		return 1
 	}
 
-	tlsCfg, err := loadSpokeTLS(c.flagCredentialsDir, c.flagServerName, c.flagServer)
+	baseTLS, err := loadSpokeTLS(c.flagCredentialsDir, c.flagServerName, c.flagServer)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("tls: %s", err))
 		return 1
 	}
-	spokeName := tlsCfg.Certificates[0].Leaf.Subject.CommonName
-	c.UI.Info(fmt.Sprintf("connecting to hub as spoke %q", spokeName))
+	spokeName := baseTLS.Certificates[0].Leaf.Subject.CommonName
+
+	// One shutdown channel for the whole daemon: MakeShutdownCh installs signal
+	// handlers, so it must not be re-created per redirect hop.
+	shutdownCh := MakeShutdownCh()
+
+	server := c.flagServer
+	redirects := 0
+	for {
+		c.UI.Info(fmt.Sprintf("connecting to hub %s as spoke %q", server, spokeName))
+		code, redirect := c.connectAndServe(server, baseTLS, spokeName, shutdownCh)
+		if redirect == "" || redirect == server {
+			return code
+		}
+		redirects++
+		if redirects > redirectChaseLimit {
+			c.UI.Error(fmt.Sprintf("hub kept redirecting (limit %d reached); giving up", redirectChaseLimit))
+			return 1
+		}
+		c.UI.Info(fmt.Sprintf("hub redirected spoke to active node %s (%d/%d)", redirect, redirects, redirectChaseLimit))
+		select {
+		case <-shutdownCh:
+			return 0
+		case <-time.After(redirectBackoff):
+		}
+		server = redirect
+	}
+}
+
+// connectAndServe dials one hub endpoint, registers, and serves requests until
+// the stream ends or a shutdown signal arrives. It returns the process exit code
+// and, when the hub rejected the stream with a pin-spokes-to-active redirect, the
+// active node's relay endpoint to chase (empty otherwise).
+func (c *RelayRunCommand) connectAndServe(server string, baseTLS *tls.Config, spokeName string, shutdownCh chan struct{}) (int, string) {
+	// Per-target TLS: keep the verified cert/key/roots from baseTLS but point
+	// SNI / expected hub CN at this endpoint's host, unless the operator pinned
+	// an explicit -server-name. A redirect hop targets a different node, whose
+	// cert must match its own host among the hub SANs.
+	tlsCfg := baseTLS.Clone()
+	if c.flagServerName == "" {
+		host, _, _ := strings.Cut(server, ":")
+		tlsCfg.ServerName = host
+	}
 
 	conn, err := grpc.NewClient(
-		c.flagServer,
+		server,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(remotedb.MaxMessageBytes),
@@ -164,7 +216,7 @@ func (c *RelayRunCommand) Run(args []string) int {
 	)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("dial: %s", err))
-		return 1
+		return 1, ""
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -176,7 +228,7 @@ func (c *RelayRunCommand) Run(args []string) int {
 	stream, err := proto.NewAgentServiceClient(conn).Connect(streamCtx)
 	if err != nil {
 		c.UI.Error(fmt.Sprintf("open stream: %s", err))
-		return 1
+		return 1, ""
 	}
 
 	// hbCtx scopes the heartbeat + renewal goroutines and the runner's idle
@@ -233,14 +285,19 @@ func (c *RelayRunCommand) Run(args []string) int {
 		c.UI.Error(fmt.Sprintf("register: %s", err))
 		close(sendCh)
 		<-sendDone
-		return 1
+		return 1, ""
 	}
 	ack, err := stream.Recv()
 	if err != nil {
-		c.UI.Error(fmt.Sprintf("recv ack: %s", err))
 		close(sendCh)
 		<-sendDone
-		return 1
+		// A pin-spokes-to-active hub rejects the stream here with a redirect to
+		// the active node; chase it rather than treating it as a hard failure.
+		if endpoint, ok := redirectFromErr(err); ok {
+			return 0, endpoint
+		}
+		c.UI.Error(fmt.Sprintf("recv ack: %s", err))
+		return 1, ""
 	}
 	c.UI.Info(fmt.Sprintf("registered: %s", ack.Output))
 
@@ -255,7 +312,7 @@ func (c *RelayRunCommand) Run(args []string) int {
 		// Renewal opens its own short-lived RPC; it doesn't write to sendCh,
 		// so it isn't part of senderWG. hbCtx cancellation still stops it.
 		go runCertRenewal(hbCtx, RenewSpokeCertInput{
-			Server:         c.flagServer,
+			Server:         server,
 			ServerName:     c.flagServerName,
 			CredentialsDir: c.flagCredentialsDir,
 		}, c.flagRenewCheckEvery, c.flagRenewThreshold, c.UI)
@@ -323,7 +380,6 @@ func (c *RelayRunCommand) Run(args []string) int {
 	// Block until either SIGINT/SIGTERM or the recv loop returns on its own
 	// (stream error, EOF, send-loop failure). When a signal arrives, cancel
 	// the stream so Recv unblocks and the goroutine returns.
-	shutdownCh := MakeShutdownCh()
 	signaled := false
 	select {
 	case <-shutdownCh:
@@ -350,20 +406,42 @@ func (c *RelayRunCommand) Run(args []string) int {
 	r.Shutdown()
 
 	if signaled {
-		return 0
+		return 0, ""
 	}
 	if recvErr == nil || errors.Is(recvErr, io.EOF) {
 		c.UI.Info("hub disconnected")
-		return 0
+		return 0, ""
+	}
+	// A redirect can also surface mid-stream (e.g. the node this spoke pinned to
+	// stepped down and the pin policy is on); chase it like the register-time one.
+	if endpoint, ok := redirectFromErr(recvErr); ok {
+		return 0, endpoint
 	}
 	if s, ok := status.FromError(recvErr); ok && s.Code() == codes.Canceled {
 		// Stream was cancelled by the send-loop after a Send failure; the
 		// real cause is in sendErrCh and was reported into recvErr.
 		c.UI.Error(fmt.Sprintf("stream cancelled: %s", recvErr))
-		return 1
+		return 1, ""
 	}
 	c.UI.Error(fmt.Sprintf("stream error: %s", recvErr))
-	return 1
+	return 1, ""
+}
+
+// redirectFromErr extracts the active node's relay endpoint from a hub's
+// pin-spokes-to-active rejection: a FailedPrecondition status carrying a
+// RelayRedirect detail. Returns ("", false) for any other error, so the normal
+// error paths are unaffected on a standard HA hub (which never redirects).
+func redirectFromErr(err error) (string, bool) {
+	st, ok := status.FromError(err)
+	if !ok || st.Code() != codes.FailedPrecondition {
+		return "", false
+	}
+	for _, d := range st.Details() {
+		if r, ok := d.(*proto.RelayRedirect); ok && r.RelayEndpoint != "" {
+			return r.RelayEndpoint, true
+		}
+	}
+	return "", false
 }
 
 // runCertRenewal ticks on `every` and renews the spoke's client cert once it

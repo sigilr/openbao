@@ -47,6 +47,46 @@ service RelayForwarding {
   // SignSpokeCSR: the node holding a spoke stream forwards a renewal CSR to the
   // active node, so cert issuance stays a single-issuer authority operation.
   rpc SignSpokeCSR(RelaySignCSRRequest) returns (RelaySignCSRResponse);
+
+  // ListSpokes: a standby forwards a relay/spokes read to the active node so the
+  // operator gets the merged, cluster-wide view (local map plus registry) no
+  // matter which node served the API read.
+  rpc ListSpokes(RelayListSpokesRequest) returns (RelayListSpokesResponse);
+}
+
+message RelayListSpokesRequest {}
+
+message RelayListSpokesResponse {
+  repeated RelaySpokeStatus spokes = 1;
+  repeated RelayHubNode hub_nodes = 2;
+  int32 listener_port = 3;
+  int32 stale_after_seconds = 4;
+}
+
+message RelaySpokeStatus {
+  string spoke_name = 1;
+  int64 connected_at_unix = 2;
+  int64 last_seen_unix = 3;
+  bool healthy = 4;
+  int64 cert_not_after = 5;
+  string node_cluster_addr = 6;
+  string node_id = 7;
+  bool node_is_active = 8;
+}
+
+message RelayHubNode {
+  string cluster_addr = 1;
+  string node_id = 2;
+  bool is_active = 3;
+  int32 spoke_count = 4;
+}
+
+// RelayRedirect is carried as a gRPC status detail on the FailedPrecondition a
+// non-active node returns from Connect when wrong-node rejection is enabled
+// (optional policy, off by default). It tells the spoke which relay endpoint to
+// re-dial.
+message RelayRedirect {
+  string relay_endpoint = 1;
 }
 
 message AnnounceSpokesRequest {

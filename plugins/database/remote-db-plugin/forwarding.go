@@ -9,19 +9,92 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
 	"github.com/openbao/openbao/vault/relayfwd"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// relayForwardingCallTimeout bounds a single cross-node forward (dial + call).
-// A credential operation must not hang on a wedged peer.
+// pinSpokesToActive gates the optional "pin every spoke to the active node"
+// policy. OFF by default: the standard HA design lets a spoke terminate its
+// stream on any hub node (the active node forwards credential ops to it), so
+// both single- and multi-node hubs accept spoke streams anywhere. When this is
+// enabled (BAO_RELAY_PIN_SPOKES_TO_ACTIVE=1|true on a hub node) a non-active
+// node instead refuses spoke Connect streams and redirects the spoke to the
+// active node. That suits deployments where spokes reach the hub through a VIP
+// or DNS record that fans out across all nodes and the operator wants every
+// stream anchored on the leader.
+var pinSpokesToActive = envPinSpokesToActive()
+
+func envPinSpokesToActive() bool {
+	v := os.Getenv("BAO_RELAY_PIN_SPOKES_TO_ACTIVE")
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+// relayForwardingCallTimeout bounds a single cross-node forward (the RPC, not
+// the connection). A credential operation must not hang on a wedged peer.
 const relayForwardingCallTimeout = 10 * time.Second
+
+// peerConn returns a cached gRPC connection to the given peer cluster address,
+// dialing (once) over the RelayForwarding ALPN via the node. The connection is
+// reused across announces and forwards; gRPC manages reconnection internally, so
+// there is no per-call dial or close (which is what caused the transient
+// "use of closed network connection" churn in the earlier per-call design).
+//
+// The dial uses a background context deliberately: the dialer is reused for the
+// connection's whole lifetime, so it must not be tied to a per-call context
+// that gets cancelled. Connections are closed together in closePeerConns on
+// seal, or individually via dropPeerConn when a call reveals a dead peer.
+func (s *proxyServer) peerConn(node relayfwd.Node, addr string) (*grpc.ClientConn, error) {
+	s.peerMu.Lock()
+	defer s.peerMu.Unlock()
+	if s.peerConns == nil {
+		s.peerConns = make(map[string]*grpc.ClientConn)
+	}
+	if c, ok := s.peerConns[addr]; ok {
+		return c, nil
+	}
+	c, err := node.DialForwarding(context.Background(), addr)
+	if err != nil {
+		return nil, err
+	}
+	s.peerConns[addr] = c
+	return c, nil
+}
+
+// dropPeerConn closes and forgets the cached connection to addr so the next call
+// redials. Called when a forward fails at the transport layer, which is the
+// signal that the peer may be gone (a fresh dial re-resolves it, and a truly
+// dead peer's registry entry expires so no new dial happens).
+func (s *proxyServer) dropPeerConn(addr string) {
+	s.peerMu.Lock()
+	c, ok := s.peerConns[addr]
+	delete(s.peerConns, addr)
+	s.peerMu.Unlock()
+	if ok && c != nil {
+		_ = c.Close()
+	}
+}
+
+// closePeerConns closes every cached peer connection. Called from stop().
+func (s *proxyServer) closePeerConns() {
+	s.peerMu.Lock()
+	conns := s.peerConns
+	s.peerConns = make(map[string]*grpc.ClientConn)
+	s.peerMu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+}
 
 // SetRelayNode wires the given Core's HA view into the proxy server bound to
 // that node and starts its spoke announcer. Called by the relay backend on every
@@ -93,12 +166,11 @@ func (s *proxyServer) announceOnce() string {
 	ctx, cancel := context.WithTimeout(context.Background(), relayForwardingCallTimeout)
 	defer cancel()
 
-	conn, err := node.DialForwarding(ctx, leader)
+	conn, err := s.peerConn(node, leader)
 	if err != nil {
 		log.Printf("[relay-fwd] announce dial to leader %s failed: %v", leader, err)
 		return leader
 	}
-	defer conn.Close()
 
 	client := agentproto.NewRelayForwardingClient(conn)
 	_, err = client.AnnounceSpokes(ctx, &agentproto.AnnounceSpokesRequest{
@@ -108,9 +180,15 @@ func (s *proxyServer) announceOnce() string {
 	})
 	if err != nil {
 		// FailedPrecondition means the target is no longer active; the next
-		// tick re-resolves the leader via Core.Leader() and re-announces. Any
-		// other error is transient and self-heals the same way.
-		if status.Code(err) != codes.FailedPrecondition {
+		// tick re-resolves the leader via Core.Leader() and re-announces. On a
+		// transport-level failure (Unavailable) the cached connection may be
+		// dead, so drop it; the next tick redials. Either way self-heals.
+		switch status.Code(err) {
+		case codes.FailedPrecondition:
+		case codes.Unavailable:
+			s.dropPeerConn(leader)
+			log.Printf("[relay-fwd] announce to leader %s failed: %v", leader, err)
+		default:
 			log.Printf("[relay-fwd] announce to leader %s failed: %v", leader, err)
 		}
 	}
@@ -170,11 +248,10 @@ func fromProtoSpokes(in []*agentproto.SpokeEntry) []AnnouncedSpoke {
 // spoke stream and returns its result. The peer runs its own identical local
 // path (runLocalOnly), so the spoke never learns its frames took an extra hop.
 func (s *proxyServer) forwardRunCommand(ctx context.Context, node relayfwd.Node, loc SpokeLocation, spokeName, command string) (string, error) {
-	conn, err := node.DialForwarding(ctx, loc.NodeClusterAddr)
+	conn, err := s.peerConn(node, loc.NodeClusterAddr)
 	if err != nil {
 		return "", fmt.Errorf("cannot reach spoke owner %s: %w", loc.NodeClusterAddr, err)
 	}
-	defer conn.Close()
 
 	client := agentproto.NewRelayForwardingClient(conn)
 	resp, err := client.RunCommand(ctx, &agentproto.RelayRunCommandRequest{
@@ -182,6 +259,11 @@ func (s *proxyServer) forwardRunCommand(ctx context.Context, node relayfwd.Node,
 		Command:   command,
 	})
 	if err != nil {
+		// A dead connection (Unavailable) is dropped so the next forward
+		// redials; the caller re-resolves the owner from the registry.
+		if status.Code(err) == codes.Unavailable {
+			s.dropPeerConn(loc.NodeClusterAddr)
+		}
 		return "", err
 	}
 	if resp.Error != "" {
@@ -203,11 +285,10 @@ func (s *proxyServer) forwardRenewCert(ctx context.Context, node relayfwd.Node, 
 	dctx, cancel := context.WithTimeout(ctx, relayForwardingCallTimeout)
 	defer cancel()
 
-	conn, err := node.DialForwarding(dctx, leader)
+	conn, err := s.peerConn(node, leader)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach active node %s for cert signing: %w", leader, err)
 	}
-	defer conn.Close()
 
 	client := agentproto.NewRelayForwardingClient(conn)
 	resp, err := client.SignSpokeCSR(dctx, &agentproto.RelaySignCSRRequest{
@@ -216,6 +297,9 @@ func (s *proxyServer) forwardRenewCert(ctx context.Context, node relayfwd.Node, 
 		TtlSeconds: req.TtlSeconds,
 	})
 	if err != nil {
+		if status.Code(err) == codes.Unavailable {
+			s.dropPeerConn(leader)
+		}
 		return nil, err
 	}
 
@@ -249,6 +333,53 @@ func (s *proxyServer) runLocalOnly(ctx context.Context, spokeName, command strin
 		return "", fmt.Errorf("spoke %q not connected", spokeName)
 	}
 	return s.runLocalConn(ctx, conn, spokeName, command)
+}
+
+// rejectSpokeIfPinned enforces the optional pin-spokes-to-active policy on an
+// incoming spoke Connect. When the policy is on and this node is not active, it
+// returns a FailedPrecondition error carrying a RelayRedirect detail (the active
+// node's relay endpoint) so bao relay run can chase the redirect and reconnect
+// to the leader. It returns nil (accept the stream here) when the policy is off,
+// this node is active, or this is a single-node hub.
+func (s *proxyServer) rejectSpokeIfPinned() error {
+	if !pinSpokesToActive {
+		return nil
+	}
+	node := s.getNode()
+	if node == nil || node.IsActive() {
+		return nil
+	}
+	leader, _ := node.LeaderClusterAddr()
+	st := status.New(codes.FailedPrecondition,
+		"hub node is not active; reconnect to the active node's relay endpoint")
+	if ep := s.activeRelayEndpoint(leader); ep != "" {
+		if ds, err := st.WithDetails(&agentproto.RelayRedirect{RelayEndpoint: ep}); err == nil {
+			st = ds
+		}
+	}
+	return st.Err()
+}
+
+// activeRelayEndpoint derives the active node's relay listener endpoint from the
+// leader's cluster address and this node's own relay listener port. It assumes a
+// homogeneous relay port across the cluster (every node's bao relay init used the
+// same port), which is the deployment shape the pin-to-active policy targets: the
+// cluster-address host identifies the leader and the local port stands in for the
+// leader's relay port. Empty when leadership or the local port is unknown.
+func (s *proxyServer) activeRelayEndpoint(leaderClusterAddr string) string {
+	if leaderClusterAddr == "" {
+		return ""
+	}
+	u, err := url.Parse(leaderClusterAddr)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	port := s.port()
+	if host == "" || port == 0 {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // isSpokeNotConnected reports whether err is the "spoke not connected" signal
@@ -365,6 +496,150 @@ func (rf *relayForwardingService) SignSpokeCSR(ctx context.Context, req *agentpr
 		CertPem:   certPEM,
 		CaCertPem: caCertPEM,
 	}, nil
+}
+
+// ListSpokes serves the merged cluster-wide relay/spokes view. A standby's
+// registry is empty (only the active node accumulates announcements), so a
+// relay/spokes read on a standby forwards here to get the complete picture.
+// Rejected unless this node is active, with the current leader in the message so
+// the caller can retry against the right node.
+func (rf *relayForwardingService) ListSpokes(ctx context.Context, _ *agentproto.RelayListSpokesRequest) (*agentproto.RelayListSpokesResponse, error) {
+	node := rf.s.getNode()
+	if node == nil || !node.IsActive() {
+		leader := ""
+		if node != nil {
+			leader, _ = node.LeaderClusterAddr()
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "node is not active; leader=%s", leader)
+	}
+	return spokesViewToProto(rf.s.localSpokesView()), nil
+}
+
+// localSpokesView snapshots this node's own view (its local + registry-known
+// spokes and the peer-derived hub-node list). Complete only on the active node;
+// a standby's view is partial (its registry is empty), which is why relay/spokes
+// forwards from a standby to the active node.
+func (s *proxyServer) localSpokesView() SpokesView {
+	return SpokesView{
+		Spokes:            s.listConnectedSpokes(),
+		HubNodes:          s.listHubNodes(),
+		ListenerPort:      s.port(),
+		StaleAfterSeconds: int64(SpokeStaleAfter / time.Second),
+		FromActive:        true,
+	}
+}
+
+// clusterSpokesView returns the cluster-wide relay/spokes payload. On the active
+// node it is the local merged view. On a standby it forwards to the active node
+// so the operator sees every spoke; if that forward fails it falls back to the
+// standby's own partial view with FromActive=false, so the endpoint still
+// answers (best-effort) and the caller can flag the result as incomplete.
+func (s *proxyServer) clusterSpokesView(ctx context.Context, node relayfwd.Node) SpokesView {
+	if node == nil || node.IsActive() {
+		return s.localSpokesView()
+	}
+	if v, err := s.remoteSpokesView(ctx, node); err == nil {
+		return v
+	} else {
+		log.Printf("[relay-fwd] relay/spokes forward to active failed, returning local partial view: %v", err)
+	}
+	v := s.localSpokesView()
+	v.FromActive = false
+	return v
+}
+
+// remoteSpokesView forwards a relay/spokes read from a standby to the active
+// node and returns the merged view it reports.
+func (s *proxyServer) remoteSpokesView(ctx context.Context, node relayfwd.Node) (SpokesView, error) {
+	leader, err := node.LeaderClusterAddr()
+	if err != nil || leader == "" {
+		return SpokesView{}, fmt.Errorf("cannot resolve active node: %v", err)
+	}
+	conn, err := s.peerConn(node, leader)
+	if err != nil {
+		return SpokesView{}, fmt.Errorf("cannot reach active node %s: %w", leader, err)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, relayForwardingCallTimeout)
+	defer cancel()
+	resp, err := agentproto.NewRelayForwardingClient(conn).ListSpokes(callCtx, &agentproto.RelayListSpokesRequest{})
+	if err != nil {
+		if status.Code(err) == codes.Unavailable {
+			s.dropPeerConn(leader)
+		}
+		return SpokesView{}, err
+	}
+	return spokesViewFromProto(resp), nil
+}
+
+// ClusterSpokesForNode returns the cluster-wide relay/spokes view for the given
+// node: the active node's merged view directly, or (on a standby) forwarded from
+// the active node. This is what the relay backend's spokes path calls so a read
+// on any node returns the whole cluster's spokes.
+func ClusterSpokesForNode(ctx context.Context, node relayfwd.Node) SpokesView {
+	return proxyServerForNode(node).clusterSpokesView(ctx, node)
+}
+
+func spokesViewToProto(v SpokesView) *agentproto.RelayListSpokesResponse {
+	resp := &agentproto.RelayListSpokesResponse{
+		ListenerPort:      int32(v.ListenerPort),
+		StaleAfterSeconds: int32(v.StaleAfterSeconds),
+	}
+	for _, sp := range v.Spokes {
+		e := &agentproto.RelaySpokeStatus{
+			SpokeName:       sp.Name,
+			ConnectedAtUnix: sp.ConnectedAt.Unix(),
+			LastSeenUnix:    sp.LastSeen.Unix(),
+			Healthy:         sp.Healthy,
+			NodeClusterAddr: sp.NodeClusterAddr,
+			NodeId:          sp.NodeID,
+			NodeIsActive:    sp.NodeIsActive,
+		}
+		if !sp.CertNotAfter.IsZero() {
+			e.CertNotAfter = sp.CertNotAfter.Unix()
+		}
+		resp.Spokes = append(resp.Spokes, e)
+	}
+	for _, hn := range v.HubNodes {
+		resp.HubNodes = append(resp.HubNodes, &agentproto.RelayHubNode{
+			ClusterAddr: hn.ClusterAddr,
+			NodeId:      hn.NodeID,
+			IsActive:    hn.IsActive,
+			SpokeCount:  int32(hn.SpokeCount),
+		})
+	}
+	return resp
+}
+
+func spokesViewFromProto(resp *agentproto.RelayListSpokesResponse) SpokesView {
+	v := SpokesView{
+		ListenerPort:      int(resp.ListenerPort),
+		StaleAfterSeconds: int64(resp.StaleAfterSeconds),
+		FromActive:        true,
+	}
+	for _, e := range resp.Spokes {
+		sp := SpokeStatus{
+			Name:            e.SpokeName,
+			ConnectedAt:     time.Unix(e.ConnectedAtUnix, 0),
+			LastSeen:        time.Unix(e.LastSeenUnix, 0),
+			Healthy:         e.Healthy,
+			NodeClusterAddr: e.NodeClusterAddr,
+			NodeID:          e.NodeId,
+			NodeIsActive:    e.NodeIsActive,
+		}
+		if e.CertNotAfter != 0 {
+			sp.CertNotAfter = time.Unix(e.CertNotAfter, 0)
+		}
+		v.Spokes = append(v.Spokes, sp)
+	}
+	for _, e := range resp.HubNodes {
+		v.HubNodes = append(v.HubNodes, HubNode{
+			ClusterAddr: e.ClusterAddr,
+			NodeID:      e.NodeId,
+			IsActive:    e.IsActive,
+			SpokeCount:  int(e.SpokeCount),
+		})
+	}
+	return v
 }
 
 // renewCertTTLFromSeconds clamps a requested TTL to the RenewCert bounds. Mirror

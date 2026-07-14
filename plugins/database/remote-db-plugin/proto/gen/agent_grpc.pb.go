@@ -168,6 +168,7 @@ const (
 	RelayForwarding_AnnounceSpokes_FullMethodName = "/agent.RelayForwarding/AnnounceSpokes"
 	RelayForwarding_RunCommand_FullMethodName     = "/agent.RelayForwarding/RunCommand"
 	RelayForwarding_SignSpokeCSR_FullMethodName   = "/agent.RelayForwarding/SignSpokeCSR"
+	RelayForwarding_ListSpokes_FullMethodName     = "/agent.RelayForwarding/ListSpokes"
 )
 
 // RelayForwardingClient is the client API for RelayForwarding service.
@@ -190,6 +191,10 @@ type RelayForwardingClient interface {
 	// SignSpokeCSR: the node holding a spoke stream forwards a renewal CSR to the
 	// active node, so cert issuance stays a single-issuer authority operation.
 	SignSpokeCSR(ctx context.Context, in *RelaySignCSRRequest, opts ...grpc.CallOption) (*RelaySignCSRResponse, error)
+	// ListSpokes: a standby forwards a relay/spokes read to the active node so the
+	// operator gets the merged, cluster-wide view (local map plus registry) no
+	// matter which node served the API read.
+	ListSpokes(ctx context.Context, in *RelayListSpokesRequest, opts ...grpc.CallOption) (*RelayListSpokesResponse, error)
 }
 
 type relayForwardingClient struct {
@@ -230,6 +235,16 @@ func (c *relayForwardingClient) SignSpokeCSR(ctx context.Context, in *RelaySignC
 	return out, nil
 }
 
+func (c *relayForwardingClient) ListSpokes(ctx context.Context, in *RelayListSpokesRequest, opts ...grpc.CallOption) (*RelayListSpokesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RelayListSpokesResponse)
+	err := c.cc.Invoke(ctx, RelayForwarding_ListSpokes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RelayForwardingServer is the server API for RelayForwarding service.
 // All implementations must embed UnimplementedRelayForwardingServer
 // for forward compatibility.
@@ -250,6 +265,10 @@ type RelayForwardingServer interface {
 	// SignSpokeCSR: the node holding a spoke stream forwards a renewal CSR to the
 	// active node, so cert issuance stays a single-issuer authority operation.
 	SignSpokeCSR(context.Context, *RelaySignCSRRequest) (*RelaySignCSRResponse, error)
+	// ListSpokes: a standby forwards a relay/spokes read to the active node so the
+	// operator gets the merged, cluster-wide view (local map plus registry) no
+	// matter which node served the API read.
+	ListSpokes(context.Context, *RelayListSpokesRequest) (*RelayListSpokesResponse, error)
 	mustEmbedUnimplementedRelayForwardingServer()
 }
 
@@ -270,6 +289,10 @@ func (UnimplementedRelayForwardingServer) RunCommand(context.Context, *RelayRunC
 
 func (UnimplementedRelayForwardingServer) SignSpokeCSR(context.Context, *RelaySignCSRRequest) (*RelaySignCSRResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SignSpokeCSR not implemented")
+}
+
+func (UnimplementedRelayForwardingServer) ListSpokes(context.Context, *RelayListSpokesRequest) (*RelayListSpokesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSpokes not implemented")
 }
 func (UnimplementedRelayForwardingServer) mustEmbedUnimplementedRelayForwardingServer() {}
 func (UnimplementedRelayForwardingServer) testEmbeddedByValue()                         {}
@@ -346,6 +369,24 @@ func _RelayForwarding_SignSpokeCSR_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RelayForwarding_ListSpokes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RelayListSpokesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RelayForwardingServer).ListSpokes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RelayForwarding_ListSpokes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RelayForwardingServer).ListSpokes(ctx, req.(*RelayListSpokesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RelayForwarding_ServiceDesc is the grpc.ServiceDesc for RelayForwarding service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -364,6 +405,10 @@ var RelayForwarding_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SignSpokeCSR",
 			Handler:    _RelayForwarding_SignSpokeCSR_Handler,
+		},
+		{
+			MethodName: "ListSpokes",
+			Handler:    _RelayForwarding_ListSpokes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
