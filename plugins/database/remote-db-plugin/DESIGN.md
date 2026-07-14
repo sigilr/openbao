@@ -52,9 +52,12 @@ hub and the spokes.
 | `bootstrap/ca.go` | Spoke-CA generation, hub TLS cert issuance, CSR signing. |
 | `bootstrap/state.go` | Process-wide singleton holding the CA + hub cert; shared between the relay backend and the proxy server. |
 | `proto/agent.proto` | gRPC contract. One bidi stream per spoke. |
+| `registry.go` | Cluster-wide `spoke -> owning node` registry (HA). Derived state, never persisted. |
+| `forwarding.go` | `RelayForwarding` gRPC service on the cluster port (HA). Active node forwards frames to the node holding the stream. |
+| `../../vault/relayfwd/` | Cluster-listener plumbing for `RelayForwardingALPN`, mirroring `vault/forwarding`. |
 | `../../builtin/logical/relay/{backend,paths}.go` | The `relay/` logical backend. Operators interact with it via `bao relay ...`. |
 | `../../command/relay_{init,join,list,run,ca,token}.go` | The `bao relay ...` CLI subcommands. |
-| `TEST.md` | Step-by-step manual test plan (smoke, token security, CSR validation, renewal, CA rotation, failure modes, concurrency). |
+| `TEST.md` | Step-by-step manual test plan (smoke, token security, CSR validation, renewal, CA rotation, failure modes, concurrency, HA failover). |
 
 ---
 
@@ -305,6 +308,237 @@ call re-Initializes from the stale config.
 
 ---
 
+## HA: standby nodes and spoke stream ownership
+
+Everything above describes a single hub process. In an HA hub (raft storage,
+three nodes) the relay has a routing problem that neither the spoke nor the
+`PluginProxy` can see.
+
+### The problem
+
+OpenBao now unseals standby nodes in read-only mode
+([Standby nodes handle read requests](https://openbao.org/community/rfcs/standby-nodes-handle-read-requests/);
+`Core.StandbyReadsEnabled`, `runReadEnabledStandby`, `readonlyUnsealStrategy`).
+That strategy runs `setupMounts`, so the `relay/` backend's `InitializeFunc`
+fires on **every** unsealed node, `hydrateHubState` loads the CA from storage,
+and `StartProxyServer` binds the gRPC listener on standbys too.
+
+That is the right behaviour for the listener and the wrong behaviour for
+everything downstream, because three pieces of relay state are **process-local**:
+
+| state | owner | consequence on a standby |
+| --- | --- | --- |
+| `proxyServer.spokes` (the connected-spoke map) | the process that terminated the mTLS stream | the active node cannot see a spoke parked on a standby |
+| `spokeConnection.inflight` (request/response pairing) | same | `RunCommand` on the active node has nowhere to send the frame |
+| `PluginProxy` instances (one per database mount) | **only the active node** (standbys never serve writes, so no credential ops originate there) | the node that needs the stream is never the node that holds it |
+
+Concretely, with the hub behind a single address (a Kubernetes Service, an LB,
+a VIP) a spoke's `bao relay run` dials that address and lands on whichever node
+the LB picked. If that is a standby:
+
+- `bao relay list` / `relay/spokes` on the active node reports the spoke as
+  **not connected**, because it reads only its own map.
+- Every `NewUser` / `UpdateUser` / `DeleteUser` for a mount configured with
+  `spoke_name=<that spoke>` fails with "spoke not connected" on the active
+  node, even though the spoke is healthy and connected to the cluster.
+- The failure is intermittent and address-dependent: it disappears the moment
+  the LB happens to hash the spoke onto the active node, which makes it look
+  like a flaky network instead of a routing bug.
+
+Disabling standby reads does not fix it, it only changes the symptom: without
+`setupMounts` the listener never binds on standbys, so the spoke gets
+connection-refused and retries until it lands on the active node. That works,
+but it is roulette, and every leadership change re-rolls the dice for every
+spoke.
+
+### Why "redirect like the API does" is not enough
+
+An HTTP client hitting a standby gets a 307 to `api_addr`, or the request is
+transparently forwarded to the active node over the cluster port. Neither
+mechanism is available to us for free:
+
+- **gRPC has no protocol-level redirect.** The closest analogue is a typed
+  rejection the client acts on (see `Wrong-node rejection` below). That is
+  worth having, but on its own it degrades to "close the stream and re-dial
+  the same LB address until you get lucky" whenever the hub is behind one
+  address, and it makes every leadership change a reconnect storm across
+  every spoke.
+- **The HTTP forwarding path does not apply.** `handleRequestForwarding` lives
+  in `http/handler.go` and forwards *inbound HTTP requests*. The relay's gRPC
+  listener is a separate socket that never enters that stack, so
+  `ErrStandbyPleaseForward` and friends never come into play for it.
+
+### Design: forward the frame, not the stream
+
+Keep the stream where it landed and make the **hub cluster** able to reach it.
+This mirrors what OpenBao already does for HTTP request forwarding, using the
+same transport, and it turns leadership changes from a relay outage into a
+routing detail.
+
+```
+                spoke S ── mTLS gRPC ──► hub node B  (standby; terminates the stream)
+                                              ▲
+                                              │ RelayForwarding.RunCommand
+                                              │ (cluster port, RelayForwardingALPN)
+                                              │
+     database/creds/... ─► PluginProxy ─► hub node A  (active; owns the mount)
+```
+
+Four pieces:
+
+**1. Listener on every unsealed node.** No change needed beyond what the
+standby-reads work already gives us: `hydrateHubState` runs on standbys, so
+the listener binds and accepts spoke streams. Accepting a stream needs no
+storage writes; mTLS verification against the spoke-CA is an in-memory
+operation over state loaded by a read.
+
+**2. Cluster-aware spoke registry.** Every node advertises which spokes it
+terminates. Two options, in preference order:
+
+- *Gossip on the existing heartbeat.* The forwarding echo already carries node
+  state from standbys to the active node (`forwarding.NodeHAConnectionInfo`,
+  `clusterPeerClusterAddrsCache`). Add the node's connected spoke names (plus
+  `lastSeen` / `certNotAfter` per spoke) to that payload. The active node then
+  holds a complete `spoke -> cluster_addr` map, refreshed every
+  `clusterHeartbeatInterval`, with no new RPC.
+- *Lookup on demand.* If the echo payload is judged too heavy, add a
+  `LookupSpoke(name) -> (cluster_addr, ok)` RPC that the active node fans out
+  to peers on a cache miss, with a short positive/negative TTL.
+
+Either way the registry is **derived state, never persisted**: a spoke's
+location is a property of a live TCP connection and must not survive a
+restart.
+
+**3. `RelayForwarding` service on the cluster port.** Register a new ALPN
+(`relay_fw_v1`, alongside `consts.RequestForwardingALPN`) via
+`clusterListener.AddHandler` / `AddClient`, exactly as
+`vault/forwarding.NewRequestForwardingHandler` does for the HTTP path. The
+service is deliberately tiny, a mirror of the frame that already crosses the
+spoke wire:
+
+```protobuf
+service RelayForwarding {
+  // Active node -> the node holding the spoke stream.
+  rpc RunCommand(RelayRunCommandRequest) returns (RelayRunCommandResponse);
+
+  // Any node -> active node. Cert issuance is an authority operation.
+  rpc SignSpokeCSR(RelaySignCSRRequest) returns (RelaySignCSRResponse);
+
+  // Active node -> peers. Only if the gossip option above is rejected.
+  rpc ListSpokes(RelayListSpokesRequest) returns (RelayListSpokesResponse);
+}
+
+message RelayRunCommandRequest  { string spoke_name = 1; string command = 2; int64 timeout_ms = 3; }
+message RelayRunCommandResponse { string output = 1; string error = 2; }
+```
+
+`proxyServer.RunCommand(spokeName, cmd)` gains one branch: if the spoke is in
+the local map, behave exactly as today; otherwise resolve the owning node from
+the registry and call `RelayForwarding.RunCommand` on it. The peer executes the
+identical local path and returns the JSON payload. The `PluginProxy` above it
+is unchanged, and so is the entire spoke-side protocol: **the spoke never
+learns that its frames took an extra hop.**
+
+Cost is one intra-cluster RTT on the credential path, on a connection that is
+already warm. The benefit is large: a spoke stream **survives a leadership
+change untouched**. The new leader simply forwards to wherever the streams
+already live, instead of waiting for every spoke to notice, drop, and re-dial.
+
+**4. Authority operations go to the active node.** `RenewCert` (and any future
+path that mutates hub state) is a write in spirit even when it does not touch
+storage today: it re-records `certNotAfter` on the connection and it exercises
+the spoke-CA private key. A standby that terminates a spoke stream forwards the
+CSR to the active node via `RelayForwarding.SignSpokeCSR`, gets the signed cert
+back, hands it to the spoke over the existing stream, and updates its local
+`spokeConnection`. This keeps a single, auditable signer even when the stream
+is anchored elsewhere. If the relay backend later persists per-spoke records,
+this is the seam through which those writes flow, and `logical.ErrReadOnly` on a
+standby becomes the trigger to forward rather than an error to return.
+
+### Wrong-node rejection (fallback for directly-addressed hubs)
+
+Independently of forwarding, `Connect` gains a preference check. When a hub is
+addressed **per node** (no LB in front, each node has its own reachable
+`relay_addr`), it is better for the spoke to just talk to the right node:
+
+- The hub advertises a per-node relay endpoint (a `relay_addr` analogue of
+  `api_addr`; absent it, the endpoint from `ca/bundle` is used, which is what a
+  single-address deployment wants).
+- A node that is not the preferred terminator may reject the registration frame
+  with `codes.FailedPrecondition` plus an error detail carrying the active
+  node's relay endpoint.
+- `bao relay run` already has reconnect logic; it re-dials the endpoint from the
+  detail, with backoff and a cap on redirect chasing.
+
+This is the gRPC-shaped analogue of the 307, and it is **optional policy**:
+with forwarding in place, "wrong node" is not an error, so the default is to
+accept the stream wherever it lands. Enable rejection only when nodes are
+individually addressable and you would rather pay a reconnect than an RTT per
+credential op. Behind a single LB, leave it off; forwarding makes it moot.
+
+### Explicitly rejected: gRPC xDS
+
+`xds:///` on the spoke side, with a control plane pushing the current leader's
+endpoint via EDS, would let spokes re-target on failover without redialling
+blindly. It is rejected:
+
+- It requires an xDS control plane reachable **from every spoke cluster**, and
+  that control plane must itself track hub leadership, which recreates the
+  leader-discovery problem in a new component that must be run, secured, and
+  made HA.
+- EDS hands out concrete endpoints, so every hub node needs an externally
+  routable address (NodePort or LB per node), which many hub deployments
+  deliberately do not have.
+- It adds an xDS bootstrap file to `bao relay run` and an awkward split TLS
+  story (app-level pinned spoke-CA mTLS for the data plane, something else for
+  the control plane).
+- After all that it solves only endpoint selection. The process-local registry
+  problem, which is the actual failure, is untouched.
+
+xDS is a substitute for a good Service, not a substitute for this design.
+
+### Deployment note (Kubernetes / KubeVault)
+
+Orthogonal to the in-core work, a Kubernetes hub should point the client
+Service at the leader, so that both the API and the relay port land on the
+active node in the common case. KubeVault does this with a node-local pod label
+(`kubevault.com/role: primary`, maintained by each pod's unsealer sidecar from
+its own `/v1/sys/health`) plus a raft-gated Service selector. With forwarding
+implemented, that is an optimisation (it avoids the extra hop) rather than a
+correctness requirement, and the two compose cleanly: streams that land on a
+standby during a failover window keep working instead of erroring.
+
+### Failure modes added by HA
+
+| Failure | What happens | Recovery |
+| --- | --- | --- |
+| Spoke stream lands on a standby | Active node resolves the owner from the registry and forwards `RunCommand` over the cluster port. One extra RTT; no user-visible failure. | None needed |
+| Leadership changes while spokes are connected | Streams stay where they are. The new leader inherits the registry from the next heartbeat round and forwards. Spokes do not reconnect. | Automatic |
+| Node holding a spoke stream dies | Its cluster connection drops; the registry entry ages out on the heartbeat TTL. The spoke's own keepalive/heartbeat notices within ~40s and it re-dials, landing somewhere alive. | Automatic |
+| Registry stale (spoke moved between heartbeats) | Forward hits a node that no longer holds the spoke; it returns a typed `spoke not connected` and the active node retries the lookup once before surfacing the error. | Automatic (bounded retry) |
+| `RenewCert` arrives on a standby | Forwarded to the active node for signing; the standby returns the signed cert on the existing stream and updates its local `certNotAfter`. | Automatic |
+| Cluster port unreachable between hub nodes (misconfigured `cluster_addr`) | Forwarding fails; credential ops for spokes on other nodes error with a clear "cannot reach spoke owner <addr>". `bao relay list` shows the spoke under its owning node, so the split is visible. | Fix `cluster_addr`, the same prerequisite HTTP forwarding already has |
+
+### Observability
+
+`bao relay list` and `relay/spokes` become **cluster-wide**: the active node
+merges its own map with the registry and reports which node owns each stream.
+
+```
+Listener: :50053   Nodes: 3 (this node is active)
+Connected: 2 total, 2 healthy (stale after 45s)
+
+NAME       NODE            LAST SEEN  UPTIME  CERT EXP  HEALTH
+spoke-1    hub-0 (active)  0s ago     11m     29d       OK
+spoke-2    hub-2 (standby) 1s ago     4m      29d       OK
+```
+
+`relay/spokes` gains `node_cluster_addr` and `node_is_active` per spoke, plus a
+top-level `hub_nodes` list. This is what makes the "why is my spoke not
+connected" class of bug diagnosable instead of mysterious.
+
+---
+
 ## Namespaces and lease revocation
 
 OpenBao namespaces isolate mounts, leases, and policies into independent trees, so a hub
@@ -406,6 +640,12 @@ Day-2 operations:
   must re-join every spoke and redistribute `ca.pem` out of band — there is
   no in-band channel that survives a full rotation.
 
+- `bao relay list` — in an HA hub this is cluster-wide: it merges the local
+  spoke map with the peer registry and shows which node terminates each
+  stream (see *HA: standby nodes and spoke stream ownership*). A spoke
+  connected to a standby is **not** a problem to fix; it is the expected
+  steady state behind a load balancer.
+
 ---
 
 ## Failure modes
@@ -433,7 +673,8 @@ Day-2 operations:
 | `relay/cluster-info`, `relay/sign-csr` | Bootstrap token + JWS-HS256 signature over the response payload. TLS to the OpenBao API is verified via the standard `-ca-cert`/`-tls-skip-verify` flags. Token failures (malformed format, unknown id, expired, wrong secret, missing `signing` usage, `allowed_spoke_name` mismatch) all return the same generic `"token unknown or expired"` so a holder of one valid token cannot probe other token ids for their policy metadata; real reasons are logged server-side at WARN. `handleSignCSR` additionally evaluates every per-token check (secret HMAC, expiry, usage, allowed_spoke_name) against a placeholder when the id is unknown, so "unknown id" pays the same per-field cost as "known id, wrong secret" — closing the timing oracle between those two branches. Storage-read latency may still differ slightly between hit and miss; pair with the `sys/quotas/rate-limit` policies under "Hardening recommendations" to make brute-force timing impractical. |
 | Hub proxy gRPC listener | mTLS, **TLS 1.3 floor on both sides** (`bao relay run` pins TLS 1.3 in its client config too). Hub presents a cert signed by the spoke-CA; client must present a cert signed by the same CA. Spoke identity comes from the verified peer cert CN. The hub cert is verified to chain to the configured CA on every `SetIdentity` call so a corrupted (cert, CA) pair fails up front instead of at first handshake. `loadSpokeTLS` does the symmetric check on the spoke side: the local cert is verified to chain to the bundled `ca.pem` before gRPC dials, so a half-rotated credentials directory fails at startup rather than at handshake time. |
 | Hub bao API | Standard OpenBao authentication. `relay/cluster-info` and `relay/sign-csr` are in `PathsSpecial.Unauthenticated` because they self-authenticate via the bootstrap token. |
-| Spoke-CA + hub key material | Persisted under `ca/bundle` with `SealWrapStorage`. |
+| Hub cluster port (`RelayForwardingALPN`) | The cluster listener's existing mTLS, using the cluster's own CA and per-node certs — the same trust domain that carries HTTP request forwarding. Spoke identity is **not** re-asserted over this hop: the forwarding frame names a spoke the receiving node already terminates, and that node's own peer-cert check (verified CN) remains the authority. A node cannot use forwarding to inject frames for a spoke it does not hold; `RunCommand` on the receiver looks the name up in its local map and fails if absent. |
+| Spoke-CA + hub key material | Persisted under `ca/bundle` with `SealWrapStorage`. Present in memory on **every unsealed node** (standbys hydrate it to serve the listener), so the CA key's blast radius is the whole hub cluster, not just the active node — unchanged from the pre-HA design in kind, wider in extent. Signing is nonetheless funnelled through the active node (`RelayForwarding.SignSpokeCSR`) so there is one auditable issuer. |
 | Bootstrap tokens | Persisted under `tokens/<id>` with `SealWrapStorage`. Secret half is stored in cleartext (the JWS HMAC needs it) — seal-wrap mitigates. |
 | SPKI pin verification | `subtle.ConstantTimeCompare` over the lowercase hex hash. The error returned to callers is generic; computed and expected hashes are logged locally so an attacker serving a malicious cluster-info bundle cannot grind a colliding pin via response timing. |
 
