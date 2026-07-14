@@ -1,0 +1,190 @@
+---
+sidebar_label: Setup and joining spokes
+description: |-
+  Bootstrap a relay hub, join a spoke over a bootstrap token, run the spoke
+  daemon, and configure a database mount that targets the spoke.
+---
+
+# Setup and joining spokes
+
+This page walks through a full relay deployment: bootstrap the hub, join a
+spoke, run the spoke daemon, then enable and configure a database mount whose
+credential operations run on the spoke. See the [overview](./index.mdx) for the
+architecture and trust model.
+
+Throughout, `hub:50053` is the hub's relay (gRPC) endpoint and
+`https://hub:8200` is the hub's standard OpenBao API address.
+
+## 1. Bootstrap the hub
+
+Run `bao relay init` once, authenticated to the hub as an operator. It mounts the
+`relay/` backend if needed, generates the spoke certificate authority and the hub
+TLS identity, starts the relay gRPC listener, and issues a first bootstrap token.
+
+```shell-session
+$ bao relay init \
+    -hub-endpoint=hub:50053 \
+    -hub-dns-sans=hub
+```
+
+`-hub-endpoint` is the address spokes dial and the port the relay listener binds.
+`-hub-dns-sans` and `-hub-ip-sans` add subject alternative names to the hub TLS
+certificate so spokes can validate the hub through whatever name or address they
+reach it by (a load balancer DNS record, a Kubernetes Service, a VIP).
+
+The command prints a ready-to-run join command, including the SPKI pin of the
+spoke certificate authority:
+
+```text
+bao relay join \
+    -hub-addr=hub:50053 \
+    -hub-cert-hash=sha256:abcd... \
+    -token=a6b2fa.fd41cda24a...
+```
+
+:::info
+
+The printed token is shown once, in cleartext. Treat it as a short-lived
+secret and distribute it to the spoke operator over a secure channel. Consider
+response-wrapping or audit-scrubbing the `bao relay token create` response, and
+rate-limiting the unauthenticated discovery paths. See
+[Security](./commands.mdx#security).
+
+:::
+
+## 2. Join a spoke
+
+On the spoke side, run `bao relay join` with the token, the hub certificate hash,
+and a name for this spoke. The join fetches the cluster-info bundle over the
+OpenBao API, verifies the hub's JWS signature and the SPKI pin, generates a
+keypair, and has the hub sign a certificate for `CN=<spoke-name>`.
+
+```shell-session
+$ bao relay join \
+    -address=https://hub:8200 \
+    -hub-addr=hub:50053 \
+    -hub-cert-hash=sha256:abcd... \
+    -token=a6b2fa.fd41cda24a... \
+    -spoke-name=spoke-1 \
+    -credentials-dir=/etc/openbao-spoke
+```
+
+The join writes `cert.pem`, `key.pem`, and `ca.pem` into `-credentials-dir`. It
+refuses to overwrite a non-empty directory unless you pass `-force`, so a
+half-completed re-join cannot silently mix credentials from two rounds.
+
+`bao relay join` prints the `bao relay run` command to start the daemon.
+
+:::warning
+
+Never point two `bao relay run` daemons at the same `-credentials-dir`. They
+share one certificate common name, so the hub treats them as the same spoke and
+kicks whichever connected first off the stream each time the other connects. Give
+each spoke its own name and its own credentials directory.
+
+:::
+
+## 3. Run the spoke daemon
+
+`bao relay run` is the long-running spoke process. It loads the credentials,
+verifies the certificate chains to the bundled `ca.pem` before dialing, opens the
+mTLS stream to the hub, and then dispatches inbound requests to the real database
+plugin.
+
+```shell-session
+$ bao relay run \
+    -server=hub:50053 \
+    -credentials-dir=/etc/openbao-spoke
+```
+
+Run it under a process supervisor (systemd, a Kubernetes Deployment, and so on)
+so it restarts and reconnects automatically. On a clean `SIGINT` or `SIGTERM` it
+drains in-flight work and closes cached database connections before exiting.
+
+Useful flags:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-server` | (required) | Hub relay endpoint to dial. |
+| `-credentials-dir` | (required) | Directory holding `cert.pem`, `key.pem`, `ca.pem`. |
+| `-server-name` | (from `-server` host) | Pin the TLS server name if it differs from the dialed host. |
+| `-heartbeat-interval` | `15s` | Application-level liveness heartbeat cadence. |
+| `-max-concurrency` | (bounded pool) | Cap on concurrently dispatched requests. |
+| `-renew-check-every` | `1h` | How often to check whether the client certificate needs renewal. |
+| `-renew-threshold` | `0.5` | Renew once the certificate is past this fraction of its lifetime. |
+
+The daemon renews its own certificate in place over the live stream well before
+expiry, so a healthy spoke never needs a manual re-join. See
+[certificate renewal](./commands.mdx#certificate-renewal).
+
+## 4. Verify the spoke is connected
+
+Back on the hub, list connected spokes:
+
+```shell-session
+$ bao relay list
+Listener: :50053
+Connected: 1 total, 1 healthy (stale after 45s)
+
+NAME       LAST SEEN  UPTIME  CERT EXP  HEALTH
+spoke-1    0s ago     11s     29d       OK
+```
+
+In an HA hub this listing is cluster-wide and includes a `NODE` column. A spoke
+connected to a standby node is normal, not a fault. See
+[High availability](./high-availability.mdx).
+
+## 5. Configure a database mount for the spoke
+
+Enable the database secrets engine and configure a connection with a
+`remote-<db>-plugin`, pointing it at the spoke by name. From this point on the
+mount behaves like any [database secrets engine](../secrets/databases/index.mdx)
+mount: roles, dynamic credentials, and leases all work the same way. The only
+relay-specific field is `spoke_name`.
+
+```shell-session
+$ bao secrets enable database
+
+$ bao write database/config/my-db \
+    plugin_name="remote-postgres-plugin" \
+    spoke_name="spoke-1" \
+    allowed_roles="my-role" \
+    connection_url="postgresql://{{username}}:{{password}}@127.0.0.1:5432/appdb" \
+    username="openbaouser" \
+    password="openbaopass"
+
+$ bao write database/roles/my-role \
+    db_name="my-db" \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
+        GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+    default_ttl="1h" \
+    max_ttl="24h"
+```
+
+The `connection_url` is resolved on the **spoke**, so `127.0.0.1:5432` here is
+the database as the spoke reaches it, not as the hub would. The hub never opens
+that connection.
+
+Read dynamic credentials the usual way:
+
+```shell-session
+$ bao read database/creds/my-role
+Key                Value
+---                -----
+lease_id           database/creds/my-role/xxxx
+lease_duration     1h
+password           <generated>
+username           v-token-my-role-<random>
+```
+
+The hub tags this mount with a stable `instance_id` and forwards the credential
+operation to the spoke, which runs the plugin against its local PostgreSQL and
+returns the result. Lease revocation (including force-revoke of a namespaced
+lease) flows back to the spoke the same way.
+
+## Next steps
+
+- [High availability](./high-availability.mdx): how spoke streams survive
+  leadership changes behind an HA hub.
+- [Command reference](./commands.mdx): tokens, certificate authority rotation,
+  certificate renewal, and the full `bao relay` surface.
