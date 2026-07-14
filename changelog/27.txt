@@ -1,0 +1,3 @@
+```release-note:improvement
+relay: route spoke streams across HA hub nodes. A spoke connected to a standby node stays reachable: the active node forwards credential operations to whichever node terminates the stream, so a leadership change no longer drops spokes. Adds cluster-wide `bao relay list` / `relay/spokes` (node ownership, active/standby).
+```
