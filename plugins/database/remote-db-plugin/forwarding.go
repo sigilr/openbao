@@ -40,8 +40,14 @@ func envPinSpokesToActive() bool {
 	return v == "1" || strings.EqualFold(v, "true")
 }
 
-// relayForwardingCallTimeout bounds a single cross-node forward (the RPC, not
-// the connection). A credential operation must not hang on a wedged peer.
+// relayForwardingCallTimeout bounds a single cross-node CONTROL-PLANE forward
+// (the RPC, not the connection): announce, cert-renewal signing, and the
+// relay/spokes read. These must not hang on a wedged peer. It is deliberately
+// NOT applied to the forwarded credential RunCommand: that path inherits the
+// caller's context so it stays symmetric with the local runLocalConn path (a
+// slow but legitimate database statement must not be cut off at a fixed 10s
+// when forwarded but allowed to run locally). The caller's request context
+// bounds it instead.
 const relayForwardingCallTimeout = 10 * time.Second
 
 // peerConn returns a cached gRPC connection to the given peer cluster address,
@@ -279,6 +285,11 @@ func fromProtoSpokes(in []*agentproto.SpokeEntry) []AnnouncedSpoke {
 // forwardRunCommand forwards a credential command to the node that holds the
 // spoke stream and returns its result. The peer runs its own identical local
 // path (runLocalOnly), so the spoke never learns its frames took an extra hop.
+//
+// It passes the caller's ctx straight through (no relayForwardingCallTimeout):
+// the forwarded path must honor exactly the deadline the local path would, so a
+// slow database statement is not cut off just because it crossed a hop. See the
+// relayForwardingCallTimeout comment.
 func (s *proxyServer) forwardRunCommand(ctx context.Context, node relayfwd.Node, loc SpokeLocation, spokeName, command string) (string, error) {
 	conn, err := s.peerConn(node, loc.NodeClusterAddr)
 	if err != nil {
