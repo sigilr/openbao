@@ -75,6 +75,22 @@ func (s *HubState) SetIdentity(ca *CABundle, hub *HubServerCert) error {
 	return nil
 }
 
+// Clear zeroes the hub identity. Called on seal (via the relay backend's
+// Cleanup) so a sealed node holds no CA key material and no server cert in
+// memory. After Clear, Ready reports false and TLSConfig callbacks refuse the
+// handshake, so a spoke that reaches a just-sealed node's listener (in the
+// window before StopProxyServer tears the listener down) cannot complete mTLS.
+func (s *HubState) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.caCertPEM = nil
+	s.caKeyPEM = nil
+	s.hubCertPEM = nil
+	s.hubKeyPEM = nil
+	s.clientCAPool = nil
+	s.hubTLSCert = nil
+}
+
 // CACertPEM returns a copy of the spoke-CA cert PEM. Empty before init.
 func (s *HubState) CACertPEM() []byte {
 	s.mu.RLock()
