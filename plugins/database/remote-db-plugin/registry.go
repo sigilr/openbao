@@ -81,11 +81,16 @@ func newSpokeRegistry(announceInterval time.Duration) *spokeRegistry {
 // announcer still holds are refreshed, and entries the announcer previously held
 // but no longer lists are dropped.
 //
-// Entries owned by a DIFFERENT node are left untouched, even if the announcer's
-// (stale) set names them: a spoke that moved from node X to node Y is owned by
-// whoever announced it last, and Y's stream is the live one. A late, stale
-// announce from X that re-claims it is self-corrected on the next full announce
-// and, at routing time, by the one-shot re-resolve after "spoke not connected".
+// When an incoming spoke is already owned by a DIFFERENT node, ownership moves
+// only if the announcer's stream is at least as fresh as the recorded one
+// (ConnectedAt is not older). A spoke's stream is a single live connection, so
+// the node it connected to most recently is the real owner: this lets a genuine
+// migration from X to Y take over (Y's ConnectedAt is later), while rejecting a
+// late, stale full announce from a former owner X that still lists a spoke it
+// has since lost (X's ConnectedAt is older than Y's). Same-node announces always
+// refresh. Any residual staleness is still self-corrected on the next full
+// announce and, at routing time, by the one-shot re-resolve after "spoke not
+// connected".
 func (r *spokeRegistry) applyFullAnnounce(nodeClusterAddr, nodeID string, spokes []AnnouncedSpoke) {
 	now := r.now()
 	r.mu.Lock()
@@ -97,6 +102,14 @@ func (r *spokeRegistry) applyFullAnnounce(nodeClusterAddr, nodeID string, spokes
 			continue
 		}
 		incoming[s.SpokeName] = struct{}{}
+		// Do not let an older stream from a different node reclaim a spoke that
+		// has since migrated elsewhere. Same-node refreshes and equal/newer
+		// streams win.
+		if cur, ok := r.spokes[s.SpokeName]; ok &&
+			cur.NodeClusterAddr != nodeClusterAddr &&
+			s.ConnectedAt.Before(cur.ConnectedAt) {
+			continue
+		}
 		r.spokes[s.SpokeName] = &SpokeLocation{
 			SpokeName:       s.SpokeName,
 			NodeClusterAddr: nodeClusterAddr,
@@ -144,6 +157,18 @@ func (r *spokeRegistry) forget(spokeName string) {
 	r.mu.Lock()
 	delete(r.spokes, spokeName)
 	r.mu.Unlock()
+}
+
+// forgetIf removes a spoke entry only if it still names nodeClusterAddr. The
+// one-shot re-resolve uses this so it drops the stale owner it just failed
+// against without clobbering a fresh entry a concurrent announce may have
+// written for the spoke's new owner.
+func (r *spokeRegistry) forgetIf(spokeName, nodeClusterAddr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if loc, ok := r.spokes[spokeName]; ok && loc.NodeClusterAddr == nodeClusterAddr {
+		delete(r.spokes, spokeName)
+	}
 }
 
 // snapshot returns all non-expired entries, sorted by spoke name. Used by the

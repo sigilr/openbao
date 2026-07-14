@@ -202,8 +202,12 @@ type spokeConnection struct {
 	// and has already been torn down by the time the defer fires.)
 	sendCh chan *agentproto.AgentMessage
 	// done is closed when the Connect handler returns (stream broke or the
-	// spoke reconnected). Waiters unblock and return an error.
+	// spoke reconnected). Waiters unblock and return an error. Always close it
+	// via closeDone, never directly: the seal loop, the reconnect teardown, the
+	// recv defer, and the sender goroutine can all reach it concurrently.
 	done chan struct{}
+	// closeDoneOnce guards done so those concurrent closers cannot double-close.
+	closeDoneOnce sync.Once
 
 	// inflight maps a request_id to a one-shot channel the waiter is parked
 	// on. Allows many concurrent in-flight requests per spoke.
@@ -230,6 +234,16 @@ func newSpokeConnection(stream agentproto.AgentService_ConnectServer) *spokeConn
 		done:        make(chan struct{}),
 		inflight:    make(map[string]chan pendingResponse),
 	}
+}
+
+// closeDone closes done exactly once. Multiple goroutines race to close it (the
+// seal loop in stop(), the reconnect teardown, the recv-loop defer, and the
+// sender goroutine on a Send error). The bare `select { case <-done: default:
+// close(done) }` idiom is NOT safe for that: two goroutines can both observe
+// done still open, both fall through to close, and the second close panics. A
+// sync.Once makes it race-free.
+func (c *spokeConnection) closeDone() {
+	c.closeDoneOnce.Do(func() { close(c.done) })
 }
 
 func (c *spokeConnection) touch() {
@@ -450,11 +464,7 @@ func (s *proxyServer) stop() {
 	s.spokes = make(map[string]*spokeConnection)
 	s.mu.Unlock()
 	for _, c := range conns {
-		select {
-		case <-c.done:
-		default:
-			close(c.done)
-		}
+		c.closeDone()
 		c.failAll("hub node sealed")
 	}
 
@@ -510,9 +520,15 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 	s.mu.Unlock()
 	if hadOld {
 		log.Printf("[proxy] spoke %q reconnected; tearing down old stream", spokeName)
-		close(old.done)
+		old.closeDone()
 		old.failAll(fmt.Sprintf("spoke %q reconnected", spokeName))
 	}
+	// This node's local spoke set just changed. On a standby, poke the announcer
+	// so the active node's registry learns the new spoke in ~1 RTT instead of up
+	// to one announce interval, shrinking the window where a credential op for a
+	// freshly-landed spoke resolves to nothing. No-op on the active node (it
+	// announces nothing) and coalesced, so a reconnect burst is cheap.
+	s.pokeReannounce()
 
 	defer func() {
 		s.mu.Lock()
@@ -520,13 +536,11 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 			delete(s.spokes, spokeName)
 		}
 		s.mu.Unlock()
-		// closing twice would panic; only close if we own this connection
-		select {
-		case <-conn.done:
-		default:
-			close(conn.done)
-		}
+		conn.closeDone()
 		conn.failAll("spoke disconnected")
+		// The local set shrank; re-announce so the active node drops this spoke
+		// promptly rather than waiting for it to expire after missed announces.
+		s.pokeReannounce()
 	}()
 
 	// Sender goroutine: drains sendCh and serializes all writes. stream.Send
@@ -545,14 +559,9 @@ func (s *proxyServer) Connect(stream agentproto.AgentService_ConnectServer) erro
 					// Close conn.done so parked RunCommand callers (waiting
 					// on respCh / sendCh / done) unblock immediately
 					// instead of sitting for ~40s until gRPC keepalive
-					// notices the broken stream. The recv-loop defer also
-					// closes done with the same guarded select, so a double
-					// close is impossible.
-					select {
-					case <-conn.done:
-					default:
-						close(conn.done)
-					}
+					// notices the broken stream. closeDone is idempotent, so
+					// racing the recv-loop defer is safe.
+					conn.closeDone()
 					return
 				}
 			case <-conn.done:
@@ -788,9 +797,11 @@ func (s *proxyServer) RunCommand(ctx context.Context, spokeName, command string)
 	out, err := s.forwardRunCommand(ctx, node, loc, spokeName, command)
 	if err != nil && isSpokeNotConnected(err) {
 		// Stale registry entry: the recorded owner no longer holds the stream.
-		// Drop it and re-resolve exactly once (a fresh announce may have moved
-		// the spoke to another node), then surface whatever we get.
-		reg.forget(spokeName)
+		// Drop it with a compare-and-delete (only if it still names that owner),
+		// so a fresh announce that moved the spoke to another node is preserved,
+		// then re-resolve exactly once and forward to the new owner if there is
+		// one; otherwise surface not-connected.
+		reg.forgetIf(spokeName, loc.NodeClusterAddr)
 		if loc2, ok := reg.resolve(spokeName); ok && loc2.NodeClusterAddr != loc.NodeClusterAddr {
 			return s.forwardRunCommand(ctx, node, loc2, spokeName, command)
 		}

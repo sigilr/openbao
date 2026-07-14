@@ -146,3 +146,66 @@ func TestRegistry_SnapshotSortsAndSweeps(t *testing.T) {
 		t.Fatalf("snapshot should be empty after expiry, got %+v", snap)
 	}
 }
+
+// TestRegistry_StaleReclaimRejected: after a spoke migrates X->Y, a late full
+// announce from X (still listing the spoke with its OLD ConnectedAt) must not
+// reclaim ownership from Y, whose stream is newer.
+func TestRegistry_StaleReclaimRejected(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	r := newTestRegistry(clk)
+
+	r.applyFullAnnounce("https://node-b:8201", "node-b", []AnnouncedSpoke{
+		{SpokeName: "s1", ConnectedAt: time.Unix(100, 0)},
+	})
+	// s1 reconnects onto node-c (a newer stream); node-c announces it.
+	r.applyFullAnnounce("https://node-c:8201", "node-c", []AnnouncedSpoke{
+		{SpokeName: "s1", ConnectedAt: time.Unix(200, 0)},
+	})
+	// A late, stale full announce from node-b still lists s1 at its old time.
+	r.applyFullAnnounce("https://node-b:8201", "node-b", []AnnouncedSpoke{
+		{SpokeName: "s1", ConnectedAt: time.Unix(100, 0)},
+	})
+
+	loc, ok := r.resolve("s1")
+	if !ok || loc.NodeClusterAddr != "https://node-c:8201" {
+		t.Fatalf("stale reclaim from node-b should be rejected; want node-c, got %+v (ok=%v)", loc, ok)
+	}
+}
+
+// TestRegistry_MigrationNewerStreamWins: a genuine migration (the new owner's
+// ConnectedAt is later) takes over even though a different node owned the spoke.
+func TestRegistry_MigrationNewerStreamWins(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	r := newTestRegistry(clk)
+
+	r.applyFullAnnounce("https://node-b:8201", "node-b", []AnnouncedSpoke{
+		{SpokeName: "s1", ConnectedAt: time.Unix(100, 0)},
+	})
+	r.applyFullAnnounce("https://node-c:8201", "node-c", []AnnouncedSpoke{
+		{SpokeName: "s1", ConnectedAt: time.Unix(200, 0)},
+	})
+
+	if loc, ok := r.resolve("s1"); !ok || loc.NodeClusterAddr != "https://node-c:8201" {
+		t.Fatalf("newer stream on node-c should win, got %+v (ok=%v)", loc, ok)
+	}
+}
+
+// TestRegistry_ForgetIf: the compare-and-delete removes the entry only when it
+// still names the given owner, so the one-shot re-resolve cannot clobber a fresh
+// entry a concurrent announce wrote for the spoke's new owner.
+func TestRegistry_ForgetIf(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	r := newTestRegistry(clk)
+	r.applyFullAnnounce("https://node-b:8201", "node-b", []AnnouncedSpoke{{SpokeName: "s1"}})
+
+	// Non-matching owner: must not delete.
+	r.forgetIf("s1", "https://node-c:8201")
+	if _, ok := r.resolve("s1"); !ok {
+		t.Fatal("forgetIf with a non-matching owner must not delete")
+	}
+	// Matching owner: deletes.
+	r.forgetIf("s1", "https://node-b:8201")
+	if _, ok := r.resolve("s1"); ok {
+		t.Fatal("forgetIf with the matching owner must delete")
+	}
+}
