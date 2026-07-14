@@ -143,8 +143,9 @@ func (c *RelayRunCommand) AutocompleteFlags() complete.Flags    { return c.Flags
 const redirectChaseLimit = 5
 
 // redirectBackoff is the pause before chasing a hub redirect, so a flapping
-// leader doesn't drive a tight reconnect loop.
-const redirectBackoff = 2 * time.Second
+// leader doesn't drive a tight reconnect loop. A package var (not a const) only
+// so the end-to-end chase test can shrink it; production never changes it.
+var redirectBackoff = 2 * time.Second
 
 func (c *RelayRunCommand) Run(args []string) int {
 	if err := c.Flags().Parse(args); err != nil {
@@ -163,11 +164,27 @@ func (c *RelayRunCommand) Run(args []string) int {
 	// handlers, so it must not be re-created per redirect hop.
 	shutdownCh := MakeShutdownCh()
 
+	// connect is the per-hop work: log the attempt, then dial and serve one hub
+	// endpoint. chase drives it, following any pin-spokes-to-active redirect.
+	connect := func(server string) (int, string) {
+		c.UI.Info(fmt.Sprintf("connecting to hub %s as spoke %q", server, spokeName))
+		return c.connectAndServe(server, baseTLS, spokeName, shutdownCh)
+	}
+	return c.chase(shutdownCh, connect)
+}
+
+// chase drives the connect/redirect loop. It dials the current server via
+// connect and, on a pin-spokes-to-active redirect (a non-empty endpoint that is
+// not the current server), re-dials the advertised endpoint after redirectBackoff,
+// capping consecutive hops at redirectChaseLimit so a misconfigured pin (two
+// nodes redirecting at each other) cannot loop forever. connect is the seam the
+// end-to-end test injects the real gRPC connectAndServe through, and the unit
+// test drives with a synthetic always-redirect. It returns the process exit code.
+func (c *RelayRunCommand) chase(shutdownCh <-chan struct{}, connect func(server string) (int, string)) int {
 	server := c.flagServer
 	redirects := 0
 	for {
-		c.UI.Info(fmt.Sprintf("connecting to hub %s as spoke %q", server, spokeName))
-		code, redirect := c.connectAndServe(server, baseTLS, spokeName, shutdownCh)
+		code, redirect := connect(server)
 		if redirect == "" || redirect == server {
 			return code
 		}
