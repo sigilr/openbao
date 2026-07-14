@@ -20,6 +20,10 @@ const SPOKES_RESPONSE = {
         last_seen_unix: 1717900060,
         last_seen_seconds: 5,
         healthy: true,
+        cert_not_after: 1827900000,
+        node_id: 'hub-0',
+        node_cluster_addr: 'https://hub-0:8201',
+        node_is_active: true,
       },
       {
         name: 'spoke-west',
@@ -27,12 +31,21 @@ const SPOKES_RESPONSE = {
         last_seen_unix: 1717900110,
         last_seen_seconds: 120,
         healthy: false,
+        cert_not_after: 1827900000,
+        node_id: 'hub-2',
+        node_cluster_addr: 'https://hub-2:8201',
+        node_is_active: false,
       },
     ],
     connected_count: 2,
     healthy_count: 1,
     listener_port: 8201,
     stale_after_seconds: 60,
+    hub_node_count: 2,
+    hub_nodes: [
+      { cluster_addr: 'https://hub-0:8201', node_id: 'hub-0', is_active: true, spoke_count: 1 },
+      { cluster_addr: 'https://hub-2:8201', node_id: 'hub-2', is_active: false, spoke_count: 1 },
+    ],
   },
 };
 
@@ -75,6 +88,18 @@ module('Acceptance | relay', function (hooks) {
     assert.dom('[data-test-relay-header]').hasText('Relay');
     assert.dom('[data-test-spoke-row]').exists({ count: 2 }, 'renders a row per spoke');
     assert.dom('[data-test-spokes-summary]').includesText('2 connected, 1 healthy');
+    assert
+      .dom('[data-test-spokes-summary]')
+      .includesText('across 2 hub nodes', 'summary reports the hub node count');
+    assert.dom('[data-test-spokes-ha-explainer]').exists('shows the standby-is-normal HA explainer');
+    // The Node column shows where each spoke terminates and whether that node
+    // is active. spoke-east is on the active node, spoke-west on a standby.
+    assert.dom('[data-test-spoke-node="spoke-east"]').includesText('hub-0');
+    assert.dom('[data-test-spoke-node="spoke-east"] [data-test-spoke-node-role]').hasText('active');
+    assert.dom('[data-test-spoke-node="spoke-west"]').includesText('hub-2');
+    assert
+      .dom('[data-test-spoke-node="spoke-west"] [data-test-spoke-node-role]')
+      .hasText('standby', 'a spoke on a standby is shown as such, not as an error');
   });
 
   test('it renders an empty state when spokes cannot be listed', async function (assert) {

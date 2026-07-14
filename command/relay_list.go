@@ -86,13 +86,19 @@ func (c *RelayListCommand) Run(args []string) int {
 	c.UI.Output(fmt.Sprintf("Connected: %d total, %d healthy (stale after %ds)",
 		count, healthy, stale))
 
+	// In an HA hub, note how many hub nodes terminate streams and which node is
+	// active. A spoke on a standby is normal, not a fault.
+	if hubCount := asUnix(resp.Data["hub_node_count"]); hubCount > 0 {
+		c.UI.Output(fmt.Sprintf("Hub nodes owning streams: %d", hubCount))
+	}
+
 	if count == 0 {
 		return 0
 	}
 
 	rawSpokes, _ := resp.Data["spokes"].([]interface{})
 	c.UI.Output("")
-	c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %-10s  %s", "NAME", "LAST SEEN", "UPTIME", "CERT EXP", "HEALTH"))
+	c.UI.Output(fmt.Sprintf("%-20s  %-18s  %-10s  %-9s  %-10s  %s", "NAME", "NODE", "LAST SEEN", "UPTIME", "CERT EXP", "HEALTH"))
 	for _, s := range rawSpokes {
 		m, ok := s.(map[string]interface{})
 		if !ok {
@@ -107,6 +113,9 @@ func (c *RelayListCommand) Run(args []string) int {
 		if !health {
 			healthStr = "STALE"
 		}
+		// NODE column: raft node id plus (active)/(standby). A spoke on a
+		// standby is fully functional; the active node forwards to it.
+		nodeCol := nodeLabel(m)
 		uptime := "-"
 		if connectedAt > 0 {
 			uptime = shortDuration(time.Since(time.Unix(connectedAt, 0)))
@@ -128,14 +137,33 @@ func (c *RelayListCommand) Run(args []string) int {
 		if lastSeenSecs < 0 {
 			lastSeenSecs = 0
 		}
-		c.UI.Output(fmt.Sprintf("%-20s  %-10s  %-9s  %-10s  %s",
+		c.UI.Output(fmt.Sprintf("%-20s  %-18s  %-10s  %-9s  %-10s  %s",
 			name,
+			nodeCol,
 			fmt.Sprintf("%ds ago", lastSeenSecs),
 			uptime,
 			certExp,
 			healthStr))
 	}
 	return 0
+}
+
+// nodeLabel renders the NODE column for a spoke row: "<node-id> (active)" or
+// "<node-id> (standby)". Falls back to the cluster addr when the node id is
+// empty (a non-raft single node), and to "-" when neither is known.
+func nodeLabel(m map[string]interface{}) string {
+	id := str(m["node_id"])
+	if id == "" {
+		id = str(m["node_cluster_addr"])
+	}
+	if id == "" {
+		return "-"
+	}
+	role := "standby"
+	if active, _ := m["node_is_active"].(bool); active {
+		role = "active"
+	}
+	return fmt.Sprintf("%s (%s)", id, role)
 }
 
 // shortDuration prints a duration as the largest single unit (e.g. "3d",

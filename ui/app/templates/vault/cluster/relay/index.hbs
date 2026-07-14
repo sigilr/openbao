@@ -16,20 +16,43 @@
       connected,
       {{this.model.healthy_count}}
       healthy
+      {{#if this.model.hub_node_count}}
+        across
+        {{this.model.hub_node_count}}
+        hub
+        {{if (eq this.model.hub_node_count 1) "node" "nodes"}}
+      {{/if}}
       {{#if this.model.listener_port}}
-        &mdash; gRPC listener on port
+        , gRPC listener on port
         {{this.model.listener_port}}
       {{/if}}
     </p>
   </div>
+
+  {{! A spoke connected to a standby node is normal, not a fault: the active hub
+  node forwards credential operations to whichever node terminates the stream.
+  Pre-empt the "why is my spoke on a standby" support ticket. }}
+  <div class="message is-info" data-test-spokes-ha-explainer>
+    <div class="message-body">
+      In an HA hub, a spoke may connect to a
+      <strong>standby</strong>
+      node (behind a load balancer this is expected). That spoke is fully functional: the active node forwards its credential
+      operations to whichever node holds the stream. The
+      <strong>Node</strong>
+      column below shows where each spoke is connected and whether that node is active.
+    </div>
+  </div>
+
   {{#if this.model.spokes}}
     <table class="vlt-table is-fullwidth">
       <caption class="is-collapsed">Connected spokes</caption>
       <thead class="has-text-weight-semibold">
         <tr>
           <th scope="col">Name</th>
+          <th scope="col">Node</th>
           <th scope="col">Connected</th>
           <th scope="col">Last seen</th>
+          <th scope="col">Cert expires</th>
           <th scope="col">Healthy</th>
         </tr>
       </thead>
@@ -37,8 +60,27 @@
         {{#each this.model.spokes as |spoke|}}
           <tr data-test-spoke-row={{spoke.name}}>
             <td>{{spoke.name}}</td>
+            <td data-test-spoke-node={{spoke.name}}>
+              {{#if (or spoke.node_id spoke.node_cluster_addr)}}
+                {{if spoke.node_id spoke.node_id spoke.node_cluster_addr}}
+                {{#if spoke.node_is_active}}
+                  <span class="tag is-success is-size-8" data-test-spoke-node-role>active</span>
+                {{else}}
+                  <span class="tag is-size-8" data-test-spoke-node-role>standby</span>
+                {{/if}}
+              {{else}}
+                &mdash;
+              {{/if}}
+            </td>
             <td>{{date-format spoke.connected_at_unix "MMM d, yyyy hh:mm:ss a"}}</td>
             <td>{{spoke.last_seen_seconds}}s ago</td>
+            <td>
+              {{#if spoke.cert_not_after}}
+                {{date-format spoke.cert_not_after "MMM d, yyyy hh:mm a"}}
+              {{else}}
+                &mdash;
+              {{/if}}
+            </td>
             <td>
               {{#if spoke.healthy}}
                 <Icon @name="check-circle" aria-label="Healthy" class="icon-true has-text-success" />

@@ -23,6 +23,14 @@ const (
 
 	RequestForwardingALPN = "req_fw_sb-act_v1"
 
+	// RelayForwardingALPN is the negotiated protocol used by the relay
+	// hub-and-spoke database plugin to forward spoke traffic between hub nodes
+	// over the cluster port: spoke announcements (standby->active), credential
+	// command forwarding (active->owner), and spoke-cert CSR signing
+	// (owner->active). It rides the same cluster mTLS trust domain as
+	// RequestForwardingALPN. See remote-db-plugin/DESIGN.md "HA".
+	RelayForwardingALPN = "relay_fw_v1"
+
 	RaftStorageALPN = "raft_storage_v1"
 
 	// ReplicationResolverALPN is the negotiated protocol used for

@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -349,4 +350,82 @@ func newTestID(i int) string {
 		out[j] = hex[(i>>(j*4))&0xf]
 	}
 	return string(out)
+}
+
+// TestStopProxyServer covers the seal-path teardown (DESIGN.md "Prerequisite:
+// stop the listener on seal"): a sealed node must hold no listener, no spoke
+// streams, and no CA key material, and any parked RunCommand waiter must be
+// released rather than left to hang.
+func TestStopProxyServer(t *testing.T) {
+	// A valid hub identity is a precondition for StartProxyServer.
+	ca, err := bootstrap.GenerateCA()
+	if err != nil {
+		t.Fatalf("GenerateCA: %v", err)
+	}
+	hub, err := ca.IssueHubServerCert([]string{"localhost"}, nil)
+	if err != nil {
+		t.Fatalf("IssueHubServerCert: %v", err)
+	}
+	if err := bootstrap.Global().SetIdentity(ca, hub); err != nil {
+		t.Fatalf("SetIdentity: %v", err)
+	}
+
+	// Bind on an ephemeral port so the test never collides with a real one.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("probe listen: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+
+	if err := StartProxyServer(port); err != nil {
+		t.Fatalf("StartProxyServer: %v", err)
+	}
+	if got := ProxyServerPort(); got != port {
+		t.Fatalf("ProxyServerPort = %d, want %d", got, port)
+	}
+	if !bootstrap.Global().Ready() {
+		t.Fatal("identity should be Ready after SetIdentity")
+	}
+
+	// Park a waiter on a fake connection so we can prove failAll runs.
+	conn := newSpokeConnection(nil)
+	respCh := conn.register("req-1")
+	s := getProxyServer()
+	s.mu.Lock()
+	s.spokes["spoke-a"] = conn
+	s.mu.Unlock()
+	if len(ListConnectedSpokes()) != 1 {
+		t.Fatalf("expected 1 connected spoke before stop")
+	}
+
+	StopProxyServer()
+
+	if got := ProxyServerPort(); got != 0 {
+		t.Fatalf("after StopProxyServer, ProxyServerPort = %d, want 0", got)
+	}
+	if n := len(ListConnectedSpokes()); n != 0 {
+		t.Fatalf("after StopProxyServer, %d spokes still connected, want 0", n)
+	}
+	if bootstrap.Global().Ready() {
+		t.Fatal("after StopProxyServer, bootstrap identity should be cleared")
+	}
+
+	// The parked waiter must have been failed, and done must be closed.
+	select {
+	case r := <-respCh:
+		if r.err == "" {
+			t.Fatal("parked waiter unblocked without an error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked waiter was not released by StopProxyServer")
+	}
+	select {
+	case <-conn.done:
+	default:
+		t.Fatal("connection done channel not closed by StopProxyServer")
+	}
+
+	// Idempotent: a second call must not panic and must remain a no-op.
+	StopProxyServer()
 }

@@ -675,6 +675,86 @@ time seq 1 50 | xargs -P 50 -I{} bao read database/creds/readonly >/dev/null
 
 ---
 
+## HA failover (3-node raft hub)
+
+This exercises the standby-stream-ownership design (DESIGN.md "HA: standby nodes
+and spoke stream ownership"). It needs three hub nodes behind one address (a load
+balancer, a Kubernetes Service, or a local HAProxy) so a spoke can land on a
+standby.
+
+The full path is covered automatically in-process by
+`vault/external_tests/relay/TestRelayHA_ForwardingAcrossNodes`: a real 3-node
+raft cluster, a spoke parked on a standby, a credential op on the active node
+that forwards over the real cluster port, and a leader step-down after which the
+stream survives and credentials still issue. Each Core owns its own proxy server
+(keyed by raft node id), so the routing is genuinely exercised rather than
+short-circuited by a shared map. The manual walkthrough below is for validating a
+real multi-process deployment (LB, TLS, a live `bao relay run` spoke, and a real
+database) end to end.
+
+Setup: `hub-0`, `hub-1`, `hub-2` with raft storage, a shared `cluster_addr` per
+node, and the relay listener published behind one address the spokes dial.
+
+1. **Spoke lands on a standby, credentials still work.**
+
+   ```bash
+   # Determine which node is active.
+   bao operator raft list-peers        # note the leader
+   # Start the spoke; with an LB in front it may attach to any node.
+   bao relay run -server=<lb>:50053 -credentials-dir=/etc/openbao-spoke &
+   # On the ACTIVE node, confirm the spoke is visible cluster-wide and note its
+   # NODE column: it may read "hub-2 (standby)".
+   bao relay list
+   # Issue credentials from the active node. This must succeed even when the
+   # spoke terminates on a standby (the active node forwards over the cluster
+   # port).
+   bao write database/config/my-db plugin_name=remote-postgres-plugin spoke_name=<spoke> ...
+   bao read database/creds/readonly
+   ```
+
+   Expect: `bao relay list` shows the spoke under its owning node with the
+   correct active/standby role; `db/creds/readonly` returns a credential.
+   In the active node's log you will see a forward over `RelayForwardingALPN`
+   when the spoke is remote, and no forward when it is local.
+
+2. **Step down the leader; the spoke stream is NOT dropped.**
+
+   ```bash
+   # On the current leader:
+   bao operator step-down
+   # Watch the spoke: it must NOT reconnect, re-issue a cert, or spend a token.
+   # Its stream stays on whatever node terminated it.
+   ```
+
+   Expect: the spoke daemon logs no reconnect. `bao relay list` on the NEW
+   leader shows the spoke within at most one announce interval (~5s), because
+   the node that still holds the stream re-announces immediately on observing
+   the leadership change.
+
+3. **Credentials still issue after the failover.**
+
+   ```bash
+   # On the NEW active node:
+   bao read database/creds/readonly
+   ```
+
+   Expect: success within one announce interval of the step-down, with no spoke
+   reconnect in between. Compare with the pre-forwarding behaviour, where a spoke
+   on a standby was permanently unreachable from the active node.
+
+4. **Sealed node holds nothing.**
+
+   ```bash
+   # Seal one standby that currently terminates a spoke.
+   bao operator seal          # on that node
+   ```
+
+   Expect: that node's relay listener stops accepting spoke streams (the spoke
+   re-dials the LB and lands on a live node, which announces it), and the node
+   holds no spoke-CA key material. This is `StopProxyServer` on the seal path.
+
+---
+
 ## Cleanup
 
 ```bash
@@ -715,3 +795,8 @@ A condensed view for the PR description's checklist:
 | Failure — duplicate dir | join into populated dir without `-force` | refused |
 | Failure — half-rotated creds | swap ca.pem for an unrelated CA, restart spoke | `bao relay run` refuses at startup with "failed verification: x509: certificate signed by unknown authority" |
 | Concurrency | 20× parallel `db/creds/readonly` | roughly slowest single, not 20× |
+| HA — routing | `forwarding_test.go` (bufconn) | spoke on another node: cred op forwards and succeeds; local spoke never dials a peer |
+| HA — registry | `registry_test.go` | add / expire after 3 missed announces / full-announce drop / move owner |
+| HA — seal | `TestStopProxyServer`, `TestCleanupGatesOnSealed` | sealed node holds no listener/streams/CA; transition keeps them |
+| HA — failover (automated, in-process 3-node raft) | `vault/external_tests/relay/TestRelayHA_ForwardingAcrossNodes` | spoke on a standby; cred op on active forwards over the real cluster port and succeeds; step down active, stream survives, creds still issue |
+| HA — failover (manual, 3 real processes behind an LB) | step down leader with a spoke on a standby | no spoke reconnect; creds issue within one announce interval |
