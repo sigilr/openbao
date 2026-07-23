@@ -107,6 +107,7 @@ $ bao read database/creds/readonly
 | `remote-valkey-plugin` | `valkey-database-plugin` |
 | `remote-cassandra-plugin` | `cassandra-database-plugin` |
 | `remote-influxdb-plugin` | `influxdb-database-plugin` |
+| `remote-oracle-plugin` | `oracle-database-plugin` |
 
 Adding more is one line in `helper/builtinplugins/registry.go` plus a `case`
 in `runner/runner.go:loadPlugin` — the underlying plugin already runs
