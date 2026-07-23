@@ -1,0 +1,3 @@
+```release-note:feature
+`plugins/database: add the Hazelcast database plugin (hazelcast-database-plugin).`
+```
