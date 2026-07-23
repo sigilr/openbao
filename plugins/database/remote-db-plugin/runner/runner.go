@@ -28,6 +28,7 @@ import (
 	"time"
 
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
+	dbIgnite "github.com/openbao/openbao/v2/plugins/database/ignite"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "ignite-database-plugin":
+		factory = dbIgnite.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
