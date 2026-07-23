@@ -28,6 +28,7 @@ import (
 	"time"
 
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
+	dbES "github.com/openbao/openbao/v2/plugins/database/elasticsearch"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "elasticsearch-database-plugin":
+		factory = dbES.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
