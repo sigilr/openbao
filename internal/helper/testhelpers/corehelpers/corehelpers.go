@@ -174,6 +174,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"mysql-legacy-database-plugin",
 
 			"cassandra-database-plugin",
+			"druid-database-plugin",
 			"influxdb-database-plugin",
 			"postgresql-database-plugin",
 			"redis-database-plugin",
@@ -184,6 +185,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"remote-postgres-plugin",
 			"remote-redis-plugin",
 			"remote-valkey-plugin",
+			"remote-druid-plugin",
 		}
 	case consts.PluginTypeCredential:
 		return []string{
