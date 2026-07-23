@@ -1,0 +1,3 @@
+```release-note:feature
+plugins/database: add the SAP HANA database plugin (hana-database-plugin).
+```
