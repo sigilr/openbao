@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	logicalRelay "github.com/openbao/openbao/v2/builtin/logical/relay"
+	dbRabbit "github.com/openbao/openbao/v2/plugins/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/v2/plugins/database/remote-db-plugin"
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -83,6 +84,7 @@ func newRegistry() *registry {
 			"cassandra-database-plugin":  {Factory: dbCass.New},
 			"influxdb-database-plugin":   {Factory: dbInflux.New},
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
+			"rabbitmq-database-plugin":   {Factory: dbRabbit.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
 			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
@@ -91,6 +93,7 @@ func newRegistry() *registry {
 			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-rabbitmq-plugin":     {Factory: dbRemote.New("rabbitmq-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},

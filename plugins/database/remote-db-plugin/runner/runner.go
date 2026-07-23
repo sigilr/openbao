@@ -31,6 +31,7 @@ import (
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
+	dbRabbit "github.com/openbao/openbao/v2/plugins/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 )
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "rabbitmq-database-plugin":
+		factory = dbRabbit.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
