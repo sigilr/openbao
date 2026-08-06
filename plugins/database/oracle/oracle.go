@@ -41,7 +41,7 @@ const (
 	oracleTypeName = "oracle"
 
 	// 30 characters is the historical Oracle identifier limit.
-	defaultUserNameTemplate = `{{ printf "V_%s_%s_%s_%s" (.DisplayName | truncate 8) (.RoleName | truncate 8) (random 8) (unix_time) | truncate 30 | replace "-" "_" | uppercase }}`
+	defaultUserNameTemplate = `{{ printf "V_%s_%s_%s_%s" (.DisplayName | truncate 8) (.RoleName | truncate 8) (random 8) (unix_time) | truncate 30 | replace "-" "_" | replace "." "_" | uppercase }}`
 
 	defaultChangePasswordStatement = `ALTER USER {{username}} IDENTIFIED BY "{{password}}";`
 )
@@ -147,9 +147,10 @@ func (o *Oracle) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbpl
 		return dbplugin.NewUserResponse{}, err
 	}
 
-	// Oracle identifiers without quotes are case-folded to upper. Strip
-	// hyphens (illegal in unquoted identifiers).
-	username = strings.ReplaceAll(username, "-", "_")
+	// Oracle identifiers without quotes are case-folded to upper. Replace
+	// punctuation that can come from OpenBao/KubeVault role names but is
+	// illegal in unquoted Oracle identifiers.
+	username = strings.NewReplacer("-", "_", ".", "_").Replace(username)
 	username = strings.ToUpper(username)
 
 	expirationStr := req.Expiration.UTC().Format("2006-01-02 15:04:05")
