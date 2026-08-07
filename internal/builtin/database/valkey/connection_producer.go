@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/mediocregopher/radix/v4"
 	"github.com/openbao/openbao/sdk/v2/database/helper/connutil"
+	"github.com/valkey-io/valkey-go"
 )
 
 type valkeyDBConnectionProducer struct {
@@ -31,7 +31,7 @@ type valkeyDBConnectionProducer struct {
 	Initialized bool
 	rawConfig   map[string]any
 	Type        string
-	client      radix.Client
+	client      valkey.Client
 	Addr        string
 	sync.Mutex
 }
@@ -125,8 +125,21 @@ func (c *valkeyDBConnectionProducer) Connection(ctx context.Context) (any, error
 	if c.client != nil {
 		return c.client, nil
 	}
-	var err error
-	var poolConfig radix.PoolConfig
+
+	opt := valkey.ClientOption{
+		InitAddress: []string{c.Addr},
+		Username:    c.Username,
+		Password:    c.Password,
+		// The plugin only ever talks to a single valkey/redis instance, so avoid
+		// the extra CLUSTER SLOTS probing round trip that valkey-go otherwise
+		// performs to auto-detect cluster mode.
+		ForceSingleClient: true,
+		// The plugin issues plain administrative ACL commands and gets no benefit
+		// from client-side caching. Disabling it also avoids requiring the
+		// CLIENT TRACKING permission on the (often narrowly-scoped) root
+		// credential used to manage database users.
+		DisableCache: true,
+	}
 
 	if c.TLS {
 		rootCAs := x509.NewCertPool()
@@ -134,28 +147,13 @@ func (c *valkeyDBConnectionProducer) Connection(ctx context.Context) (any, error
 		if !ok {
 			return nil, fmt.Errorf("failed to parse root certificate")
 		}
-		poolConfig = radix.PoolConfig{
-			Dialer: radix.Dialer{
-				AuthUser: c.Username,
-				AuthPass: c.Password,
-				NetDialer: &tls.Dialer{
-					Config: &tls.Config{
-						RootCAs:            rootCAs,
-						InsecureSkipVerify: c.InsecureTLS,
-					},
-				},
-			},
-		}
-	} else {
-		poolConfig = radix.PoolConfig{
-			Dialer: radix.Dialer{
-				AuthUser: c.Username,
-				AuthPass: c.Password,
-			},
+		opt.TLSConfig = &tls.Config{
+			RootCAs:            rootCAs,
+			InsecureSkipVerify: c.InsecureTLS,
 		}
 	}
 
-	client, err := poolConfig.New(ctx, "tcp", c.Addr)
+	client, err := valkey.NewClient(opt)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +165,7 @@ func (c *valkeyDBConnectionProducer) Connection(ctx context.Context) (any, error
 // close terminates the database connection without locking
 func (c *valkeyDBConnectionProducer) close() error {
 	if c.client != nil {
-		if err := c.client.Close(); err != nil {
-			return err
-		}
+		c.client.Close()
 	}
 
 	c.client = nil
