@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
             "secret/databases/mysql-maria",
             "secret/databases/postgresql",
             "secret/databases/valkey",
+            "secret/databases/weaviate",
           ],
           Identity: [
             "secret/identity/index",
