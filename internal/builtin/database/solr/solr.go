@@ -72,7 +72,7 @@ var (
 	_ logical.PluginVersioner = (*Solr)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newSolr()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -176,19 +176,19 @@ func (s *Solr) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplug
 		return dbplugin.NewUserResponse{}, err
 	}
 
-	if err := s.postAuth(ctx, map[string]interface{}{
+	if err := s.postAuth(ctx, map[string]any{
 		"set-user": map[string]string{username: req.Password},
 	}); err != nil {
 		return dbplugin.NewUserResponse{}, fmt.Errorf("set-user: %w", err)
 	}
 
 	cleanup := func(opErr error) (dbplugin.NewUserResponse, error) {
-		_ = s.postAuth(ctx, map[string]interface{}{"delete-user": []string{username}})
+		_ = s.postAuth(ctx, map[string]any{"delete-user": []string{username}})
 		return dbplugin.NewUserResponse{}, opErr
 	}
 
 	if len(stmt.Roles) > 0 {
-		if err := s.postAuthZ(ctx, map[string]interface{}{
+		if err := s.postAuthZ(ctx, map[string]any{
 			"set-user-role": map[string][]string{username: stmt.Roles},
 		}); err != nil {
 			return cleanup(fmt.Errorf("set-user-role: %w", err))
@@ -212,7 +212,7 @@ func (s *Solr) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.postAuth(ctx, map[string]interface{}{
+	if err := s.postAuth(ctx, map[string]any{
 		"set-user": map[string]string{req.Username: req.Password.NewPassword},
 	}); err != nil {
 		return dbplugin.UpdateUserResponse{}, fmt.Errorf("set-user: %w", err)
@@ -226,7 +226,7 @@ func (s *Solr) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest) (
 
 	// delete-user is idempotent on the Solr side; missing user yields a
 	// 200 with a no-op result, so no special-casing is needed.
-	if err := s.postAuth(ctx, map[string]interface{}{"delete-user": []string{req.Username}}); err != nil {
+	if err := s.postAuth(ctx, map[string]any{"delete-user": []string{req.Username}}); err != nil {
 		return dbplugin.DeleteUserResponse{}, fmt.Errorf("delete-user: %w", err)
 	}
 	return dbplugin.DeleteUserResponse{}, nil
@@ -251,15 +251,15 @@ func (s *Solr) ping(ctx context.Context) error {
 	return nil
 }
 
-func (s *Solr) postAuth(ctx context.Context, body map[string]interface{}) error {
+func (s *Solr) postAuth(ctx context.Context, body map[string]any) error {
 	return s.doJSON(ctx, http.MethodPost, "admin/authentication", body)
 }
 
-func (s *Solr) postAuthZ(ctx context.Context, body map[string]interface{}) error {
+func (s *Solr) postAuthZ(ctx context.Context, body map[string]any) error {
 	return s.doJSON(ctx, http.MethodPost, "admin/authorization", body)
 }
 
-func (s *Solr) doJSON(ctx context.Context, method, path string, body interface{}) error {
+func (s *Solr) doJSON(ctx context.Context, method, path string, body any) error {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		return err

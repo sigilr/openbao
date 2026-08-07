@@ -38,7 +38,7 @@ func TestSolr_StatementParsing(t *testing.T) {
 func TestSolr_FakeServer(t *testing.T) {
 	type call struct {
 		method, path string
-		body         map[string]interface{}
+		body         map[string]any
 	}
 	var mu sync.Mutex
 	var calls []call
@@ -60,7 +60,7 @@ func TestSolr_FakeServer(t *testing.T) {
 
 	db := newSolr()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL + "/solr",
 			"username": "solr",
 			"password": "solrRocks",
