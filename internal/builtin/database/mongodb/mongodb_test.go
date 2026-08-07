@@ -45,7 +45,7 @@ func TestMongoDB_TypeAndVersion(t *testing.T) {
 func TestMongoDB_UsernameTemplate(t *testing.T) {
 	db := newMongoDB()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": "mongodb://user:pass@localhost:27017"},
+		Config:           map[string]any{"connection_url": "mongodb://user:pass@localhost:27017"},
 		VerifyConnection: false,
 	})
 	require.NoError(t, err)
@@ -150,10 +150,10 @@ func TestMongoDB_WriteConcern_Garbage(t *testing.T) {
 func TestMongoDB_LoadConfig_Errors(t *testing.T) {
 	cases := []struct {
 		name string
-		cfg  map[string]interface{}
+		cfg  map[string]any
 	}{
-		{name: "empty connection_url", cfg: map[string]interface{}{}},
-		{name: "negative socket_timeout", cfg: map[string]interface{}{"connection_url": "mongodb://localhost:27017", "socket_timeout": "-1s"}},
+		{name: "empty connection_url", cfg: map[string]any{}},
+		{name: "negative socket_timeout", cfg: map[string]any{"connection_url": "mongodb://localhost:27017", "socket_timeout": "-1s"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestMongoDB_LoadConfig_Errors(t *testing.T) {
 func TestMongoDB_Initialize(t *testing.T) {
 	connURL := mongoACC(t)
 
-	cfg := map[string]interface{}{"connection_url": connURL}
+	cfg := map[string]any{"connection_url": connURL}
 	db := newMongoDB()
 	resp := dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
 		Config:           cfg,
@@ -184,7 +184,7 @@ func TestMongoDB_NewUser(t *testing.T) {
 
 	db := newMongoDB()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)
@@ -210,7 +210,7 @@ func TestMongoDB_DeleteUser(t *testing.T) {
 
 	db := newMongoDB()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)
@@ -235,7 +235,7 @@ func TestMongoDB_UpdateUser_Password(t *testing.T) {
 
 	db := newMongoDB()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)

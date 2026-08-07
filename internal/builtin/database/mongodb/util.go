@@ -7,9 +7,9 @@ package mongodb
 import "go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 type createUserCommand struct {
-	Username string        `bson:"createUser"`
-	Password string        `bson:"pwd,omitempty"`
-	Roles    []interface{} `bson:"roles"`
+	Username string `bson:"createUser"`
+	Password string `bson:"pwd,omitempty"`
+	Roles    []any  `bson:"roles"`
 }
 
 type updateUserCommand struct {
@@ -44,8 +44,8 @@ type mongoDBStatement struct {
 //
 // — bare role names are flattened to strings, db-qualified ones stay as
 // documents, which is what createUser expects.
-func (roles mongodbRoles) toStandardRolesArray() []interface{} {
-	var standardRolesArray []interface{}
+func (roles mongodbRoles) toStandardRolesArray() []any {
+	var standardRolesArray []any
 	for _, role := range roles {
 		if role.DB == "" {
 			standardRolesArray = append(standardRolesArray, role.Role)

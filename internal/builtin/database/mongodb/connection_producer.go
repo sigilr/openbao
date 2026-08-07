@@ -44,7 +44,7 @@ type mongoDBConnectionProducer struct {
 	ServerSelectionTimeout time.Duration `json:"server_selection_timeout" structs:"-" mapstructure:"server_selection_timeout"`
 
 	Initialized   bool
-	RawConfig     map[string]interface{}
+	RawConfig     map[string]any
 	Type          string
 	clientOptions *options.ClientOptions
 	client        *mongo.Client
@@ -62,7 +62,7 @@ type writeConcernConfig struct {
 	J        bool   // Sync via the journal if present
 }
 
-func (c *mongoDBConnectionProducer) loadConfig(cfg map[string]interface{}) error {
+func (c *mongoDBConnectionProducer) loadConfig(cfg map[string]any) error {
 	if err := mapstructure.WeakDecode(cfg, c); err != nil {
 		return err
 	}

@@ -49,7 +49,7 @@ var (
 )
 
 // New is the factory entry point referenced from helper/builtinplugins/registry.go.
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newMongoDB()
 	dbType := dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues)
 	return dbType, nil
@@ -242,7 +242,7 @@ func (m *MongoDB) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest
 // runCommandWithRetry retries once on EOF — long-lived mongo connections
 // occasionally drop and the driver surfaces this as an io.EOF on the first
 // attempt; we reconnect and retry transparently.
-func (m *MongoDB) runCommandWithRetry(ctx context.Context, db string, cmd interface{}) error {
+func (m *MongoDB) runCommandWithRetry(ctx context.Context, db string, cmd any) error {
 	client, err := m.Connection(ctx)
 	if err != nil {
 		return err
