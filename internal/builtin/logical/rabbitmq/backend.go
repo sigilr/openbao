@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	rabbithole "github.com/michaelklishin/rabbit-hole/v3"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -90,12 +89,10 @@ func (b *backend) Client(ctx context.Context, s logical.Storage) (*rabbithole.Cl
 		return b.client, nil
 	}
 
-	b.client, err = rabbithole.NewClient(connConfig.URI, connConfig.Username, connConfig.Password)
+	b.client, err = newClient(connConfig)
 	if err != nil {
 		return nil, err
 	}
-	// Use a default pooled transport so there would be no leaked file descriptors
-	b.client.SetTransport(cleanhttp.DefaultPooledTransport())
 
 	return b.client, nil
 }

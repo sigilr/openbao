@@ -5,8 +5,12 @@ package rabbitmq
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 
+	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	rabbithole "github.com/michaelklishin/rabbit-hole/v3"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
@@ -53,6 +57,23 @@ func pathConfigConnection(b *backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: "Template describing how dynamic usernames are generated.",
 			},
+			"tls_ca": {
+				Type:        framework.TypeString,
+				Description: "PEM-encoded CA certificate bundle used to verify the RabbitMQ management API's TLS certificate.",
+			},
+			"tls_certificate": {
+				Type:        framework.TypeString,
+				Description: "PEM-encoded client certificate used for mutual TLS to the RabbitMQ management API. Requires tls_key.",
+			},
+			"tls_key": {
+				Type:        framework.TypeString,
+				Description: "PEM-encoded private key for tls_certificate.",
+			},
+			"insecure": {
+				Type:        framework.TypeBool,
+				Default:     false,
+				Description: "Skip TLS certificate verification when connecting to the RabbitMQ management API. Not recommended outside of development.",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -97,21 +118,6 @@ func (b *backend) pathConnectionUpdate(ctx context.Context, req *logical.Request
 
 	passwordPolicy := data.Get("password_policy").(string)
 
-	// Don't check the connection_url if verification is disabled
-	verifyConnection := data.Get("verify_connection").(bool)
-	if verifyConnection {
-		// Create RabbitMQ management client
-		client, err := rabbithole.NewClient(uri, username, password)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create client: %w", err)
-		}
-
-		// Verify that configured credentials is capable of listing
-		if _, err = client.ListUsers(); err != nil {
-			return nil, fmt.Errorf("failed to validate the connection: %w", err)
-		}
-	}
-
 	// Store it
 	config := connectionConfig{
 		URI:              uri,
@@ -119,9 +125,27 @@ func (b *backend) pathConnectionUpdate(ctx context.Context, req *logical.Request
 		Password:         password,
 		PasswordPolicy:   passwordPolicy,
 		UsernameTemplate: usernameTemplate,
+		TLSCA:            data.Get("tls_ca").(string),
+		TLSCertificate:   data.Get("tls_certificate").(string),
+		TLSKey:           data.Get("tls_key").(string),
+		Insecure:         data.Get("insecure").(bool),
 	}
-	err := writeConfig(ctx, req.Storage, config)
+
+	client, err := newClient(config)
 	if err != nil {
+		return nil, fmt.Errorf("failed to create client: %w", err)
+	}
+
+	// Don't check the connection_url if verification is disabled
+	verifyConnection := data.Get("verify_connection").(bool)
+	if verifyConnection {
+		// Verify that configured credentials is capable of listing
+		if _, err = client.ListUsers(); err != nil {
+			return nil, fmt.Errorf("failed to validate the connection: %w", err)
+		}
+	}
+
+	if err := writeConfig(ctx, req.Storage, config); err != nil {
 		return nil, err
 	}
 
@@ -174,6 +198,79 @@ type connectionConfig struct {
 
 	// UsernameTemplate for storing the raw template in Vault's backing data store
 	UsernameTemplate string `json:"username_template"`
+
+	// TLSCA is a PEM-encoded CA certificate bundle used to verify the
+	// RabbitMQ management API's TLS certificate.
+	TLSCA string `json:"tls_ca"`
+
+	// TLSCertificate and TLSKey are a PEM-encoded client certificate/key
+	// pair used for mutual TLS to the RabbitMQ management API.
+	TLSCertificate string `json:"tls_certificate"`
+	TLSKey         string `json:"tls_key"`
+
+	// Insecure skips TLS certificate verification. Not recommended outside
+	// of development.
+	Insecure bool `json:"insecure"`
+}
+
+// newClient builds a RabbitMQ management API client from the given
+// connection config, wiring up TLS (CA bundle, mutual-TLS client identity,
+// and/or InsecureSkipVerify) when any of those options are set. It always
+// uses a pooled transport so connections don't leak file descriptors.
+func newClient(config connectionConfig) (*rabbithole.Client, error) {
+	tlsConfig, err := makeTLSConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use a default pooled transport so there would be no leaked file descriptors.
+	transport := cleanhttp.DefaultPooledTransport()
+	if tlsConfig != nil {
+		transport.TLSClientConfig = tlsConfig
+	}
+
+	client, err := rabbithole.NewTLSClient(config.URI, config.Username, config.Password, transport)
+	if err != nil {
+		return nil, err
+	}
+	client.SetTransport(transport)
+	return client, nil
+}
+
+// makeTLSConfig builds a *tls.Config from the connection config's TLS
+// fields. It returns (nil, nil) when none of tls_ca/tls_certificate/tls_key
+// /insecure are set, so callers fall back to a plain HTTP(S) client with the
+// Go default TLS behavior.
+func makeTLSConfig(config connectionConfig) (*tls.Config, error) {
+	if config.TLSCA == "" && config.TLSCertificate == "" && config.TLSKey == "" && !config.Insecure {
+		return nil, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: config.Insecure, //nolint:gosec // operator opt-in via "insecure"
+	}
+
+	if config.TLSCA != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(config.TLSCA)) {
+			return nil, errors.New("failed to parse tls_ca PEM")
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	if config.TLSCertificate != "" || config.TLSKey != "" {
+		if config.TLSCertificate == "" || config.TLSKey == "" {
+			return nil, errors.New("both tls_certificate and tls_key are required to use mutual TLS")
+		}
+		cert, err := tls.X509KeyPair([]byte(config.TLSCertificate), []byte(config.TLSKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tls_certificate/tls_key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
 }
 
 const pathConfigConnectionHelpSyn = `
@@ -189,4 +286,10 @@ are valid.
 
 The URI looks like:
 "http://localhost:15672"
+
+When connecting over TLS, "tls_ca" may be set to a PEM CA bundle to verify the
+management API's server certificate, "tls_certificate" and "tls_key" may be
+set to a PEM client certificate/key pair for mutual TLS, and "insecure" may
+be set to skip TLS certificate verification entirely (not recommended
+outside of development).
 `

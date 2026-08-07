@@ -1,0 +1,3 @@
+```release-note:improvement
+secrets/rabbitmq: support connecting to the RabbitMQ management API over TLS via new `tls_ca`, `tls_certificate`, `tls_key`, and `insecure` fields on `config/connection`.
+```
