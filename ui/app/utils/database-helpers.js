@@ -102,6 +102,49 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'milvus-database-plugin',
+    displayName: 'Milvus',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'token', group: 'pluginConfig', show: false },
+      { attr: 'db_name', group: 'pluginConfig' },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
+    value: 'remote-milvus-plugin',
+    displayName: 'Milvus (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'token', group: 'pluginConfig', show: false },
+      { attr: 'db_name', group: 'pluginConfig' },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +160,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'milvus-database-plugin': [],
+    'remote-milvus-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +175,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'milvus-database-plugin': ['creation_statements'],
+    'remote-milvus-plugin': ['creation_statements'],
   },
 };
 
