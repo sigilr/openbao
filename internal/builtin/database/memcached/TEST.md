@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/memcached/...
+$ go test ./internal/builtin/database/memcached/...
 ```
 
 Covers:

@@ -25,7 +25,7 @@ func TestMemcached_TypeAndVersion(t *testing.T) {
 func TestMemcached_NewUserUnsupported(t *testing.T) {
 	db := newMemcached()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": "localhost:11211"},
+		Config:           map[string]any{"address": "localhost:11211"},
 		VerifyConnection: false,
 	})
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestMemcached_NewUserUnsupported(t *testing.T) {
 func TestMemcached_UpdateUser_NoOp(t *testing.T) {
 	db := newMemcached()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": "localhost:11211"},
+		Config:           map[string]any{"address": "localhost:11211"},
 		VerifyConnection: false,
 	})
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestMemcached_Healthcheck_Connect(t *testing.T) {
 
 	db := newMemcached()
 	_, err = db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": ln.Addr().String()},
+		Config:           map[string]any{"address": ln.Addr().String()},
 		VerifyConnection: true,
 	})
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestMemcached_Healthcheck_Connect(t *testing.T) {
 func TestMemcached_Healthcheck_BadAddr(t *testing.T) {
 	db := newMemcached()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": "127.0.0.1:1"},
+		Config:           map[string]any{"address": "127.0.0.1:1"},
 		VerifyConnection: true,
 	})
 	require.Error(t, err)

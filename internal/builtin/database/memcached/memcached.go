@@ -69,7 +69,7 @@ var (
 	_ logical.PluginVersioner = (*Memcached)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newMemcached()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
