@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/oracle/...
+$ go test ./internal/builtin/database/oracle/...
 ```
 
 Covers without touching a database:
@@ -24,7 +24,7 @@ Gated on `BAO_ACC=1` + `ORACLE_URL=oracle://SYSTEM:pw@host:1521/service`.
 ```
 $ export BAO_ACC=1
 $ export ORACLE_URL='oracle://SYSTEM:oracle@localhost:1521/XEPDB1'
-$ go test -v -count=1 -timeout=10m ./plugins/database/oracle/
+$ go test -v -count=1 -timeout=10m ./internal/builtin/database/oracle/
 ```
 
 ### Local Oracle via Docker (Express Edition)

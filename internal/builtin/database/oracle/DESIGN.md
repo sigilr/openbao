@@ -109,7 +109,7 @@ Per-namespace database mounts work without plugin-side changes. See
 
 `remote-oracle-plugin` is a one-line registration in
 `helper/builtinplugins/registry.go` plus a `case` in
-`plugins/database/remote-db-plugin/runner/runner.go:loadPlugin`. See
+`internal/builtin/database/remote-db-plugin/runner/runner.go:loadPlugin`. See
 [remote-db-plugin/DESIGN.md](../remote-db-plugin/DESIGN.md) for the
 hub/spoke wire protocol and trust bootstrap.
 
