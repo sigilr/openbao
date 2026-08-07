@@ -35,7 +35,7 @@ func TestMilvus_StatementParsing(t *testing.T) {
 func TestMilvus_FakeServer(t *testing.T) {
 	type call struct {
 		path string
-		body map[string]interface{}
+		body map[string]any
 	}
 	var mu sync.Mutex
 	var calls []call
@@ -44,7 +44,7 @@ func TestMilvus_FakeServer(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		c := call{path: r.URL.Path}
-		var b map[string]interface{}
+		var b map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		c.body = b
 		calls = append(calls, c)
@@ -55,7 +55,7 @@ func TestMilvus_FakeServer(t *testing.T) {
 
 	db := newMilvus()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "root",
 			"password": "Milvus123",
@@ -104,7 +104,7 @@ func TestMilvus_APIError(t *testing.T) {
 
 	db := newMilvus()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "root",
 			"password": "Milvus123",

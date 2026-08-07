@@ -73,7 +73,7 @@ var (
 	_ logical.PluginVersioner = (*Milvus)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newMilvus()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -246,10 +246,10 @@ func (m *Milvus) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest)
 
 func (m *Milvus) healthcheck(ctx context.Context) error {
 	// users/list is the cheapest authenticated call on /v2/vectordb.
-	return m.doJSON(ctx, "users/list", map[string]interface{}{})
+	return m.doJSON(ctx, "users/list", map[string]any{})
 }
 
-func (m *Milvus) doJSON(ctx context.Context, op string, body interface{}) error {
+func (m *Milvus) doJSON(ctx context.Context, op string, body any) error {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		return err

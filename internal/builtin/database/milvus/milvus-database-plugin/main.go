@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/openbao/openbao/v2/plugins/database/milvus"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
+	"github.com/openbao/openbao/v2/internal/builtin/database/milvus"
 )
 
 func main() {
