@@ -43,7 +43,7 @@ func TestES_FakeServer(t *testing.T) {
 	var mu sync.Mutex
 	type call struct {
 		method, path string
-		body         map[string]interface{}
+		body         map[string]any
 	}
 	var calls []call
 
@@ -69,7 +69,7 @@ func TestES_FakeServer(t *testing.T) {
 
 	db := newES()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "elastic",
 			"password": "elastic",
@@ -125,7 +125,7 @@ func TestES_OldXPackPath(t *testing.T) {
 
 	db := newES()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":           srv.URL,
 			"username":      "elastic",
 			"password":      "elastic",

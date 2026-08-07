@@ -73,10 +73,10 @@ type esConfig struct {
 
 // esStatement is the role document operators put in creation_statements.
 type esStatement struct {
-	ElasticsearchRoles []string               `json:"elasticsearch_roles"`
-	FullName           string                 `json:"full_name"`
-	Email              string                 `json:"email"`
-	Metadata           map[string]interface{} `json:"metadata"`
+	ElasticsearchRoles []string       `json:"elasticsearch_roles"`
+	FullName           string         `json:"full_name"`
+	Email              string         `json:"email"`
+	Metadata           map[string]any `json:"metadata"`
 }
 
 var (
@@ -84,7 +84,7 @@ var (
 	_ logical.PluginVersioner = (*Elasticsearch)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newES()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -188,7 +188,7 @@ func (e *Elasticsearch) NewUser(ctx context.Context, req dbplugin.NewUserRequest
 		return dbplugin.NewUserResponse{}, err
 	}
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"password": req.Password,
 		"roles":    stmt.ElasticsearchRoles,
 	}
@@ -262,7 +262,7 @@ func (e *Elasticsearch) healthcheck(ctx context.Context) error {
 	return nil
 }
 
-func (e *Elasticsearch) putUser(ctx context.Context, username string, body map[string]interface{}) error {
+func (e *Elasticsearch) putUser(ctx context.Context, username string, body map[string]any) error {
 	path := fmt.Sprintf("%s/user/%s", e.securityPath(), url.PathEscape(username))
 	return e.doJSON(ctx, http.MethodPut, path, body)
 }
@@ -293,7 +293,7 @@ func (e *Elasticsearch) deleteUser(ctx context.Context, username string) error {
 	return nil
 }
 
-func (e *Elasticsearch) doJSON(ctx context.Context, method, path string, body interface{}) error {
+func (e *Elasticsearch) doJSON(ctx context.Context, method, path string, body any) error {
 	var buf bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {
