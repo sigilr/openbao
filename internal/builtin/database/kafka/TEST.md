@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/kafka/...
+$ go test ./internal/builtin/database/kafka/...
 ```
 
 Covers Type/Version, JSON statement parsing, mechanism mapping, and

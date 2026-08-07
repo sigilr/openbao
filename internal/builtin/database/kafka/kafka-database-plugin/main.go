@@ -7,8 +7,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/openbao/openbao/v2/plugins/database/kafka"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
+	"github.com/openbao/openbao/v2/internal/builtin/database/kafka"
 )
 
 func main() {

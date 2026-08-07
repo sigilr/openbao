@@ -93,7 +93,7 @@ var (
 	_ logical.PluginVersioner = (*Kafka)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newKafka()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }

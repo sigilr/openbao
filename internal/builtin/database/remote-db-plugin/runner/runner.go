@@ -31,6 +31,7 @@ import (
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
 	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
+	dbKafka "github.com/openbao/openbao/v2/internal/builtin/database/kafka"
 	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
@@ -38,7 +39,6 @@ import (
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
-	dbKafka "github.com/openbao/openbao/v2/plugins/database/kafka"
 )
 
 // PluginRunner holds the cache of long-lived plugin instances. Safe for
