@@ -37,7 +37,7 @@ func TestOracle_TypeAndVersion(t *testing.T) {
 func TestOracle_UsernameTemplate(t *testing.T) {
 	db := newOracle()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"connection_url": "oracle://user:pass@localhost:1521/xe",
 		},
 		VerifyConnection: false,
@@ -72,7 +72,7 @@ func TestOracle_NewUser(t *testing.T) {
 
 	db := newOracle()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)
@@ -99,7 +99,7 @@ func TestOracle_UpdateUser_Password(t *testing.T) {
 
 	db := newOracle()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)

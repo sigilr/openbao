@@ -63,7 +63,7 @@ var (
 	_ logical.PluginVersioner = (*Oracle)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newOracle()
 	dbType := dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues)
 	return dbType, nil
