@@ -4,7 +4,7 @@ This file provides guidance to coding agents (Claude Code, etc.) when working wi
 
 ## Repository
 
-OpenBao is a community fork of HashiCorp Vault (secrets management). This working copy is a personal fork carrying additional work — most notably the **remote-db-plugin** under `plugins/database/remote-db-plugin/`, a hub-and-spoke architecture that lets one OpenBao instance proxy database credential management to spoke clusters over gRPC.
+OpenBao is a community fork of HashiCorp Vault (secrets management). This working copy is a personal fork carrying additional work — most notably the **remote-db-plugin** under `internal/builtin/database/remote-db-plugin/`, a hub-and-spoke architecture that lets one OpenBao instance proxy database credential management to spoke clusters over gRPC.
 
 ## Common commands
 
@@ -79,7 +79,7 @@ OpenBao plugins are out-of-process gRPC servers managed by `go-plugin`. A *secre
 
 ### The remote-db-plugin (this fork)
 
-`plugins/database/remote-db-plugin/` adds a hub-and-spoke variant of database plugins. See `plugins/database/remote-db-plugin/DESIGN.md` for the full architecture; the short version:
+`internal/builtin/database/remote-db-plugin/` adds a hub-and-spoke variant of database plugins. See `internal/builtin/database/remote-db-plugin/DESIGN.md` for the full architecture; the short version:
 
 - **`proxy.go`** runs inside the hub OpenBao process and presents itself as a normal v5 database plugin (`remote-postgres-plugin`, `remote-mysql-plugin`, etc.). It forwards every `Initialize` / `NewUser` / `UpdateUser` / `DeleteUser` / `Close` call to the spoke identified by `spoke_name` over a long-lived mTLS gRPC stream. Each request carries a stable `instance_id` so the spoke can cache the underlying plugin instance instead of re-Initializing on every call. The proxy gRPC listener is started by `bao relay init` (not lazily on first DB mount). Backed by `proxy_test.go` covering the in-flight register/deliver/cancel discipline, `failAll` teardown, freshness accounting, and `newRequestID` uniqueness.
 - **`bootstrap/`** — kubeadm-style trust primitives: token format `<id>.<secret>`, detached JWS-HS256 over the cluster-info bundle, SPKI-hash pin for the spoke-CA, plus the CA generation and CSR signing used by `bao relay init` / `bao relay join` / `bao relay renew`. Exports `DecodeCSRPEM` as the shared strict PEM-envelope decoder; both `relay/sign-csr` and `proxy.RenewCert` route through it so trailing-data / block-type substitution is rejected the same way on both entry points. Backed by focused unit tests.
