@@ -20,13 +20,13 @@ import (
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMysql "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
+	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/v2/internal/builtin/database/remote-db-plugin"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
 	logicalKube "github.com/openbao/openbao/v2/internal/builtin/logical/kubernetes"
 	logicalKv "github.com/openbao/openbao/v2/internal/builtin/logical/kv"
 	logicalLDAP "github.com/openbao/openbao/v2/internal/builtin/logical/openldap"
 	logicalPki "github.com/openbao/openbao/v2/internal/builtin/logical/pki"
-	logicalRabbit "github.com/openbao/openbao/v2/internal/builtin/logical/rabbitmq"
 	logicalRelay "github.com/openbao/openbao/v2/internal/builtin/logical/relay"
 	logicalSsh "github.com/openbao/openbao/v2/internal/builtin/logical/ssh"
 	logicalTotp "github.com/openbao/openbao/v2/internal/builtin/logical/totp"
@@ -83,12 +83,14 @@ func newRegistry() *registry {
 			"cassandra-database-plugin":  {Factory: dbCass.New},
 			"influxdb-database-plugin":   {Factory: dbInflux.New},
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
+			"rabbitmq-database-plugin":   {Factory: dbRabbitmq.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
 			"remote-cassandra-plugin":    {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-influxdb-plugin":     {Factory: dbRemote.New("influxdb-database-plugin")},
 			"remote-mysql-plugin":        {Factory: dbRemote.New("mysql-database-plugin")},
 			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-rabbitmq-plugin":     {Factory: dbRemote.New("rabbitmq-database-plugin")},
 			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
 		},
@@ -98,7 +100,6 @@ func newRegistry() *registry {
 			"openldap":   {Factory: logicalLDAP.Factory},
 			"ldap":       {Factory: logicalLDAP.Factory},
 			"pki":        {Factory: logicalPki.Factory},
-			"rabbitmq":   {Factory: logicalRabbit.Factory},
 			"relay":      {Factory: logicalRelay.Factory},
 			"ssh":        {Factory: logicalSsh.Factory},
 			"totp":       {Factory: logicalTotp.Factory},

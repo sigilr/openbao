@@ -347,6 +347,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/influxdb",
                         "secrets/databases/mysql-maria",
                         "secrets/databases/postgresql",
+                        "secrets/databases/rabbitmq",
                         "secrets/databases/valkey",
                     ],
                     Identity: [
@@ -374,7 +375,6 @@ const sidebars: SidebarsConfig = {
                         "secrets/pki/rotation-primitives",
                     ],
                 },
-                "secrets/rabbitmq",
                 {
                     SSH: [
                         "secrets/ssh/index",

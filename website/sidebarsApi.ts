@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
             "secret/databases/influxdb",
             "secret/databases/mysql-maria",
             "secret/databases/postgresql",
+            "secret/databases/rabbitmq",
             "secret/databases/valkey",
           ],
           Identity: [
@@ -57,7 +58,6 @@ const sidebars: SidebarsConfig = {
         "secret/kubernetes",
         "secret/ldap",
         "secret/pki",
-        "secret/rabbitmq",
         "secret/ssh",
         "secret/totp",
         "secret/transit",
