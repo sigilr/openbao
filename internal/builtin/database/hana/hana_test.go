@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"regexp"
@@ -296,9 +297,7 @@ func assertCredsDoNotExist(t testing.TB, connURL, username, password string) {
 
 func copyConfig(config map[string]any) map[string]any {
 	newConfig := map[string]any{}
-	for k, v := range config {
-		newConfig[k] = v
-	}
+	maps.Copy(newConfig, config)
 	return newConfig
 }
 
