@@ -60,7 +60,7 @@ var (
 	_ logical.PluginVersioner = (*ZooKeeper)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newZooKeeper()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }

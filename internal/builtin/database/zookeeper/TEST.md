@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/zookeeper/...
+$ go test ./internal/builtin/database/zookeeper/...
 ```
 
 Covers Type/Version, the documented `NewUser` rejection, `UpdateUser`

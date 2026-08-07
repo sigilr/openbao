@@ -66,7 +66,7 @@ func TestZK_Healthcheck_OK(t *testing.T) {
 
 	db := newZooKeeper()
 	_, err = db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": ln.Addr().String()},
+		Config:           map[string]any{"address": ln.Addr().String()},
 		VerifyConnection: true,
 	})
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestZK_Healthcheck_Restricted(t *testing.T) {
 
 	db := newZooKeeper()
 	_, err = db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"address": ln.Addr().String()},
+		Config:           map[string]any{"address": ln.Addr().String()},
 		VerifyConnection: true,
 	})
 	require.Error(t, err)
