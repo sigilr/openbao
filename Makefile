@@ -228,7 +228,7 @@ spellcheck:
 	go tool -modfile=tools/go.mod misspell -w -source=text website/content
 
 mongodb-database-plugin:
-	@CGO_ENABLED=0 go build -o bin/mongodb-database-plugin ./plugins/database/mongodb/mongodb-database-plugin
+	@CGO_ENABLED=0 go build -o bin/mongodb-database-plugin ./internal/builtin/database/mongodb/mongodb-database-plugin
 
 .PHONY: bin default prep test vet bootstrap fmt fmtcheck mongodb-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
 

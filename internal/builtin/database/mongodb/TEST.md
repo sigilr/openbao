@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/mongodb/...
+$ go test ./internal/builtin/database/mongodb/...
 ```
 
 Runs on every CI build. Covers, without touching the network:
@@ -28,7 +28,7 @@ Gated on `BAO_ACC=1` plus `MONGODB_URL=mongodb://user:pass@host:port`.
 ```
 $ export BAO_ACC=1
 $ export MONGODB_URL='mongodb://root:secret@localhost:27017/admin'
-$ go test -v -count=1 -timeout=10m ./plugins/database/mongodb/
+$ go test -v -count=1 -timeout=10m ./internal/builtin/database/mongodb/
 ```
 
 ### Local MongoDB via Docker

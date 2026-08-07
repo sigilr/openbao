@@ -127,7 +127,7 @@ See [OpenBao namespaces](https://openbao.org/docs/concepts/namespaces/).
 
 - `helper/builtinplugins/registry.go`: `"remote-mongodb-plugin":
   {Factory: dbRemote.New("mongodb-database-plugin")}`
-- `plugins/database/remote-db-plugin/runner/runner.go:loadPlugin`: a
+- `internal/builtin/database/remote-db-plugin/runner/runner.go:loadPlugin`: a
   `case "mongodb-database-plugin":` that returns `dbMongo.New`.
 
 On the hub, requests against `remote-mongodb-plugin` are proxied to the
