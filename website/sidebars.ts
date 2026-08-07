@@ -348,6 +348,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/mysql-maria",
                         "secrets/databases/postgresql",
                         "secrets/databases/valkey",
+                        "secrets/databases/zookeeper",
                     ],
                     Identity: [
                         "secrets/identity/index",
