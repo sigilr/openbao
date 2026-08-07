@@ -62,7 +62,7 @@ func TestHazelcast_Healthcheck(t *testing.T) {
 
 	db := newHazelcast()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"url": srv.URL},
+		Config:           map[string]any{"url": srv.URL},
 		VerifyConnection: true,
 	})
 	require.NoError(t, err)

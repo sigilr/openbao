@@ -67,7 +67,7 @@ var (
 	_ logical.PluginVersioner = (*Hazelcast)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newHazelcast()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
