@@ -85,7 +85,7 @@ Optional: lint the plugin tree:
 ```bash
 go tool -modfile=tools/go.mod golangci-lint run \
     ./internal/builtin/database/remote-db-plugin/... \
-    ./builtin/logical/relay/...             \
+    ./internal/builtin/logical/relay/...             \
     ./command/...
 ```
 

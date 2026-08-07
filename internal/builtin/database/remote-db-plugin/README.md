@@ -143,7 +143,7 @@ internal/builtin/database/remote-db-plugin/
 ```
 
 The CLI lives under `command/relay_*.go` and the `relay/` logical backend
-lives under `builtin/logical/relay/`.
+lives under `internal/builtin/logical/relay/`.
 
 ## Security
 

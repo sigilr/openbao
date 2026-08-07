@@ -8,7 +8,6 @@ import (
 
 	"github.com/openbao/openbao/sdk/v2/helper/consts"
 	"github.com/openbao/openbao/sdk/v2/logical"
-	logicalRelay "github.com/openbao/openbao/v2/builtin/logical/relay"
 	credAppRole "github.com/openbao/openbao/v2/internal/builtin/credential/approle"
 	credCert "github.com/openbao/openbao/v2/internal/builtin/credential/cert"
 	credJWT "github.com/openbao/openbao/v2/internal/builtin/credential/jwt"
@@ -28,6 +27,7 @@ import (
 	logicalLDAP "github.com/openbao/openbao/v2/internal/builtin/logical/openldap"
 	logicalPki "github.com/openbao/openbao/v2/internal/builtin/logical/pki"
 	logicalRabbit "github.com/openbao/openbao/v2/internal/builtin/logical/rabbitmq"
+	logicalRelay "github.com/openbao/openbao/v2/internal/builtin/logical/relay"
 	logicalSsh "github.com/openbao/openbao/v2/internal/builtin/logical/ssh"
 	logicalTotp "github.com/openbao/openbao/v2/internal/builtin/logical/totp"
 	logicalTransit "github.com/openbao/openbao/v2/internal/builtin/logical/transit"
