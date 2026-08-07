@@ -75,7 +75,7 @@ var (
 	_ logical.PluginVersioner = (*DB2)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newDB2()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }

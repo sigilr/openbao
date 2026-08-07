@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/db2/...
+$ go test ./internal/builtin/database/db2/...
 ```
 
 Covers Type/Version, the documented `NewUser` rejection, `UpdateUser`

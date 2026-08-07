@@ -64,7 +64,7 @@ func TestDB2_Healthcheck(t *testing.T) {
 
 	db := newDB2()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "admin",
 			"password": "admin",
@@ -83,7 +83,7 @@ func TestDB2_Healthcheck(t *testing.T) {
 func TestDB2_Healthcheck_SkippedWhenURLEmpty(t *testing.T) {
 	db := newDB2()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{},
+		Config:           map[string]any{},
 		VerifyConnection: true,
 	})
 	require.NoError(t, err)

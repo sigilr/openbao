@@ -29,7 +29,7 @@ import (
 
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
-	dbDB2 "github.com/openbao/openbao/v2/plugins/database/db2"
+	dbDB2 "github.com/openbao/openbao/v2/internal/builtin/database/db2"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
