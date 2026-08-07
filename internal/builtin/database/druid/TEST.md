@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/druid/...
+$ go test ./internal/builtin/database/druid/...
 ```
 
 Covers Type/Version, JSON statement parsing, default authenticator/authorizer

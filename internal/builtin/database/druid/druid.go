@@ -78,7 +78,7 @@ var (
 	_ logical.PluginVersioner = (*Druid)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newDruid()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -293,7 +293,7 @@ func (d *Druid) healthcheck(ctx context.Context) error {
 	return nil
 }
 
-func (d *Druid) doJSON(ctx context.Context, method, path string, body interface{}) error {
+func (d *Druid) doJSON(ctx context.Context, method, path string, body any) error {
 	var buf bytes.Buffer
 	if body != nil {
 		if err := json.NewEncoder(&buf).Encode(body); err != nil {

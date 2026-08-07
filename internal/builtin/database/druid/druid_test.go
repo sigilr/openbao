@@ -35,7 +35,7 @@ func TestDruid_StatementParsing(t *testing.T) {
 func TestDruid_DefaultAuthenticatorAndAuthorizer(t *testing.T) {
 	db := newDruid()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      "http://druid:8081",
 			"username": "admin",
 			"password": "admin",
@@ -62,7 +62,7 @@ func TestDruid_FakeServer(t *testing.T) {
 
 	db := newDruid()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":           srv.URL,
 			"username":      "admin",
 			"password":      "admin",
