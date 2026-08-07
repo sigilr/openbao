@@ -47,7 +47,7 @@ var (
 )
 
 // New is the factory entry point referenced from helper/builtinplugins/registry.go.
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newHANA()
 	dbType := dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues)
 	return dbType, nil

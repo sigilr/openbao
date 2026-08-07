@@ -49,7 +49,7 @@ func TestHANA_TypeAndVersion(t *testing.T) {
 func TestHANA_UsernameTemplate(t *testing.T) {
 	db := newHANA()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			// connection_url is required by Init even when VerifyConnection=false.
 			"connection_url": "hdb://user:pass@localhost:39041",
 		},
@@ -68,7 +68,7 @@ func TestHANA_UsernameTemplate(t *testing.T) {
 func TestHANA_Initialize(t *testing.T) {
 	connURL := hanaACC(t)
 
-	connectionDetails := map[string]interface{}{
+	connectionDetails := map[string]any{
 		"connection_url": connURL,
 	}
 
@@ -114,7 +114,7 @@ func TestHANA_NewUser(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			db := newHANA()
 			dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-				Config:           map[string]interface{}{"connection_url": connURL},
+				Config:           map[string]any{"connection_url": connURL},
 				VerifyConnection: true,
 			})
 			defer dbtesting.AssertClose(t, db)
@@ -167,7 +167,7 @@ func TestHANA_UpdateUser(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			db := newHANA()
 			dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-				Config:           map[string]interface{}{"connection_url": connURL},
+				Config:           map[string]any{"connection_url": connURL},
 				VerifyConnection: true,
 			})
 			defer dbtesting.AssertClose(t, db)
@@ -220,7 +220,7 @@ func TestHANA_DeleteUser(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			db := newHANA()
 			dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-				Config:           map[string]interface{}{"connection_url": connURL},
+				Config:           map[string]any{"connection_url": connURL},
 				VerifyConnection: true,
 			})
 			defer dbtesting.AssertClose(t, db)
@@ -249,7 +249,7 @@ func TestHANA_CustomUsernameTemplate(t *testing.T) {
 
 	db := newHANA()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"connection_url":    connURL,
 			"username_template": "{{.DisplayName}}_{{random 10}}",
 		},
@@ -294,8 +294,8 @@ func assertCredsDoNotExist(t testing.TB, connURL, username, password string) {
 	}
 }
 
-func copyConfig(config map[string]interface{}) map[string]interface{} {
-	newConfig := map[string]interface{}{}
+func copyConfig(config map[string]any) map[string]any {
+	newConfig := map[string]any{}
 	for k, v := range config {
 		newConfig[k] = v
 	}
