@@ -103,7 +103,7 @@ Per-namespace mounts work without plugin-side changes. See
 
 `remote-mssql-plugin` is a one-line registration in
 `helper/builtinplugins/registry.go` plus a `case` in
-`plugins/database/remote-db-plugin/runner/runner.go:loadPlugin`.
+`internal/builtin/database/remote-db-plugin/runner/runner.go:loadPlugin`.
 
 ## Failure modes
 

@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/mssql/...
+$ go test ./internal/builtin/database/mssql/...
 ```
 
 Covers:
@@ -24,7 +24,7 @@ Gated on `BAO_ACC=1` + `MSSQL_URL=sqlserver://sa:Pass@host:port`.
 ```
 $ export BAO_ACC=1
 $ export MSSQL_URL='sqlserver://sa:Pass-1234@localhost:1433?database=master'
-$ go test -v -count=1 -timeout=10m ./plugins/database/mssql/
+$ go test -v -count=1 -timeout=10m ./internal/builtin/database/mssql/
 ```
 
 ### Local SQL Server via Docker
