@@ -25,7 +25,7 @@ func TestDocDB_TypeAndVersion(t *testing.T) {
 func TestDocDB_UsernameTemplate(t *testing.T) {
 	db := newDocumentDB()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": "mongodb://user:pass@host:27017"},
+		Config:           map[string]any{"connection_url": "mongodb://user:pass@host:27017"},
 		VerifyConnection: false,
 	})
 	require.NoError(t, err)

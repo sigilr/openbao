@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/documentdb/...
+$ go test ./internal/builtin/database/documentdb/...
 ```
 
 Covers Type/Version, username template, JSON statement parsing, and

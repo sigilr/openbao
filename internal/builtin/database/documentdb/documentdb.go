@@ -81,7 +81,7 @@ type docDBConnectionProducer struct {
 	ServerSelectionTimeout time.Duration `mapstructure:"server_selection_timeout"`
 
 	Initialized   bool
-	RawConfig     map[string]interface{}
+	RawConfig     map[string]any
 	clientOptions *options.ClientOptions
 	client        *mongo.Client
 	sync.Mutex
@@ -92,7 +92,7 @@ var (
 	_ logical.PluginVersioner = (*DocumentDB)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newDocumentDB()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -245,7 +245,7 @@ func (d *DocumentDB) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequ
 	return dbplugin.DeleteUserResponse{}, err
 }
 
-func (d *DocumentDB) runCommandWithRetry(ctx context.Context, db string, cmd interface{}) error {
+func (d *DocumentDB) runCommandWithRetry(ctx context.Context, db string, cmd any) error {
 	client, err := d.cp.Connection(ctx)
 	if err != nil {
 		return err
@@ -374,9 +374,9 @@ func (c *docDBConnectionProducer) makeClientOpts() (*options.ClientOptions, erro
 // ---- commands --------------------------------------------------------------
 
 type createUserCommand struct {
-	Username string        `bson:"createUser"`
-	Password string        `bson:"pwd,omitempty"`
-	Roles    []interface{} `bson:"roles"`
+	Username string `bson:"createUser"`
+	Password string `bson:"pwd,omitempty"`
+	Roles    []any  `bson:"roles"`
 }
 
 type updateUserCommand struct {
@@ -401,8 +401,8 @@ type docDBStatement struct {
 	Roles docDBRoles `json:"roles"`
 }
 
-func (roles docDBRoles) toStandardRolesArray() []interface{} {
-	var out []interface{}
+func (roles docDBRoles) toStandardRolesArray() []any {
+	var out []any
 	for _, role := range roles {
 		if role.DB == "" {
 			out = append(out, role.Role)
