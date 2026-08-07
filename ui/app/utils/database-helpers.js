@@ -102,6 +102,39 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'qdrant-database-plugin',
+    displayName: 'Qdrant (static-only)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'api_key', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'ca_path', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+    ],
+  },
+  {
+    value: 'remote-qdrant-plugin',
+    displayName: 'Qdrant (Remote, static-only)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'api_key', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'ca_path', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +150,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'qdrant-database-plugin': [],
+    'remote-qdrant-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +165,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'qdrant-database-plugin': [],
+    'remote-qdrant-plugin': [],
   },
 };
 
