@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/weaviate/...
+$ go test ./internal/builtin/database/weaviate/...
 ```
 
 Covers Type/Version, the documented `NewUser` rejection, `UpdateUser`

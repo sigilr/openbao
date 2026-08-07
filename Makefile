@@ -228,7 +228,7 @@ spellcheck:
 	go tool -modfile=tools/go.mod misspell -w -source=text website/content
 
 weaviate-database-plugin:
-	@CGO_ENABLED=0 go build -o bin/weaviate-database-plugin ./plugins/database/weaviate/weaviate-database-plugin
+	@CGO_ENABLED=0 go build -o bin/weaviate-database-plugin ./internal/builtin/database/weaviate/weaviate-database-plugin
 
 .PHONY: bin default prep test vet bootstrap fmt fmtcheck weaviate-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
 

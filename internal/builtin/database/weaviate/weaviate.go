@@ -69,7 +69,7 @@ var (
 	_ logical.PluginVersioner = (*Weaviate)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newWeaviate()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }

@@ -68,7 +68,7 @@ func TestWeaviate_Healthcheck(t *testing.T) {
 
 	db := newWeaviate()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":     srv.URL,
 			"api_key": "topsecret",
 		},
@@ -91,7 +91,7 @@ func TestWeaviate_Healthcheck_Fails(t *testing.T) {
 
 	db := newWeaviate()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"url": srv.URL},
+		Config:           map[string]any{"url": srv.URL},
 		VerifyConnection: true,
 	})
 	require.Error(t, err)
