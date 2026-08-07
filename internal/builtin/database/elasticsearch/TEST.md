@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/elasticsearch/...
+$ go test ./internal/builtin/database/elasticsearch/...
 ```
 
 The full request flow (Initialize → NewUser → UpdateUser → DeleteUser) is
