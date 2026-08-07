@@ -64,7 +64,7 @@ func TestIgnite_FakeServer(t *testing.T) {
 
 	db := newIgnite()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "ignite",
 			"password": "ignite",
@@ -114,7 +114,7 @@ func TestIgnite_RestError(t *testing.T) {
 
 	db := newIgnite()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"url":      srv.URL,
 			"username": "ignite",
 			"password": "ignite",

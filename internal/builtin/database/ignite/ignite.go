@@ -70,7 +70,7 @@ var (
 	_ logical.PluginVersioner = (*Ignite)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newIgnite()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
