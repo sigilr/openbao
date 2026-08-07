@@ -61,7 +61,7 @@ var (
 	_ logical.PluginVersioner = (*Neo4j)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newNeo4j()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
@@ -174,13 +174,13 @@ func (n *Neo4j) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplu
 	if _, err := sess.Run(
 		ctx,
 		"CREATE USER $name SET PASSWORD $password CHANGE NOT REQUIRED",
-		map[string]interface{}{"name": username, "password": req.Password},
+		map[string]any{"name": username, "password": req.Password},
 	); err != nil {
 		return dbplugin.NewUserResponse{}, fmt.Errorf("create neo4j user: %w", err)
 	}
 
 	cleanup := func(opErr error) (dbplugin.NewUserResponse, error) {
-		_, _ = sess.Run(ctx, "DROP USER $name", map[string]interface{}{"name": username})
+		_, _ = sess.Run(ctx, "DROP USER $name", map[string]any{"name": username})
 		return dbplugin.NewUserResponse{}, opErr
 	}
 
@@ -194,7 +194,7 @@ func (n *Neo4j) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplu
 			return cleanup(fmt.Errorf("role name %q contains a backtick", role))
 		}
 		query := fmt.Sprintf("GRANT ROLE `%s` TO $name", role)
-		if _, err := sess.Run(ctx, query, map[string]interface{}{"name": username}); err != nil {
+		if _, err := sess.Run(ctx, query, map[string]any{"name": username}); err != nil {
 			return cleanup(fmt.Errorf("grant role %q: %w", role, err))
 		}
 	}
@@ -222,7 +222,7 @@ func (n *Neo4j) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) 
 	if _, err := sess.Run(
 		ctx,
 		"ALTER USER $name SET PASSWORD $password CHANGE NOT REQUIRED",
-		map[string]interface{}{"name": req.Username, "password": req.Password.NewPassword},
+		map[string]any{"name": req.Username, "password": req.Password.NewPassword},
 	); err != nil {
 		return dbplugin.UpdateUserResponse{}, fmt.Errorf("alter neo4j user: %w", err)
 	}
@@ -239,7 +239,7 @@ func (n *Neo4j) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest) 
 	if _, err := sess.Run(
 		ctx,
 		"DROP USER $name IF EXISTS",
-		map[string]interface{}{"name": req.Username},
+		map[string]any{"name": req.Username},
 	); err != nil {
 		return dbplugin.DeleteUserResponse{}, fmt.Errorf("drop neo4j user: %w", err)
 	}

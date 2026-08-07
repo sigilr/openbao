@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/neo4j/...
+$ go test ./internal/builtin/database/neo4j/...
 ```
 
 Covers Type/Version, JSON statement parsing, `containsBacktick` helper,

@@ -35,7 +35,7 @@ import (
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
-	dbNeo4j "github.com/openbao/openbao/v2/plugins/database/neo4j"
+	dbNeo4j "github.com/openbao/openbao/v2/internal/builtin/database/neo4j"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
