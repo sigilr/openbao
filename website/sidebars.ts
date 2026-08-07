@@ -344,6 +344,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/index",
                         "secrets/databases/cassandra",
                         "secrets/databases/custom",
+                        "secrets/databases/db2",
                         "secrets/databases/influxdb",
                         "secrets/databases/mysql-maria",
                         "secrets/databases/postgresql",
