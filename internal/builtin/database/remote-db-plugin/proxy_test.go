@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
-	agentproto "github.com/openbao/openbao/plugins/database/remote-db-plugin/proto/gen"
+	"github.com/openbao/openbao/internal/builtin/database/remote-db-plugin/bootstrap"
+	agentproto "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin/proto/gen"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 )

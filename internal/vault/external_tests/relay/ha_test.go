@@ -12,7 +12,7 @@ import (
 	"github.com/openbao/openbao/helper/testhelpers"
 	"github.com/openbao/openbao/helper/testhelpers/teststorage"
 	vaulthttp "github.com/openbao/openbao/http"
-	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
+	remotedb "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
 	"github.com/openbao/openbao/vault"
 )
 

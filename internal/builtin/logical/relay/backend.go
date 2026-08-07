@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
+	remotedb "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
+	"github.com/openbao/openbao/internal/builtin/database/remote-db-plugin/bootstrap"
 	"github.com/openbao/openbao/internal/vault/relayfwd"
-	remotedb "github.com/openbao/openbao/plugins/database/remote-db-plugin"
-	"github.com/openbao/openbao/plugins/database/remote-db-plugin/bootstrap"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
