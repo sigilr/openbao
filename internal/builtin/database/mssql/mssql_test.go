@@ -38,7 +38,7 @@ func TestMSSQL_TypeAndVersion(t *testing.T) {
 func TestMSSQL_UsernameTemplate(t *testing.T) {
 	db := newMSSQL()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"connection_url": "sqlserver://sa:Pass@localhost:1433?database=master",
 		},
 		VerifyConnection: false,
@@ -55,7 +55,7 @@ func TestMSSQL_UsernameTemplate(t *testing.T) {
 
 func TestMSSQL_ContainedDB_Parse(t *testing.T) {
 	cases := map[string]struct {
-		v       interface{}
+		v       any
 		want    bool
 		wantErr bool
 	}{
@@ -68,7 +68,7 @@ func TestMSSQL_ContainedDB_Parse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			db := newMSSQL()
 			_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"connection_url": "sqlserver://sa:Pass@localhost:1433?database=master",
 					"contained_db":   tc.v,
 				},
@@ -91,7 +91,7 @@ func TestMSSQL_NewUser(t *testing.T) {
 
 	db := newMSSQL()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)
@@ -119,7 +119,7 @@ func TestMSSQL_UpdateUser(t *testing.T) {
 
 	db := newMSSQL()
 	dbtesting.AssertInitialize(t, db, dbplugin.InitializeRequest{
-		Config:           map[string]interface{}{"connection_url": connURL},
+		Config:           map[string]any{"connection_url": connURL},
 		VerifyConnection: true,
 	})
 	defer dbtesting.AssertClose(t, db)

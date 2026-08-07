@@ -51,7 +51,7 @@ var (
 	_ logical.PluginVersioner = (*MSSQL)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newMSSQL()
 	dbType := dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues)
 	return dbType, nil
