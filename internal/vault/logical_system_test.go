@@ -3884,10 +3884,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 
 		if diff := deep.Equal(resp.Data, map[string]any{
 			"keys": []string{
-				"cassandra-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "druid-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"postgresql-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-druid-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
 				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
@@ -3915,10 +3915,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 			"secret": []string{"keymgmt", "kmip", "kv", "transform"},
 			"auth":   []string{"approle", "pending-removal-test-plugin"},
 			"database": []string{
-				"cassandra-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "druid-database-plugin", "influxdb-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"postgresql-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-druid-plugin", "remote-influxdb-plugin", "remote-mysql-plugin",
 				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
@@ -3936,6 +3936,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "cassandra-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "druid-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",
@@ -3984,6 +3990,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "remote-cassandra-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-druid-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",
