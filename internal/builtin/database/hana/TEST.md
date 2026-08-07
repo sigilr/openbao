@@ -8,7 +8,7 @@ SPDX-License-Identifier: MPL-2.0
 ## Always-on unit tests
 
 ```
-$ go test ./plugins/database/hana/...
+$ go test ./internal/builtin/database/hana/...
 ```
 
 Runs unconditionally on every CI build. Covers:
@@ -30,7 +30,7 @@ Acceptance tests require a real SAP HANA instance and are gated on
 ```
 $ export BAO_ACC=1
 $ export HANA_URL='hdb://SYSTEM:Hxe-1234@hana.local:39041'
-$ go test -v -count=1 -timeout=10m ./plugins/database/hana/
+$ go test -v -count=1 -timeout=10m ./internal/builtin/database/hana/
 ```
 
 ### Local HANA via Docker (HANA Express)

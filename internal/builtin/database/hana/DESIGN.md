@@ -157,7 +157,7 @@ stored password via the framework — no plugin code is involved.
 
 - `helper/builtinplugins/registry.go`: `"remote-hana-plugin": {Factory:
   dbRemote.New("hana-database-plugin")}`
-- `plugins/database/remote-db-plugin/runner/runner.go:loadPlugin`: a
+- `internal/builtin/database/remote-db-plugin/runner/runner.go:loadPlugin`: a
   `case "hana-database-plugin":` that returns `dbHana.New`.
 
 On the hub, requests against `remote-hana-plugin` are proxied to the spoke

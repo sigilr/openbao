@@ -33,7 +33,7 @@ func hanaACC(t *testing.T) string {
 
 // TestHANA_TypeAndVersion confirms the plugin metadata surface without
 // reaching out to a database. This is the always-on unit test that ensures
-// `go test ./plugins/database/hana/...` does something useful on CI.
+// `go test ./internal/builtin/database/hana/...` does something useful on CI.
 func TestHANA_TypeAndVersion(t *testing.T) {
 	db := newHANA()
 	typ, err := db.Type()
