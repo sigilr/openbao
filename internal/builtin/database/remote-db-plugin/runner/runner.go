@@ -32,7 +32,7 @@ import (
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
-	dbQdrant "github.com/openbao/openbao/v2/plugins/database/qdrant"
+	dbQdrant "github.com/openbao/openbao/v2/internal/builtin/database/qdrant"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
 )
 

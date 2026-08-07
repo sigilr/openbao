@@ -66,7 +66,7 @@ var (
 	_ logical.PluginVersioner = (*Qdrant)(nil)
 )
 
-func New() (interface{}, error) {
+func New() (any, error) {
 	db := newQdrant()
 	return dbplugin.NewDatabaseErrorSanitizerMiddleware(db, db.secretValues), nil
 }
