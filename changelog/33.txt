@@ -1,0 +1,3 @@
+```release-note:feature
+storage/etcd: Restore the etcd (v3) physical storage backend, ported from the last MPL 2.0 source and updated to the current storage interface (including paginated listing).
+```
