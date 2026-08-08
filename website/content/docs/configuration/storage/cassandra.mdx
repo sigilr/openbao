@@ -1,0 +1,144 @@
+---
+sidebar_label: Cassandra Storage
+description: |-
+  The Cassandra storage backend is used to persist OpenBao's data in
+  Apache Cassandra.
+---
+
+# Cassandra storage backend
+
+The Cassandra storage backend is used to persist OpenBao's data in
+[Apache Cassandra][cassandra].
+
+:::warning
+
+**Note**: This backend does not support High Availability.
+
+:::
+
+```hcl
+storage "cassandra" {
+  hosts    = "cassandra-01.example.com,cassandra-02.example.com"
+  keyspace = "vault"
+}
+```
+
+## `cassandra` parameters
+
+- `hosts` `(string: "localhost")` – Specifies a comma-separated list of
+  Cassandra hosts to connect to. All hosts must listen on the same port; see
+  `<host>:<port>` below.
+
+  ```hcl
+  storage "cassandra" {
+    hosts = "cassandra-01.example.com:9042,cassandra-02.example.com:9042"
+  }
+  ```
+
+- `keyspace` `(string: "vault")` – Specifies the keyspace that is used for
+  storing the OpenBao data. The keyspace must already exist, be reachable, and
+  writable.
+
+- `table` `(string: "entries")` – Specifies the table in the keyspace that is
+  used for storing the OpenBao data. The table must already exist.
+
+- `consistency` `(string: "LOCAL_QUORUM")` – Specifies the consistency level
+  for read and write operations. Must be one of `ANY`, `ONE`, `TWO`, `THREE`,
+  `QUORUM`, `ALL`, `LOCAL_QUORUM`, `EACH_QUORUM`, or `LOCAL_ONE`.
+
+- `protocol_version` `(string: "2")` – Specifies the CQL protocol version to
+  use. Set to `3` or higher to use `username`/`password` authentication with
+  a proto version that requires it.
+
+- `username` `(string: "")` – Specifies the username to use for
+  authentication (`PasswordAuthenticator`). Requires `protocol_version` of
+  `2` or higher.
+
+- `password` `(string: "")` – Specifies the password to use for
+  authentication. Only used when `username` is set.
+
+- `simple_retry_policy_retries` `(string: "")` – When set to a positive
+  integer, enables Cassandra's `SimpleRetryPolicy` with the given number of
+  retries for queries that time out or fail.
+
+- `initial_connection_timeout` `(string: "")` – Specifies the timeout, in
+  seconds, for the initial connection to the cluster.
+
+- `connection_timeout` `(string: "")` – Specifies the timeout, in seconds,
+  for individual queries against the cluster.
+
+- `tls` `(string: "0|1", default "0")` – Set to `1` to enable a TLS
+  connection to Cassandra.
+
+- `pem_bundle_file` `(string: "")` – Specifies the path to a PEM-encoded
+  bundle (certificate and, optionally, a private key) used for the TLS
+  connection to Cassandra. Mutually exclusive with `pem_json_file`.
+
+- `pem_json_file` `(string: "")` – Specifies the path to a JSON file
+  containing a PEM-encoded certificate bundle, in the same format produced
+  by OpenBao's PKI secrets engine when `format=json` is requested. Mutually
+  exclusive with `pem_bundle_file`.
+
+- `tls_skip_verify` `(string: "0|1", default "0")` – Set to `1` to disable
+  verification of the Cassandra server's certificate chain and host name.
+  Not recommended for production use.
+
+- `tls_min_version` `(string: "tls12")` – Specifies the minimum acceptable
+  TLS version. One of `tls10`, `tls11`, `tls12`, or `tls13`.
+
+## `cassandra` examples
+
+### Custom keyspace and table
+
+```hcl
+storage "cassandra" {
+  hosts    = "cassandra.example.com"
+  keyspace = "openbao"
+  table    = "kv"
+}
+```
+
+### Authenticated connection
+
+```hcl
+storage "cassandra" {
+  hosts             = "cassandra.example.com"
+  protocol_version  = "4"
+  username          = "openbao"
+  password          = "..."
+}
+```
+
+### TLS-enabled connection
+
+```hcl
+storage "cassandra" {
+  hosts           = "cassandra.example.com"
+  tls             = "1"
+  pem_bundle_file = "/etc/openbao/cassandra-client.pem"
+}
+```
+
+## Manually creating the keyspace and table
+
+OpenBao does not create the keyspace or table for you; they must already
+exist:
+
+```sql
+CREATE KEYSPACE "vault" WITH REPLICATION = {
+  'class': 'SimpleStrategy',
+  'replication_factor': 1
+};
+
+CREATE TABLE "vault"."entries" (
+  bucket text,
+  key    text,
+  value  blob,
+  PRIMARY KEY (bucket, key)
+) WITH CLUSTERING ORDER BY (key ASC);
+```
+
+Adjust the replication strategy and factor for your cluster's topology
+before using this in production.
+
+[cassandra]: https://cassandra.apache.org/
