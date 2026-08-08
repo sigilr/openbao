@@ -40,6 +40,7 @@ import (
 
 	physFile "github.com/openbao/openbao/sdk/v2/physical/file"
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
+	physGCS "github.com/openbao/openbao/v2/internal/physical/gcs"
 	physPostgresql "github.com/openbao/openbao/v2/internal/physical/postgresql"
 	physRaft "github.com/openbao/openbao/v2/internal/physical/raft"
 
@@ -150,6 +151,7 @@ var (
 		"inmem":      physInmem.NewInmem,
 		"raft":       physRaft.NewRaftBackend,
 		"postgresql": physPostgresql.NewPostgreSQLBackend,
+		"gcs":        physGCS.NewBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
