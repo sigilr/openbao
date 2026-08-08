@@ -1,0 +1,74 @@
+---
+sidebar_label: Aerospike Storage
+description: |-
+  The Aerospike storage backend is used to persist OpenBao's data in
+  Aerospike.
+---
+
+# Aerospike storage backend
+
+The Aerospike storage backend is used to persist OpenBao's data in
+[Aerospike][aerospike].
+
+:::warning
+
+**Community Edition limits.** As of recent Aerospike Server releases, the
+free Community Edition is limited to a 2-node cluster and 200 GB of data,
+and its license agreement prohibits mixing CE and Enterprise Edition nodes
+in the same cluster. Plan capacity accordingly; this does not affect the
+[Apache 2.0-licensed][client_license] Go client this backend links
+against, only the server you point it at.
+
+:::
+
+:::tip
+
+**No High Availability** – the Aerospike storage backend does not support
+High Availability.
+
+:::
+
+```hcl
+storage "aerospike" {
+  hostname  = "127.0.0.1"
+  port      = "3000"
+  namespace = "test"
+  set       = "openbao"
+}
+```
+
+## `aerospike` parameters
+
+- `hostname` `(string: "127.0.0.1")` – Specifies the hostname of the
+  Aerospike server to connect to, when `hostlist` is not set.
+
+- `port` `(string: "3000")` – Specifies the port of the Aerospike server to
+  connect to, when `hostlist` is not set.
+
+- `hostlist` `(string: "")` – A comma-separated list of `host[:port]`
+  entries describing the Aerospike cluster's seed nodes. Takes precedence
+  over `hostname`/`port` when set.
+
+- `namespace` `(string: "test")` – Specifies the Aerospike namespace to
+  store data in. The namespace must already exist on the server; OpenBao
+  does not create it.
+
+- `set` `(string: "")` – Specifies the Aerospike set to store data in,
+  within `namespace`.
+
+- `username`, `password` `(string: "")` – Credentials to authenticate to
+  the Aerospike cluster with, if it has security enabled.
+
+- `auth_mode` `(string: "INTERNAL")` – Either `INTERNAL` (Aerospike's own
+  credential store) or `EXTERNAL` (e.g. LDAP).
+
+- `cluster_name` `(string: "")` – If set, the client verifies it is
+  connected to a cluster with this name.
+
+- `timeout` `(int: 30000)` – Socket connection timeout, in milliseconds.
+
+- `idle_timeout` `(int: 0)` – Idle connection timeout, in milliseconds.
+  `0` disables idle connection trimming.
+
+[aerospike]: https://aerospike.com/
+[client_license]: https://github.com/aerospike/aerospike-client-go/blob/master/LICENSE

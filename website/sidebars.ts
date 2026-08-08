@@ -150,6 +150,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/azure",
                         "configuration/storage/google-cloud-storage",
                         "configuration/storage/google-cloud-spanner",
+                        "configuration/storage/aerospike",
                     ],
                 },
                 "configuration/plugins",

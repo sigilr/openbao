@@ -32,6 +32,7 @@ require (
 	github.com/Azure/go-autorest/autorest v0.11.29
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/SAP/go-hdb v1.16.12
+	github.com/aerospike/aerospike-client-go/v8 v8.8.0
 	github.com/amsokol/ignite-go-client v0.12.2
 	github.com/armon/go-radix v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.43.4
@@ -209,7 +210,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect
 	github.com/Masterminds/goutils v1.1.1 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
+	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/TritonDataCenter/triton-go/v2 v2.0.0-pre4 // indirect
@@ -376,12 +377,14 @@ require (
 	github.com/tv42/httpunix v0.0.0-20191220191345-2ba4b9c3382c // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	github.com/vmware/govmomi v0.18.0 // indirect
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yeqown/reedsolomon v1.0.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
+	github.com/yuin/gopher-lua v1.1.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zclconf/go-cty v1.16.3 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
