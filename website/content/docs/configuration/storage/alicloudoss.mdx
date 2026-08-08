@@ -1,0 +1,64 @@
+---
+sidebar_label: Alicloud OSS Storage
+description: |-
+  The Alicloud OSS storage backend is used to persist OpenBao's data in
+  Alibaba Cloud Object Storage Service.
+---
+
+# Alicloud OSS storage backend
+
+The Alicloud OSS storage backend is used to persist OpenBao's data in
+[Alibaba Cloud Object Storage Service (OSS)][oss].
+
+:::warning
+
+**Not verified against a live Alicloud account.** Unlike most other
+storage backends restored in this project, Alicloud OSS has no local
+emulator; its test suite only runs against a real Alicloud account
+(credentials via environment variables) and could not be exercised in
+this environment. The port has been build- and vet-verified, but treat
+it with more caution than the rest of this series until it's been run
+against a real bucket.
+
+:::
+
+:::tip
+
+**No High Availability** – the Alicloud OSS storage backend does not
+support High Availability.
+
+:::
+
+```hcl
+storage "alicloudoss" {
+  endpoint   = "http://oss-us-east-1.aliyuncs.com"
+  bucket     = "openbao"
+  access_key = "..."
+  secret_key = "..."
+}
+```
+
+Every parameter below can also be sourced from the corresponding
+`ALICLOUD_*` environment variable, which takes precedence over the
+`storage` stanza parameter.
+
+## `alicloudoss` parameters
+
+- `endpoint` `(string: <required>)` – Specifies the OSS endpoint to
+  connect to, e.g. `http://oss-us-east-1.aliyuncs.com`. Also read from
+  `ALICLOUD_OSS_ENDPOINT`.
+
+- `bucket` `(string: <required>)` – Specifies the name of the OSS bucket
+  to store data in. It must already exist; OpenBao does not create it.
+  Also read from `ALICLOUD_OSS_BUCKET`.
+
+- `access_key` `(string: <required>)` – Specifies the Alicloud access key
+  ID. Also read from `ALICLOUD_ACCESS_KEY`.
+
+- `secret_key` `(string: <required>)` – Specifies the Alicloud access key
+  secret. Also read from `ALICLOUD_SECRET_KEY`.
+
+- `max_parallel` `(string: "")` – Specifies the maximum number of
+  concurrent requests to OSS.
+
+[oss]: https://www.alibabacloud.com/product/object-storage-service
