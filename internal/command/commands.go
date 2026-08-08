@@ -41,6 +41,7 @@ import (
 	physFile "github.com/openbao/openbao/sdk/v2/physical/file"
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
 	physCassandra "github.com/openbao/openbao/v2/internal/physical/cassandra"
+	physCouchDB "github.com/openbao/openbao/v2/internal/physical/couchdb"
 	physEtcd "github.com/openbao/openbao/v2/internal/physical/etcd"
 	physMySQL "github.com/openbao/openbao/v2/internal/physical/mysql"
 	physPostgresql "github.com/openbao/openbao/v2/internal/physical/postgresql"
@@ -158,6 +159,7 @@ var (
 		"cassandra":  physCassandra.NewCassandraBackend,
 		"etcd":       physEtcd.NewEtcdBackend,
 		"zookeeper":  physZooKeeper.NewZooKeeperBackend,
+		"couchdb":    physCouchDB.NewCouchDBBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
