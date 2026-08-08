@@ -33,6 +33,7 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/SAP/go-hdb v1.16.12
 	github.com/aerospike/aerospike-client-go/v8 v8.8.0
+	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/amsokol/ignite-go-client v0.12.2
 	github.com/armon/go-radix v1.0.0
 	github.com/aws/aws-sdk-go-v2 v1.43.4

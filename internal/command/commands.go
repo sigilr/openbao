@@ -41,6 +41,7 @@ import (
 	physFile "github.com/openbao/openbao/sdk/v2/physical/file"
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
 	physAerospike "github.com/openbao/openbao/v2/internal/physical/aerospike"
+	physAliCloudOSS "github.com/openbao/openbao/v2/internal/physical/alicloudoss"
 	physAzure "github.com/openbao/openbao/v2/internal/physical/azure"
 	physCassandra "github.com/openbao/openbao/v2/internal/physical/cassandra"
 	physCockroachDB "github.com/openbao/openbao/v2/internal/physical/cockroachdb"
@@ -180,6 +181,7 @@ var (
 		"aerospike":   physAerospike.NewAerospikeBackend,
 		"swift":       physSwift.NewSwiftBackend,
 		"oci":         physOCI.NewBackend,
+		"alicloudoss": physAliCloudOSS.NewAliCloudOSSBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
