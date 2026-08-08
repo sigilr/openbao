@@ -1,0 +1,3 @@
+```release-note:feature
+storage/foundationdb: Restore the FoundationDB physical storage backend, last available under MPL 2.0. Unlike other storage backends, it requires CGo, the native libfdb_c client library, and the `foundationdb` build tag (`make dev FDB_ENABLED=1`); standard builds accept `storage "foundationdb"` in configuration but fail at startup with a descriptive error. See internal/physical/foundationdb/README.md for build instructions.
+```
