@@ -1,0 +1,116 @@
+---
+sidebar_label: CockroachDB Storage
+description: |-
+  The CockroachDB storage backend is used to persist OpenBao's data in
+  CockroachDB.
+---
+
+# CockroachDB storage backend
+
+The CockroachDB storage backend is used to persist OpenBao's data in
+[CockroachDB][cockroachdb]. CockroachDB speaks the PostgreSQL wire
+protocol, but is configured as a dedicated backend (rather than reusing
+`storage "postgresql"`) so its schema and locking queries can account for
+CockroachDB-specific behavior.
+
+:::tip
+
+**High Availability** – the CockroachDB storage backend supports High
+Availability.
+
+:::
+
+:::warning
+
+**Transaction retries** – CockroachDB only ever runs at `SERIALIZABLE`
+isolation. Under heavy concurrent writes, this can surface as a
+`restart transaction` error (SQLSTATE `40001`) from a transaction commit,
+where the equivalent operation would simply have succeeded against
+PostgreSQL. This backend does not retry commits internally; treat a
+failed transactional storage operation against CockroachDB as
+potentially transient.
+
+:::
+
+```hcl
+storage "cockroachdb" {
+  connection_url = "postgresql://openbao:password@localhost:26257/openbao?sslmode=verify-full"
+}
+```
+
+## `cockroachdb` parameters
+
+- `connection_url` `(string: <required>)` – Specifies the connection
+  string used to connect to the CockroachDB cluster.
+
+- `table` `(string: "openbao_kv_store")` – Specifies the name of the table
+  in which to write OpenBao data. OpenBao will attempt to create it if
+  missing (unless `skip_create_table` is set), including a
+  `database.table`-qualified name if the target database already exists.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode.
+
+- `ha_table` `(string: "openbao_ha_locks")` – Specifies the name of the
+  table used for storing High Availability leader information. Only
+  created when `ha_enabled` is `true`.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to CockroachDB.
+
+- `transaction_max_parallel` `(string: "128")` – Specifies the maximum
+  number of concurrent interactive transactions against CockroachDB.
+
+- `skip_create_table` `(string: "true|false", default "false")` – When
+  set, OpenBao will not attempt to create the storage table(s); they must
+  already exist.
+
+## `cockroachdb` examples
+
+### High Availability
+
+```hcl
+storage "cockroachdb" {
+  connection_url = "postgresql://openbao:password@crdb.example.com:26257/openbao?sslmode=verify-full"
+  ha_enabled      = "true"
+}
+```
+
+### Pre-provisioned tables
+
+```hcl
+storage "cockroachdb" {
+  connection_url    = "postgresql://openbao:password@crdb.example.com:26257/openbao?sslmode=verify-full"
+  skip_create_table = "true"
+}
+```
+
+## Manually creating tables
+
+OpenBao will attempt to automatically create the required table(s). To
+create them manually instead, use the following schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS openbao_kv_store (
+  parent_path TEXT NOT NULL,
+  path        TEXT,
+  key         TEXT,
+  value       BYTES,
+  CONSTRAINT openbao_kv_store_pkey PRIMARY KEY (path, key)
+);
+CREATE INDEX IF NOT EXISTS openbao_kv_store_idx ON openbao_kv_store (parent_path);
+```
+
+Additionally, for HA-enabled backends:
+
+```sql
+CREATE TABLE IF NOT EXISTS openbao_ha_locks (
+  ha_key      TEXT NOT NULL,
+  ha_identity TEXT NOT NULL,
+  ha_value    TEXT,
+  valid_until TIMESTAMP WITH TIME ZONE NOT NULL,
+  CONSTRAINT openbao_ha_locks_pkey PRIMARY KEY (ha_key)
+);
+```
+
+[cockroachdb]: https://www.cockroachlabs.com/
