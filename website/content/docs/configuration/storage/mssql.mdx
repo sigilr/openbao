@@ -1,0 +1,100 @@
+---
+sidebar_label: MSSQL Storage
+description: |-
+  The MSSQL storage backend is used to persist OpenBao's data in Microsoft
+  SQL Server.
+---
+
+# MSSQL storage backend
+
+The MSSQL storage backend is used to persist OpenBao's data in
+[Microsoft SQL Server][mssql].
+
+:::warning
+
+**Note**: This backend does not support High Availability.
+
+:::
+
+```hcl
+storage "mssql" {
+  server   = "127.0.0.1"
+  database = "openbao"
+  table    = "openbao"
+  username = "openbao"
+  password = "..."
+}
+```
+
+## `mssql` parameters
+
+- `server` `(string: <required>)` – Specifies the address of the MSSQL
+  host.
+
+- `port` `(string: "")` – Specifies the port of the MSSQL host. Defaults to
+  the driver's standard port (1433) when unset.
+
+- `username` `(string: "")` – Specifies the MSSQL username to connect
+  with.
+
+- `password` `(string: "")` – Specifies the MSSQL password to connect
+  with.
+
+- `database` `(string: "openbao")` – Specifies the name of the database to
+  use. OpenBao will attempt to create it if it does not already exist.
+
+- `table` `(string: "openbao")` – Specifies the name of the table in which
+  to write OpenBao data. OpenBao will attempt to create it if missing.
+
+- `schema` `(string: "dbo")` – Specifies the schema within the database
+  that the table lives in. OpenBao will attempt to create it if missing
+  (requires permission to run `CREATE SCHEMA`).
+
+- `appname` `(string: "openbao")` – Specifies the application name to
+  report to the server.
+
+- `connectiontimeout` `(string: "30")` – Specifies the connection timeout,
+  in seconds.
+
+- `loglevel` `(string: "0")` – Specifies the driver's internal log level.
+  See the [go-mssqldb driver documentation][go-mssqldb] for the bitmask of
+  supported values.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to MSSQL.
+
+## `mssql` examples
+
+### Custom database, table, and schema
+
+```hcl
+storage "mssql" {
+  server   = "mssql.example.com"
+  database = "openbao_prod"
+  table    = "kv"
+  schema   = "openbao"
+  username = "openbao"
+  password = "..."
+}
+```
+
+## Manually creating tables
+
+OpenBao will attempt to automatically create the required database and
+table. To create them manually instead, use the following schema:
+
+```sql
+CREATE DATABASE openbao;
+GO
+
+USE openbao;
+GO
+
+CREATE TABLE dbo.openbao (
+  Path  VARCHAR(512) PRIMARY KEY,
+  Value VARBINARY(MAX)
+);
+```
+
+[mssql]: https://www.microsoft.com/en-us/sql-server
+[go-mssqldb]: https://github.com/microsoft/go-mssqldb
