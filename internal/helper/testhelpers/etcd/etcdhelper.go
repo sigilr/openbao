@@ -73,7 +73,7 @@ func PrepareTestContainer(t *testing.T, version string) (func(), *Config) {
 		if err != nil {
 			return nil, fmt.Errorf("could not connect to etcd container: %w", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		// Enable authentication for the tests.
 		if _, err := client.RoleAdd(ctx, "root"); err != nil {

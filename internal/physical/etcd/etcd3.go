@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"sort"
@@ -120,6 +121,11 @@ func newEtcd3Backend(conf map[string]string, logger log.Logger) (physical.Backen
 		val, err := strconv.ParseUint(maxReceive, 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("value of 'max_receive_size' (%v) could not be understood: %w", maxReceive, err)
+		}
+		// On 32-bit platforms int is only 32 bits wide, so a uint32 value
+		// above math.MaxInt32 would silently become negative on truncation.
+		if val > math.MaxInt32 {
+			return nil, fmt.Errorf("value of 'max_receive_size' (%v) exceeds the maximum allowed value of %d", maxReceive, math.MaxInt32)
 		}
 		cfg.MaxCallRecvMsgSize = int(val)
 	}
