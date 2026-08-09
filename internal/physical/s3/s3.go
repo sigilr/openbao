@@ -141,9 +141,7 @@ func NewS3Backend(conf map[string]string, logger log.Logger) (physical.Backend, 
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	}
 
 	s := &S3Backend{
@@ -195,7 +193,7 @@ func (s *S3Backend) Get(ctx context.Context, key string) (*physical.Entry, error
 		Key:    aws.String(fullKey),
 	})
 	if resp != nil && resp.Body != nil {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 	}
 	if err != nil {
 		var respErr *smithyhttp.ResponseError

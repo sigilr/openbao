@@ -64,7 +64,7 @@ func PrepareTestContainer(t *testing.T) (func(), *Config) {
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		var health struct {
 			Services map[string]string `json:"services"`
