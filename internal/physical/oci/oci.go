@@ -138,7 +138,6 @@ func NewBackend(conf map[string]string, logger log.Logger) (physical.Backend, er
 		"namespace_name", namespaceName,
 		"ha_enabled", haEnabled,
 		"lock_bucket_name", lockBucketName,
-		"auth_type_api_key", authTypeAPIKeyBool,
 	)
 
 	return &Backend{
@@ -183,7 +182,7 @@ func (o *Backend) Put(ctx context.Context, entry *physical.Entry) error {
 
 	resp, err := o.client.PutObject(ctx, request)
 	if resp.RawResponse != nil && resp.RawResponse.Body != nil {
-		defer resp.RawResponse.Body.Close()
+		defer resp.RawResponse.Body.Close() //nolint:errcheck
 	}
 
 	if err != nil {
@@ -222,7 +221,7 @@ func (o *Backend) Get(ctx context.Context, key string) (*physical.Entry, error) 
 
 	resp, err := o.client.GetObject(ctx, request)
 	if resp.RawResponse != nil && resp.RawResponse.Body != nil {
-		defer resp.RawResponse.Body.Close()
+		defer resp.RawResponse.Body.Close() //nolint:errcheck
 	}
 	o.logRequest("GET", resp.RawResponse, resp.OpcClientRequestId, resp.OpcRequestId, err)
 
@@ -273,7 +272,7 @@ func (o *Backend) Delete(ctx context.Context, key string) error {
 
 	resp, err := o.client.DeleteObject(ctx, request)
 	if resp.RawResponse != nil && resp.RawResponse.Body != nil {
-		defer resp.RawResponse.Body.Close()
+		defer resp.RawResponse.Body.Close() //nolint:errcheck
 	}
 
 	o.logRequest("DELETE", resp.RawResponse, resp.OpcClientRequestId, resp.OpcRequestId, err)
@@ -344,12 +343,12 @@ func (o *Backend) listAll(ctx context.Context, prefix string) ([]string, error) 
 		keys = strutil.RemoveDuplicates(keys, false)
 
 		if resp.NextStartWith == nil {
-			resp.RawResponse.Body.Close()
+			resp.RawResponse.Body.Close() //nolint:errcheck
 			break
 		}
 
 		start = resp.NextStartWith
-		resp.RawResponse.Body.Close()
+		resp.RawResponse.Body.Close() //nolint:errcheck
 	}
 
 	sort.Strings(keys)
