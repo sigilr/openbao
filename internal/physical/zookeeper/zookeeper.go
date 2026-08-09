@@ -304,13 +304,15 @@ func customTLSDial(conf map[string]string, machines string) zk.Dialer {
 // an error during an operation.
 func (c *ZooKeeperBackend) ensurePath(path string, value []byte) error {
 	nodes := strings.Split(path, "/")
-	fullPath := ""
+	var pathBuilder strings.Builder
 	for index, node := range nodes {
 		if strings.TrimSpace(node) == "" {
 			continue
 		}
 
-		fullPath += "/" + node
+		pathBuilder.WriteString("/")
+		pathBuilder.WriteString(node)
+		fullPath := pathBuilder.String()
 		isLastNode := index+1 == len(nodes)
 
 		// Set parent nodes to nil, leaf to value.
@@ -589,7 +591,7 @@ func (i *ZooKeeperHALock) attemptLock(lockpath string, didLock chan struct{}, fa
 	data := []byte(i.value)
 	if err := i.in.ensurePath(lockpath, data); err != nil {
 		failLock <- err
-		lock.Unlock()
+		lock.Unlock() //nolint:errcheck
 		return
 	}
 	i.zkLock = lock
@@ -599,7 +601,7 @@ func (i *ZooKeeperHALock) attemptLock(lockpath string, didLock chan struct{}, fa
 
 	// Handle an early abort.
 	if release := <-releaseCh; release {
-		lock.Unlock()
+		lock.Unlock() //nolint:errcheck
 	}
 }
 

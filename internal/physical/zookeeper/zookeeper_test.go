@@ -32,13 +32,13 @@ func TestZooKeeperBackend(t *testing.T) {
 	}
 
 	defer func() {
-		client.Delete(randPath+"/foo/nested1/nested2/nested3", -1)
-		client.Delete(randPath+"/foo/nested1/nested2", -1)
-		client.Delete(randPath+"/foo/nested1", -1)
-		client.Delete(randPath+"/foo/bar/baz", -1)
-		client.Delete(randPath+"/foo/bar", -1)
-		client.Delete(randPath+"/foo", -1)
-		client.Delete(randPath, -1)
+		client.Delete(randPath+"/foo/nested1/nested2/nested3", -1) //nolint:errcheck
+		client.Delete(randPath+"/foo/nested1/nested2", -1)         //nolint:errcheck
+		client.Delete(randPath+"/foo/nested1", -1)                 //nolint:errcheck
+		client.Delete(randPath+"/foo/bar/baz", -1)                 //nolint:errcheck
+		client.Delete(randPath+"/foo/bar", -1)                     //nolint:errcheck
+		client.Delete(randPath+"/foo", -1)                         //nolint:errcheck
+		client.Delete(randPath, -1)                                //nolint:errcheck
 		client.Close()
 	}()
 
@@ -72,8 +72,8 @@ func TestZooKeeperHABackend(t *testing.T) {
 	}
 
 	defer func() {
-		client.Delete(randPath+"/foo", -1)
-		client.Delete(randPath, -1)
+		client.Delete(randPath+"/foo", -1) //nolint:errcheck
+		client.Delete(randPath, -1)        //nolint:errcheck
 		client.Close()
 	}()
 
