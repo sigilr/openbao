@@ -95,7 +95,7 @@ func connectMSSQL(ctx context.Context, host string, port int) (docker.ServiceCon
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
