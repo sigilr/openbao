@@ -105,9 +105,7 @@ func NewAliCloudOSSBackend(conf map[string]string, logger log.Logger) (physical.
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	}
 
 	a := &AliCloudOSSBackend{
@@ -154,7 +152,7 @@ func (a *AliCloudOSSBackend) Get(_ context.Context, key string) (*physical.Entry
 		}
 		return nil, err
 	}
-	defer object.Close()
+	defer object.Close() //nolint:errcheck
 
 	data := bytes.NewBuffer(nil)
 	if _, err := io.Copy(data, object); err != nil {
