@@ -75,7 +75,7 @@ func PrepareTestContainer(t *testing.T, ddl ...string) func() {
 			if err != nil {
 				return nil, err
 			}
-			defer instAdmin.Close()
+			defer instAdmin.Close() //nolint:errcheck
 			_, err = instAdmin.GetInstance(ctx, &instancepb.GetInstanceRequest{
 				Name: "projects/" + projectID + "/instances/readiness-probe",
 			})
@@ -106,7 +106,7 @@ func setupInstanceAndDatabase(ddl []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create instance admin client: %w", err)
 	}
-	defer instAdmin.Close()
+	defer instAdmin.Close() //nolint:errcheck
 
 	instOp, err := instAdmin.CreateInstance(ctx, &instancepb.CreateInstanceRequest{
 		Parent:     "projects/" + projectID,
@@ -128,7 +128,7 @@ func setupInstanceAndDatabase(ddl []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create database admin client: %w", err)
 	}
-	defer dbAdmin.Close()
+	defer dbAdmin.Close() //nolint:errcheck
 
 	dbOp, err := dbAdmin.CreateDatabase(ctx, &databasepb.CreateDatabaseRequest{
 		Parent:          "projects/" + projectID + "/instances/" + instanceID,
