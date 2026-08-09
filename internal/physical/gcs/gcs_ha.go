@@ -335,9 +335,18 @@ func (l *Lock) writeLock() (bool, error) {
 	defer cancel()
 
 	// The operation may be retried, so we need to stop it if we lose leadership.
+	// Capture stopCh under stopLock rather than reading the field directly
+	// from the goroutine below: Lock() reassigns l.stopCh (under the same
+	// lock) on every call, and this goroutine can outlive the writeLock()
+	// call that spawned it, so an unguarded read here races with that
+	// reassignment.
+	l.stopLock.Lock()
+	stopCh := l.stopCh
+	l.stopLock.Unlock()
+
 	go func() {
 		select {
-		case <-l.stopCh:
+		case <-stopCh:
 			cancel()
 		case <-ctx.Done():
 		}
@@ -380,8 +389,8 @@ func (l *Lock) writeLock() (bool, error) {
 	// Write the object
 	obj := l.backend.haClient.Bucket(l.backend.bucket).Object(l.key)
 	w := obj.If(conds).NewWriter(ctx)
-	w.ObjectAttrs.CacheControl = "no-cache; no-store; max-age=0"
-	w.ObjectAttrs.Metadata = map[string]string{
+	w.CacheControl = "no-cache; no-store; max-age=0"
+	w.Metadata = map[string]string{
 		"lock": string(lockData),
 	}
 	if err := w.Close(); err != nil {

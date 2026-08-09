@@ -89,7 +89,7 @@ func testFixture(t *testing.T) (physical.Backend, func()) {
 	}
 
 	client := testClient(t, ctx)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	testCleanup(t, client, bucket)
 	if err := client.Bucket(bucket).Create(ctx, projectID, nil); err != nil {
