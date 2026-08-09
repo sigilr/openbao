@@ -151,7 +151,7 @@ func (t *CockroachDBBackendTransaction) List(ctx context.Context, prefix string)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {
@@ -183,7 +183,7 @@ func (t *CockroachDBBackendTransaction) ListPage(ctx context.Context, prefix, af
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {

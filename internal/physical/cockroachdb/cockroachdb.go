@@ -250,7 +250,7 @@ func (c *CockroachDBBackend) createTables() error {
 		`);`
 	if _, err := txn.Exec(createTableQuery); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			c.logger.Warn("Skipping table creation as other processes have already created the table", "err", err)
+			c.logger.Warn("skipping table creation: already created by another process")
 			return nil
 		}
 		return fmt.Errorf("failed to execute create query: %w", err)
@@ -259,7 +259,7 @@ func (c *CockroachDBBackend) createTables() error {
 	createIndexQuery := `CREATE INDEX IF NOT EXISTS ` + c.index + ` ON ` + c.table + ` (parent_path);`
 	if _, err := txn.Exec(createIndexQuery); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			c.logger.Warn("Skipping table creation as other processes have already created the index", "err", err)
+			c.logger.Warn("skipping index creation: already created by another process")
 			return nil
 		}
 		return fmt.Errorf("failed to create index on table: %w", err)
@@ -275,7 +275,7 @@ func (c *CockroachDBBackend) createTables() error {
 			`);`
 		if _, err := txn.Exec(createTableQuery); err != nil {
 			if strings.Contains(err.Error(), "already exists") {
-				c.logger.Warn("Skipping table creation as other processes have already created the table", "err", err)
+				c.logger.Warn("skipping table creation: already created by another process")
 				return nil
 			}
 			return fmt.Errorf("failed to create ha table: %w", err)
@@ -284,7 +284,7 @@ func (c *CockroachDBBackend) createTables() error {
 
 	if err := txn.Commit(); err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			c.logger.Warn("Skipping table creation as other processes have already created the table", "err", err)
+			c.logger.Warn("skipping table creation: already created by another process")
 			return nil
 		}
 		return fmt.Errorf("failed to apply transaction: %w", err)
@@ -376,7 +376,7 @@ func (c *CockroachDBBackend) List(ctx context.Context, prefix string) ([]string,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {
@@ -405,7 +405,7 @@ func (c *CockroachDBBackend) ListPage(ctx context.Context, prefix, after string,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {
