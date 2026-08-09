@@ -1,0 +1,3 @@
+```release-note:feature
+storage/oci: Restore the OCI Object Storage physical storage backend, last available under MPL 2.0. Unlike most other storage backends in this project, this one has no local emulator and could not be verified against a live OCI account in the CI/dev environment; it is build- and vet-verified only.
+```
