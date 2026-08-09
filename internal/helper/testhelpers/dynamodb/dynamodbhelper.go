@@ -76,7 +76,7 @@ func connectDynamoDB(ctx context.Context, host string, port int) (docker.Service
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	// DynamoDB Local responds 400 to an unauthenticated, bodyless GET; that's
 	// enough to know the server is up and accepting connections.
 	if resp.StatusCode != http.StatusBadRequest {

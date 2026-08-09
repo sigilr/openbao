@@ -34,7 +34,7 @@ func TestDynamoDBBackend(t *testing.T) {
 	table := testTableName(t)
 	conn := testClient(t, svccfg, region)
 	defer func() {
-		conn.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{TableName: awsv2.String(table)})
+		conn.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{TableName: awsv2.String(table)}) //nolint:errcheck
 	}()
 
 	logger := logging.NewVaultLogger(log.Debug)
@@ -66,7 +66,7 @@ func TestDynamoDBHABackend(t *testing.T) {
 	table := testTableName(t)
 	conn := testClient(t, svccfg, region)
 	defer func() {
-		conn.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{TableName: awsv2.String(table)})
+		conn.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{TableName: awsv2.String(table)}) //nolint:errcheck
 	}()
 
 	logger := logging.NewVaultLogger(log.Debug)
@@ -196,7 +196,7 @@ func testDynamoDBLockTTL(t *testing.T, ha physical.HABackend) {
 	}
 
 	// Cleanup
-	lock2.Unlock()
+	lock2.Unlock() //nolint:errcheck
 }
 
 // Similar to ExerciseHABackend, but using internal implementation details to
@@ -280,7 +280,7 @@ func testDynamoDBLockRenewal(t *testing.T, ha physical.HABackend) {
 	}
 
 	// Cleanup
-	newLock.Unlock()
+	newLock.Unlock() //nolint:errcheck
 }
 
 func testTableName(t *testing.T) string {
