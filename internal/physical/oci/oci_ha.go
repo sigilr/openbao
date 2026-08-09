@@ -400,7 +400,7 @@ func (l *Lock) get(ctx context.Context) (*LockRecord, string, error) {
 		return nil, "", fmt.Errorf("failed to read value for %q: %w", l.key, err)
 	}
 
-	defer response.RawResponse.Body.Close()
+	defer response.RawResponse.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(response.Content)
 	if err != nil {
@@ -430,9 +430,21 @@ func (l *Lock) writeLock() (bool, error) {
 	// The transaction will be retried, and it could sit in a queue behind, say,
 	// the delete operation. To stop the transaction, we close the context when
 	// the associated stopCh is received.
+	//
+	// Capture stopCh under stopLock rather than reading the field directly
+	// from the goroutine below: Lock() reassigns l.stopCh (under the same
+	// lock) on every call, and writeLock is called repeatedly over the
+	// lock's life (from attemptLock's retry loop and renewLock's ticker),
+	// so an unguarded read here would race with that reassignment (this is
+	// the same class of race CI's -race job caught in the sibling Spanner
+	// backend's HA lock).
+	l.stopLock.Lock()
+	stopCh := l.stopCh
+	l.stopLock.Unlock()
+
 	go func() {
 		select {
-		case <-l.stopCh:
+		case <-stopCh:
 			cancel()
 		case <-ctx.Done():
 		}
@@ -513,7 +525,7 @@ func (l *Lock) writeLock() (bool, error) {
 
 		if putObjectError == nil {
 			newEtag = *putObjectResponse.ETag
-			putObjectResponse.RawResponse.Body.Close()
+			putObjectResponse.RawResponse.Body.Close() //nolint:errcheck
 			err = nil
 			break
 		}
@@ -526,7 +538,7 @@ func (l *Lock) writeLock() (bool, error) {
 			break
 		}
 
-		putObjectResponse.RawResponse.Body.Close()
+		putObjectResponse.RawResponse.Body.Close() //nolint:errcheck
 
 		// Retry if the return code is 5xx
 		if (putObjectResponse.RawResponse.StatusCode / 100) == 5 {
