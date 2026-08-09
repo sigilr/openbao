@@ -144,7 +144,7 @@ func buildClientPolicy(conf map[string]string) (*aero.ClientPolicy, error) {
 }
 
 func (a *AerospikeBackend) key(userKey string) (*aero.Key, error) {
-	key, err := aero.NewKey(a.namespace, a.set, hash(userKey))
+	key, err := aero.NewKey(a.namespace, a.set, objectKeyDigest(userKey))
 	if err != nil {
 		return nil, err
 	}
@@ -226,8 +226,7 @@ func (a *AerospikeBackend) listAll(prefix string) ([]string, error) {
 			return nil, res.Err
 		}
 		recordKey := res.Record.Bins[keyBin].(string)
-		if strings.HasPrefix(recordKey, prefix) {
-			trimPrefix := strings.TrimPrefix(recordKey, prefix)
+		if trimPrefix, ok := strings.CutPrefix(recordKey, prefix); ok {
 			keys := strings.Split(trimPrefix, "/")
 			if len(keys) == 1 {
 				keyList = append(keyList, keys[0])
@@ -296,7 +295,11 @@ func parseHostList(list string) ([]*aero.Host, error) {
 	return hostList, nil
 }
 
-func hash(s string) string {
-	hash := sha256.Sum256([]byte(s))
-	return fmt.Sprintf("%x", hash[:])
+// objectKeyDigest derives a fixed-length Aerospike record key from an
+// arbitrary-length OpenBao storage key. This is not a password or
+// credential hash -- it's a deterministic identifier transform, since
+// Aerospike doesn't accept arbitrary-length strings as record keys.
+func objectKeyDigest(s string) string {
+	digest := sha256.Sum256([]byte(s))
+	return fmt.Sprintf("%x", digest[:])
 }

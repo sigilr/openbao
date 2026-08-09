@@ -315,6 +315,7 @@ require (
 	github.com/tsaarni/x500dn v1.1.0 // indirect
 	github.com/tv42/httpunix v0.0.0-20191220191345-2ba4b9c3382c // indirect
 	github.com/vmware/govmomi v0.18.0 // indirect
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yeqown/reedsolomon v1.0.0 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
