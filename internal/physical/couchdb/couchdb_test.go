@@ -118,7 +118,7 @@ func setupCouchDB(ctx context.Context, host string, port int, username, password
 		if err != nil {
 			return nil, err
 		}
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("expected couchdb to return status code 200, got (%s) instead", resp.Status)
 		}
@@ -137,7 +137,7 @@ func setupCouchDB(ctx context.Context, host string, port int, username, password
 		if err != nil {
 			return nil, fmt.Errorf("could not create database: %w", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		if resp.StatusCode != http.StatusCreated {
 			bs, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("failed to create database: %s %s", resp.Status, string(bs))

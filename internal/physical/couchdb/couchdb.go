@@ -62,11 +62,11 @@ func (m *couchDBClient) rev(ctx context.Context, key string) (string, error) {
 	}
 	req.SetBasicAuth(m.username, m.password)
 
-	resp, err := m.Client.Do(req)
+	resp, err := m.Do(req)
 	if err != nil {
 		return "", err
 	}
-	resp.Body.Close()
+	resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return "", nil
 	}
@@ -88,9 +88,9 @@ func (m *couchDBClient) put(ctx context.Context, e couchDBEntry) error {
 		return err
 	}
 	req.SetBasicAuth(m.username, m.password)
-	resp, err := m.Client.Do(req)
+	resp, err := m.Do(req)
 	if err == nil {
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck
 	}
 
 	return err
@@ -102,11 +102,11 @@ func (m *couchDBClient) get(ctx context.Context, key string) (*physical.Entry, e
 		return nil, err
 	}
 	req.SetBasicAuth(m.username, m.password)
-	resp, err := m.Client.Do(req)
+	resp, err := m.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	} else if resp.StatusCode != http.StatusOK {
@@ -138,11 +138,11 @@ func (m *couchDBClient) list(ctx context.Context, prefix string) ([]couchDBListI
 	}
 	req.URL.RawQuery = values.Encode()
 
-	resp, err := m.Client.Do(req)
+	resp, err := m.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -184,9 +184,7 @@ func buildCouchDBBackend(conf map[string]string, logger log.Logger) (*CouchDBBac
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	}
 
 	return &CouchDBBackend{
