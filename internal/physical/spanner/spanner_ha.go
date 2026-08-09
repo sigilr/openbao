@@ -339,9 +339,20 @@ func (l *Lock) writeLock() (bool, error) {
 	// The transaction will be retried, and it could sit in a queue behind, say,
 	// the delete operation. To stop the transaction, we close the context when
 	// the associated stopCh is received.
+	//
+	// Capture stopCh under stopLock rather than reading the field directly
+	// from the goroutine below: Lock() reassigns l.stopCh (under the same
+	// lock) on every call, and writeLock is called repeatedly over the
+	// lock's life (from attemptLock's retry loop and renewLock's ticker),
+	// so an unguarded read here races with that reassignment -- this is
+	// what CI's -race job caught in TestHABackend.
+	l.stopLock.Lock()
+	stopCh := l.stopCh
+	l.stopLock.Unlock()
+
 	go func() {
 		select {
-		case <-l.stopCh:
+		case <-stopCh:
 			cancel()
 		case <-ctx.Done():
 		}
