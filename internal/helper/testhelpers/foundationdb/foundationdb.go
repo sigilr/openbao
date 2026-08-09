@@ -180,15 +180,15 @@ func PrepareTestContainer(t *testing.T) (func(), string) {
 		t.Fatalf("foundationdb: could not create local cluster file: %s", err)
 	}
 	if _, err := tmpFile.WriteString(clusterFileContents); err != nil {
-		tmpFile.Close()
+		tmpFile.Close() //nolint:errcheck
 		svc.Cleanup()
 		t.Fatalf("foundationdb: could not write local cluster file: %s", err)
 	}
-	tmpFile.Close()
+	tmpFile.Close() //nolint:errcheck
 
 	cleanup := func() {
 		svc.Cleanup()
-		os.Remove(tmpFile.Name())
+		os.Remove(tmpFile.Name()) //nolint:errcheck
 	}
 
 	return cleanup, tmpFile.Name()
