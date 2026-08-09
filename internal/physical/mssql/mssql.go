@@ -59,9 +59,7 @@ func NewMSSQLBackend(conf map[string]string, logger log.Logger) (physical.Backen
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	} else {
 		maxParInt = physical.DefaultParallelOperations
 	}
@@ -245,7 +243,7 @@ func (m *MSSQLBackend) listAll(ctx context.Context, prefix string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {
