@@ -41,16 +41,14 @@ const mysqlTLSKey = "default"
 // MySQLBackend is a physical backend that stores data
 // within MySQL database.
 type MySQLBackend struct {
-	dbTable      string
-	dbLockTable  string
-	client       *sql.DB
-	statements   map[string]*sql.Stmt
-	logger       log.Logger
-	permitPool   *physical.PermitPool
-	conf         map[string]string
-	redirectHost string
-	redirectPort int64
-	haEnabled    bool
+	dbTable     string
+	dbLockTable string
+	client      *sql.DB
+	statements  map[string]*sql.Stmt
+	logger      log.Logger
+	permitPool  *physical.PermitPool
+	conf        map[string]string
+	haEnabled   bool
 }
 
 // NewMySQLBackend constructs a MySQL backend using the given API client and
@@ -86,9 +84,7 @@ func NewMySQLBackend(conf map[string]string, logger log.Logger) (physical.Backen
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	} else {
 		maxParInt = physical.DefaultParallelOperations
 	}
@@ -236,9 +232,8 @@ func validate(name string) (err error) {
 	//
 	// We are explicitly excluding all space characters (it's easier to deal with)
 	// The name will be quoted, so the all-digit requirement doesn't apply
-	runes := []rune(name)
 	validationErr := errors.New("invalid character found: can only include printable, non-space characters between [0x0001-0xFFFF]")
-	for _, r := range runes {
+	for _, r := range name {
 		// U+0000 Explicitly disallowed
 		if r == 0x0000 {
 			return errors.New("invalid character: cannot include 0x0000")
@@ -298,9 +293,7 @@ func NewMySQLClient(conf map[string]string, logger log.Logger) (*sql.DB, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_idle_connections parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_idle_connections set", "max_idle_connections", maxIdleConnInt)
-		}
+		logger.Debug("max_idle_connections set", "max_idle_connections", maxIdleConnInt)
 	}
 
 	maxConnLifeStr, ok := conf["max_connection_lifetime"]
@@ -310,9 +303,7 @@ func NewMySQLClient(conf map[string]string, logger log.Logger) (*sql.DB, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_connection_lifetime parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_connection_lifetime set", "max_connection_lifetime", maxConnLifeInt)
-		}
+		logger.Debug("max_connection_lifetime set", "max_connection_lifetime", maxConnLifeInt)
 	}
 
 	maxParStr, ok := conf["max_parallel"]
@@ -322,9 +313,7 @@ func NewMySQLClient(conf map[string]string, logger log.Logger) (*sql.DB, error) 
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	} else {
 		maxParInt = physical.DefaultParallelOperations
 	}
@@ -339,7 +328,7 @@ func NewMySQLClient(conf map[string]string, logger log.Logger) (*sql.DB, error) 
 		dsnParams["tls"] = mysqlTLSKey
 	}
 	ptAllowed, ptOk := conf["plaintext_connection_allowed"]
-	if !(ptOk && strings.ToLower(ptAllowed) == "true") && !tlsOk {
+	if (!ptOk || strings.ToLower(ptAllowed) != "true") && !tlsOk {
 		logger.Warn("No TLS specified, credentials will be sent in plaintext. To mute this warning add 'plaintext_connection_allowed' with a true value to your MySQL configuration in your config file.")
 	}
 
@@ -434,7 +423,7 @@ func (m *MySQLBackend) listAll(ctx context.Context, prefix string) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute statement: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []string
 	for rows.Next() {
@@ -587,7 +576,7 @@ func (i *MySQLHALock) attemptLock(key, value string, didLock chan struct{}, fail
 	// Handle an early abort
 	release := <-releaseCh
 	if release {
-		lock.Unlock()
+		lock.Unlock() //nolint:errcheck
 	}
 }
 
@@ -639,7 +628,7 @@ func (i *MySQLHALock) hasLock(key string) error {
 	}
 
 	// IS_USED_LOCK will return the ID of the connection that created the lock.
-	if result.Int64 != GlobalLockID {
+	if result.Int64 != i.lock.globalLockID {
 		return ErrLockHeld
 	}
 
@@ -676,12 +665,17 @@ type MySQLLock struct {
 	statements map[string]*sql.Stmt
 	key        string
 	value      string
+
+	// globalLockID is the MySQL connection ID that currently holds this
+	// lock, used by MySQLHALock.hasLock to check the lock we got is still
+	// the current lock. This was originally a package-level variable, but
+	// that made it shared (and racy) across every MySQLLock instance in
+	// the process; it now lives on the instance that owns it.
+	globalLockID int64
 }
 
 // Errors specific to trying to grab a lock in MySQL
 var (
-	// This is the GlobalLockID for checking if the lock we got is still the current lock
-	GlobalLockID int64
 	// ErrLockHeld is returned when another OpenBao instance already has a lock held for the given key.
 	ErrLockHeld = errors.New("mysql: lock already held")
 	// ErrUnlockFailed is returned when the lock could not be released.
@@ -754,7 +748,7 @@ func (i *MySQLLock) Lock() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	rows.Next()
 	var lock sql.NullInt64
@@ -786,7 +780,7 @@ func (i *MySQLLock) Lock() error {
 		return ErrSettingGlobalID
 	}
 
-	GlobalLockID = connectionID.Int64
+	i.globalLockID = connectionID.Int64
 
 	return nil
 }
