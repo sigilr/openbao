@@ -62,7 +62,7 @@ func TestS3Backend(t *testing.T) {
 			objects.Objects = append(objects.Objects, types.ObjectIdentifier{Key: key.Key})
 		}
 		if len(objects.Objects) > 0 {
-			conn.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &objects})
+			conn.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &objects}) //nolint:errcheck
 		}
 
 		if _, err := conn.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
@@ -138,7 +138,7 @@ func TestS3BackendSseKms(t *testing.T) {
 			objects.Objects = append(objects.Objects, types.ObjectIdentifier{Key: key.Key})
 		}
 		if len(objects.Objects) > 0 {
-			conn.DeleteObjects(context.Background(), &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &objects})
+			conn.DeleteObjects(context.Background(), &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &objects}) //nolint:errcheck
 		}
 
 		if _, err := conn.DeleteBucket(context.Background(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
