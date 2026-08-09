@@ -1,0 +1,3 @@
+```release-note:feature
+storage/aerospike: Restore the Aerospike physical storage backend, last available under MPL 2.0. Note that Aerospike Community Edition is capped at a 2-node cluster and 200 GB of data as of recent server releases; the Go client this backend links against remains Apache 2.0-licensed.
+```
