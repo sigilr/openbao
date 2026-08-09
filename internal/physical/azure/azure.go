@@ -152,9 +152,7 @@ func NewAzureBackend(conf map[string]string, logger log.Logger) (physical.Backen
 		if err != nil {
 			return nil, fmt.Errorf("failed parsing max_parallel parameter: %w", err)
 		}
-		if logger.IsDebug() {
-			logger.Debug("max_parallel set", "max_parallel", maxParInt)
-		}
+		logger.Debug("max_parallel set", "max_parallel", maxParInt)
 	}
 
 	a := &AzureBackend{
@@ -200,7 +198,7 @@ func (a *AzureBackend) Get(ctx context.Context, key string) (*physical.Entry, er
 	}
 
 	body := res.NewRetryReader(ctx, nil)
-	defer body.Close()
+	defer body.Close() //nolint:errcheck
 
 	data, err := io.ReadAll(body)
 	if err != nil {
