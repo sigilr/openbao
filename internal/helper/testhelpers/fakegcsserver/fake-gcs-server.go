@@ -78,7 +78,7 @@ func connectGCS(ctx context.Context, host string, port int) (docker.ServiceConfi
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	it := client.Buckets(ctx, "test")
 	for {
