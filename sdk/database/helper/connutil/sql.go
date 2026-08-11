@@ -5,6 +5,7 @@ package connutil
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/openbao/openbao/sdk/v2/database/dbplugin"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 )
@@ -33,6 +36,10 @@ type SQLConnectionProducer struct {
 	// OpenDB optionally replaces sql.Open for plugins that need to construct a
 	// driver-native connector (for example, to supply an in-memory TLS config).
 	OpenDB func(driverName, dataSourceName string) (*sql.DB, error) `json:"-" mapstructure:"-" structs:"-"`
+	// TLSConfig, when set, is merged into the pgx connection config for
+	// postgres/pgx connections (inline TLS certificates), without requiring
+	// the plugin to supply a full OpenDB override.
+	TLSConfig *tls.Config `json:"-" mapstructure:"-" structs:"-"`
 
 	Type                  string
 	RawConfig             map[string]any
@@ -162,9 +169,23 @@ func (c *SQLConnectionProducer) Connection(ctx context.Context) (any, error) {
 	}
 
 	var err error
-	if c.OpenDB != nil {
+	switch {
+	case c.OpenDB != nil:
 		c.db, err = c.OpenDB(dbType, conn)
-	} else {
+	case dbType == "pgx" && c.TLSConfig != nil:
+		var config *pgx.ConnConfig
+		config, err = pgx.ParseConfig(conn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse config: %w", err)
+		}
+		config.TLSConfig = mergeTLSConfig(config.TLSConfig, c.TLSConfig)
+
+		for _, fallback := range config.Fallbacks {
+			fallback.TLSConfig = mergeTLSConfig(fallback.TLSConfig, c.TLSConfig)
+		}
+
+		c.db = stdlib.OpenDB(*config)
+	default:
 		c.db, err = sql.Open(dbType, conn)
 	}
 	if err != nil {
@@ -178,6 +199,22 @@ func (c *SQLConnectionProducer) Connection(ctx context.Context) (any, error) {
 	c.db.SetConnMaxLifetime(c.maxConnectionLifetime)
 
 	return c.db, nil
+}
+
+// mergeTLSConfig adds inline trust and client identity material while
+// preserving pgx-derived settings such as the TLS server name for each host.
+func mergeTLSConfig(base, inline *tls.Config) *tls.Config {
+	if base == nil {
+		base = &tls.Config{}
+	} else {
+		base = base.Clone()
+	}
+	base.RootCAs = inline.RootCAs
+	base.Certificates = inline.Certificates
+	if inline.MinVersion > base.MinVersion {
+		base.MinVersion = inline.MinVersion
+	}
+	return base
 }
 
 func (c *SQLConnectionProducer) SecretValues() map[string]any {
