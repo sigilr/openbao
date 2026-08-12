@@ -74,3 +74,4 @@ $ bao write -force database/rotate-root/es
 | `use_old_xpack=true` | Plugin targets `/_xpack/security/user/<name>` |
 | Delete on non-existent user | 404 is treated as success |
 | Bad TLS chain (no ca_cert) | Init fails with TLS verify error |
+| URL hostname differs from certificate SAN | Set `tls_server_name` to the certificate's DNS name; verification succeeds |

@@ -59,11 +59,12 @@ type esConfig struct {
 
 	// CACert / CAPath / ClientCert / ClientKey wire up TLS. Provide the
 	// PEM contents directly via *_pem or paths via the non-pem field.
-	CACert     string `mapstructure:"ca_cert"`
-	CAPath     string `mapstructure:"ca_path"`
-	ClientCert string `mapstructure:"client_cert"`
-	ClientKey  string `mapstructure:"client_key"`
-	Insecure   bool   `mapstructure:"insecure"`
+	CACert        string `mapstructure:"ca_cert"`
+	CAPath        string `mapstructure:"ca_path"`
+	ClientCert    string `mapstructure:"client_cert"`
+	ClientKey     string `mapstructure:"client_key"`
+	TLSServerName string `mapstructure:"tls_server_name"`
+	Insecure      bool   `mapstructure:"insecure"`
 
 	// UseOldXPackAPI toggles between the modern /_security/ prefix
 	// (default; Elasticsearch 7+ and OpenSearch) and the legacy
@@ -332,6 +333,7 @@ func (e *Elasticsearch) newRequest(ctx context.Context, method, path string, bod
 func newHTTPClient(cfg *esConfig) (*http.Client, error) {
 	tlsCfg := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
+		ServerName:         cfg.TLSServerName,
 		InsecureSkipVerify: cfg.Insecure,
 	}
 

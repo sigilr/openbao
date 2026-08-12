@@ -35,6 +35,25 @@ func TestES_StatementParsing(t *testing.T) {
 	require.Equal(t, "Test User", s.FullName)
 }
 
+func TestES_TLSServerName(t *testing.T) {
+	db := newES()
+	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"url":             "https://127.0.0.1:9200",
+			"username":        "elastic",
+			"password":        "elastic",
+			"tls_server_name": "elasticsearch.example.com",
+		},
+		VerifyConnection: false,
+	})
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	transport, ok := db.httpClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Equal(t, "elasticsearch.example.com", transport.TLSClientConfig.ServerName)
+}
+
 // TestES_FakeServer wires Initialize -> NewUser -> UpdateUser -> DeleteUser
 // through an httptest server. Verifies the request shape and routes the
 // plugin sends to the security API, plus that the username producer works

@@ -33,6 +33,7 @@ SQL). It carries its own config + `http.Client` with TLS plumbing.
 | `username` / `password` | yes | Root credentials (typically `elastic`) |
 | `ca_cert` / `ca_path` | no | Custom CA: PEM contents or path |
 | `client_cert` / `client_key` | no | mTLS client identity (PEM) |
+| `tls_server_name` | no | Override the TLS server name used for SNI and certificate verification |
 | `insecure` | no | Skip TLS verification — dev only |
 | `use_old_xpack` | no | Use ES 6's `/_xpack/security/` instead of `/_security/` |
 | `username_template` | no | Override the dynamic-username template |
