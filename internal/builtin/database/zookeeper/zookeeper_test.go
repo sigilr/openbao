@@ -21,6 +21,31 @@ func TestZK_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, db.PluginVersion().Version)
 }
 
+func TestZK_InlineTLS(t *testing.T) {
+	db := newZooKeeper()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"address": "database.example:2281",
+			"use_tls": true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db.tlsConfig)
+	require.Equal(t, "database.example", db.tlsConfig.ServerName)
+	require.False(t, db.tlsConfig.InsecureSkipVerify)
+}
+
+func TestZK_InlineTLSRejectsIncompleteClientIdentity(t *testing.T) {
+	db := newZooKeeper()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"address":         "database.example:2281",
+			"tls_certificate": "certificate",
+		},
+	})
+	require.ErrorContains(t, err, "both tls_certificate and tls_key are required")
+}
+
 func TestZK_NewUserUnsupported(t *testing.T) {
 	db := newZooKeeper()
 	_, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{})

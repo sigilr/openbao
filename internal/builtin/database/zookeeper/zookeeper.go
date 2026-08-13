@@ -24,6 +24,7 @@ package zookeeper
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -33,6 +34,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
 )
 
 const zookeeperTypeName = "zookeeper"
@@ -42,8 +44,9 @@ var ReportedVersion = ""
 
 // ZooKeeper implements dbplugin.Database in static-only mode.
 type ZooKeeper struct {
-	mu     sync.Mutex
-	config *zookeeperConfig
+	mu        sync.Mutex
+	config    *zookeeperConfig
+	tlsConfig *tls.Config
 }
 
 type zookeeperConfig struct {
@@ -101,8 +104,24 @@ func (z *ZooKeeper) Initialize(ctx context.Context, req dbplugin.InitializeReque
 	if cfg.Address == "" {
 		return dbplugin.InitializeResponse{}, errors.New("address is required (host:port)")
 	}
+	tlsSettings, err := dbtls.Decode(req.Config)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+	var tlsConfig *tls.Config
+	if tlsSettings.Configured() {
+		host, _, err := net.SplitHostPort(cfg.Address)
+		if err != nil {
+			return dbplugin.InitializeResponse{}, fmt.Errorf("invalid ZooKeeper address: %w", err)
+		}
+		tlsConfig, err = tlsSettings.Build(host)
+		if err != nil {
+			return dbplugin.InitializeResponse{}, err
+		}
+	}
 
 	z.config = cfg
+	z.tlsConfig = tlsConfig
 
 	if req.VerifyConnection {
 		if err := z.healthcheck(ctx); err != nil {
@@ -145,7 +164,16 @@ func (z *ZooKeeper) DeleteUser(ctx context.Context, req dbplugin.DeleteUserReque
 // treat as a verification failure with a clear hint.
 func (z *ZooKeeper) healthcheck(ctx context.Context) error {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", z.config.Address)
+	var (
+		conn net.Conn
+		err  error
+	)
+	if z.tlsConfig != nil {
+		tlsDialer := &tls.Dialer{NetDialer: dialer, Config: z.tlsConfig}
+		conn, err = tlsDialer.DialContext(ctx, "tcp", z.config.Address)
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", z.config.Address)
+	}
 	if err != nil {
 		return err
 	}
