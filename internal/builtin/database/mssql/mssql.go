@@ -14,13 +14,15 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
-	_ "github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb/msdsn"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/connutil"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 	"github.com/openbao/openbao/sdk/v2/helper/dbtxn"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
 )
 
 const (
@@ -86,6 +88,30 @@ func (m *MSSQL) getConnection(ctx context.Context) (*sql.DB, error) {
 }
 
 func (m *MSSQL) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
+	tlsSettings, err := dbtls.Decode(req.Config)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+	if tlsSettings.Configured() {
+		m.OpenDB = func(_ string, dataSourceName string) (*sql.DB, error) {
+			config, err := msdsn.Parse(dataSourceName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse MSSQL connection URL: %w", err)
+			}
+			tlsConfig, err := tlsSettings.Build(config.Host)
+			if err != nil {
+				return nil, err
+			}
+			config.Encryption = msdsn.EncryptionRequired
+			config.TLSConfig = tlsConfig
+			config.TrustServerCertificate = tlsSettings.Insecure
+			config.HostInCertificateProvided = tlsSettings.ServerName != ""
+			return sql.OpenDB(mssql.NewConnectorConfig(config)), nil
+		}
+	} else {
+		m.OpenDB = nil
+	}
+
 	newConf, err := m.Init(ctx, req.Config, req.VerifyConnection)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, err

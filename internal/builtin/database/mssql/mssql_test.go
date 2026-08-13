@@ -35,6 +35,33 @@ func TestMSSQL_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, db.PluginVersion().Version)
 }
 
+func TestMSSQL_InlineTLS(t *testing.T) {
+	db := newMSSQL()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url": "sqlserver://sa:Pass@database.example:1433?database=master",
+			"use_tls":        true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db.OpenDB)
+
+	opened, err := db.OpenDB("sqlserver", db.ConnectionURL)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+}
+
+func TestMSSQL_InlineTLSRejectsIncompleteClientIdentity(t *testing.T) {
+	db := newMSSQL()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url":  "sqlserver://sa:Pass@database.example:1433?database=master",
+			"tls_certificate": "certificate",
+		},
+	})
+	require.ErrorContains(t, err, "both tls_certificate and tls_key are required")
+}
+
 func TestMSSQL_UsernameTemplate(t *testing.T) {
 	db := newMSSQL()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
