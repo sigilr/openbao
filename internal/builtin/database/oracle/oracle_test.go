@@ -34,6 +34,33 @@ func TestOracle_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, db.PluginVersion().Version)
 }
 
+func TestOracle_InlineTLS(t *testing.T) {
+	db := newOracle()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url": "oracle://user:pass@database.example:1521/xe",
+			"use_tls":        true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db.OpenDB)
+
+	opened, err := db.OpenDB("oracle", db.ConnectionURL)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+}
+
+func TestOracle_InlineTLSRejectsIncompleteClientIdentity(t *testing.T) {
+	db := newOracle()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url":  "oracle://user:pass@database.example:1521/xe",
+			"tls_certificate": "certificate",
+		},
+	})
+	require.ErrorContains(t, err, "both tls_certificate and tls_key are required")
+}
+
 func TestOracle_UsernameTemplate(t *testing.T) {
 	db := newOracle()
 	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{

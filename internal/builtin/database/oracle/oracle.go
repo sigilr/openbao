@@ -24,6 +24,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -34,7 +35,8 @@ import (
 	"github.com/openbao/openbao/sdk/v2/helper/dbtxn"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
-	_ "github.com/sijms/go-ora/v2"
+	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
+	go_ora "github.com/sijms/go-ora/v2"
 )
 
 const (
@@ -82,6 +84,33 @@ func (o *Oracle) secretValues() map[string]string {
 }
 
 func (o *Oracle) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
+	tlsSettings, err := dbtls.Decode(req.Config)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+	if tlsSettings.Configured() {
+		o.OpenDB = func(_ string, dataSourceName string) (*sql.DB, error) {
+			parsed, err := url.Parse(dataSourceName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse Oracle connection URL: %w", err)
+			}
+			tlsConfig, err := tlsSettings.Build(parsed.Hostname())
+			if err != nil {
+				return nil, err
+			}
+			query := parsed.Query()
+			query.Set("SSL", "enabled")
+			query.Set("SSL VERIFY", fmt.Sprintf("%t", !tlsSettings.Insecure))
+			parsed.RawQuery = query.Encode()
+
+			connector := go_ora.NewConnector(parsed.String()).(*go_ora.OracleConnector)
+			connector.WithTLSConfig(tlsConfig)
+			return sql.OpenDB(connector), nil
+		}
+	} else {
+		o.OpenDB = nil
+	}
+
 	newConf, err := o.Init(ctx, req.Config, req.VerifyConnection)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, err
