@@ -45,6 +45,33 @@ func TestHANA_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, pv.Version)
 }
 
+func TestHANA_InlineTLS(t *testing.T) {
+	db := newHANA()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url": "hdb://user:pass@database.example:39041",
+			"use_tls":        true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db.OpenDB)
+
+	opened, err := db.OpenDB("hdb", db.ConnectionURL)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+}
+
+func TestHANA_InlineTLSRejectsIncompleteClientIdentity(t *testing.T) {
+	db := newHANA()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url":  "hdb://user:pass@database.example:39041",
+			"tls_certificate": "certificate",
+		},
+	})
+	require.ErrorContains(t, err, "both tls_certificate and tls_key are required")
+}
+
 // TestHANA_UsernameTemplate validates the default template produces the
 // HANA-safe identifier shape (uppercased, underscores, length-capped).
 func TestHANA_UsernameTemplate(t *testing.T) {

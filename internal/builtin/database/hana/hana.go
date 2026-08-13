@@ -9,9 +9,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
-	_ "github.com/SAP/go-hdb/driver"
+	hdbdriver "github.com/SAP/go-hdb/driver"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/connutil"
@@ -19,6 +20,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/helper/dbtxn"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
 )
 
 const (
@@ -66,6 +68,31 @@ func (h *HANA) secretValues() map[string]string {
 }
 
 func (h *HANA) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
+	tlsSettings, err := dbtls.Decode(req.Config)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+	if tlsSettings.Configured() {
+		h.OpenDB = func(_ string, dataSourceName string) (*sql.DB, error) {
+			parsed, err := url.Parse(dataSourceName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse HANA connection URL: %w", err)
+			}
+			tlsConfig, err := tlsSettings.Build(parsed.Hostname())
+			if err != nil {
+				return nil, err
+			}
+			connector, err := hdbdriver.NewDSNConnector(dataSourceName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create HANA connector: %w", err)
+			}
+			connector.SetTLSConfig(tlsConfig)
+			return sql.OpenDB(connector), nil
+		}
+	} else {
+		h.OpenDB = nil
+	}
+
 	conf, err := h.Init(ctx, req.Config, req.VerifyConnection)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("error initializing db: %w", err)
