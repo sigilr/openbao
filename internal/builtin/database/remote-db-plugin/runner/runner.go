@@ -29,6 +29,7 @@ import (
 
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
+	dbHana "github.com/openbao/openbao/v2/internal/builtin/database/hana"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "hana-database-plugin":
+		factory = dbHana.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
