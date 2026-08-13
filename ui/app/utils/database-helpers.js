@@ -102,6 +102,31 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'zookeeper-database-plugin',
+    displayName: 'Apache ZooKeeper (static-only)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'address', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+    ],
+  },
+  {
+    value: 'remote-zookeeper-plugin',
+    displayName: 'Apache ZooKeeper (Remote, static-only)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'address', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +142,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'zookeeper-database-plugin': [],
+    'remote-zookeeper-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +157,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'zookeeper-database-plugin': [],
+    'remote-zookeeper-plugin': [],
   },
 };
 
