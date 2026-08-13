@@ -21,6 +21,45 @@ func TestNeo4j_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, db.PluginVersion().Version)
 }
 
+func TestNeo4j_InlineTLS(t *testing.T) {
+	db := newNeo4j()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"uri":      "neo4j://database.example:7687",
+			"username": "neo4j",
+			"password": "password",
+			"use_tls":  true,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "neo4j+s://database.example:7687", db.config.URI)
+	require.NotNil(t, db.driver)
+	require.NoError(t, db.Close())
+}
+
+func TestNeo4j_InlineTLSInsecureIsExplicit(t *testing.T) {
+	scheme, err := secureScheme("bolt+ssc", false)
+	require.NoError(t, err)
+	require.Equal(t, "bolt+s", scheme)
+
+	scheme, err = secureScheme("bolt", true)
+	require.NoError(t, err)
+	require.Equal(t, "bolt+ssc", scheme)
+}
+
+func TestNeo4j_InlineTLSRejectsIncompleteClientIdentity(t *testing.T) {
+	db := newNeo4j()
+	_, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"uri":             "neo4j://database.example:7687",
+			"username":        "neo4j",
+			"password":        "password",
+			"tls_certificate": "certificate",
+		},
+	})
+	require.ErrorContains(t, err, "both tls_certificate and tls_key are required")
+}
+
 func TestNeo4j_StatementParsing(t *testing.T) {
 	raw := `{"roles":["reader","editor"]}`
 	var s neo4jStatement

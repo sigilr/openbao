@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 
 	"github.com/hashicorp/go-secure-stdlib/strutil"
@@ -21,6 +22,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
 )
 
 const (
@@ -113,7 +115,33 @@ func (n *Neo4j) Initialize(ctx context.Context, req dbplugin.InitializeRequest) 
 		cfg.Database = "system"
 	}
 
-	driver, err := neo4j.NewDriverWithContext(cfg.URI, neo4j.BasicAuth(cfg.Username, cfg.Password, ""))
+	tlsSettings, err := dbtls.Decode(req.Config)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
+	parsedURI, err := url.Parse(cfg.URI)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid Neo4j URI: %w", err)
+	}
+	if tlsSettings.Configured() || parsedURI.Scheme == "bolt+ssc" || parsedURI.Scheme == "neo4j+ssc" {
+		parsedURI.Scheme, err = secureScheme(parsedURI.Scheme, tlsSettings.Insecure)
+		if err != nil {
+			return dbplugin.InitializeResponse{}, err
+		}
+		cfg.URI = parsedURI.String()
+	}
+
+	var configurers []func(*neo4j.Config)
+	if tlsSettings.Configured() {
+		tlsConfig, err := tlsSettings.Build(parsedURI.Hostname())
+		if err != nil {
+			return dbplugin.InitializeResponse{}, err
+		}
+		configurers = append(configurers, func(config *neo4j.Config) {
+			config.TlsConfig = tlsConfig
+		})
+	}
+	driver, err := neo4j.NewDriverWithContext(cfg.URI, neo4j.BasicAuth(cfg.Username, cfg.Password, ""), configurers...)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("neo4j driver: %w", err)
 	}
@@ -144,6 +172,21 @@ func (n *Neo4j) Initialize(ctx context.Context, req dbplugin.InitializeRequest) 
 	}
 
 	return dbplugin.InitializeResponse{Config: req.Config}, nil
+}
+
+func secureScheme(scheme string, insecure bool) (string, error) {
+	suffix := "+s"
+	if insecure {
+		suffix = "+ssc"
+	}
+	switch scheme {
+	case "bolt", "bolt+s", "bolt+ssc":
+		return "bolt" + suffix, nil
+	case "neo4j", "neo4j+s", "neo4j+ssc":
+		return "neo4j" + suffix, nil
+	default:
+		return "", fmt.Errorf("unsupported Neo4j URI scheme %q", scheme)
+	}
 }
 
 // NewUser creates a user via Cypher and grants each role in the statement.
