@@ -29,6 +29,7 @@ import (
 	"github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	"github.com/openbao/openbao/v2/internal/helper/builtinplugins"
 	"github.com/openbao/openbao/v2/internal/helper/namespace"
+	"github.com/openbao/openbao/v2/internal/helper/testhelpers/certhelpers"
 	vaulthttp "github.com/openbao/openbao/v2/internal/http"
 	"github.com/openbao/openbao/v2/internal/vault"
 	"github.com/stretchr/testify/require"
@@ -463,6 +464,56 @@ func TestBackend_basic(t *testing.T) {
 	}
 }
 
+func TestBackend_connectionSanitizePrivateKey(t *testing.T) {
+	cluster, sys := getCluster(t)
+	defer cluster.Cleanup()
+
+	config := logical.TestBackendConfig()
+	config.StorageView = &logical.InmemStorage{}
+	config.System = sys
+
+	b, err := Factory(t.Context(), config)
+	require.NoError(t, err)
+	defer b.Cleanup(t.Context())
+
+	caCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("test certificate authority"),
+		certhelpers.IsCA(true),
+		certhelpers.SelfSign(),
+	)
+	clientCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("postgresql client"),
+		certhelpers.Parent(caCert),
+	)
+
+	req := &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "config/plugin-test",
+		Storage:   config.StorageView,
+		Data: map[string]any{
+			"connection_url":    "test",
+			"plugin_name":       "postgresql-database-plugin",
+			"verify_connection": false,
+			"tls_ca":            string(caCert.Pem),
+			"tls_certificate":   string(clientCert.Pem),
+			"private_key":       string(clientCert.PrivateKeyPEM()),
+		},
+	}
+	resp, err := b.HandleRequest(namespace.RootContext(t.Context()), req)
+	require.NoErrorf(t, err, "err:%s resp:%#v\n", err, resp)
+	require.Falsef(t, resp != nil && resp.IsError(), "err:%s resp:%#v\n", err, resp)
+
+	req.Operation = logical.ReadOperation
+	resp, err = b.HandleRequest(namespace.RootContext(t.Context()), req)
+	require.NoErrorf(t, err, "err:%s resp:%#v\n", err, resp)
+	require.Falsef(t, resp != nil && resp.IsError(), "err:%s resp:%#v\n", err, resp)
+
+	returnedConnectionDetails := resp.Data["connection_details"].(map[string]any)
+	require.NotContainsf(t, returnedConnectionDetails, "private_key", "private_key should NOT be found in the returned config")
+}
+
 func TestBackend_connectionCrud(t *testing.T) {
 	cluster, sys := getCluster(t)
 	defer cluster.Cleanup()
@@ -519,7 +570,6 @@ func TestBackend_connectionCrud(t *testing.T) {
 		"allowed_roles":  []string{"plugin-role-test"},
 		"username":       "postgres",
 		"password":       "secret",
-		"private_key":    "PRIVATE_KEY",
 	}
 	req = &logical.Request{
 		Operation: logical.UpdateOperation,
@@ -540,7 +590,6 @@ func TestBackend_connectionCrud(t *testing.T) {
 	require.NotContainsf(t, returnedConnectionDetails["connection_url"].(string), "secret", "password should not be found in the connection url")
 	// Covered by the filled out `expected` value below, but be explicit about this requirement.
 	require.NotContainsf(t, returnedConnectionDetails, "password", "password should NOT be found in the returned config")
-	require.NotContainsf(t, returnedConnectionDetails, "private_key", "private_key should NOT be found in the returned config")
 
 	// Replace connection url with templated version
 	req.Operation = logical.UpdateOperation
