@@ -90,7 +90,7 @@ func TestPostgreSQL_InitializeWithInlineTLS(t *testing.T) {
 			"password":        "password",
 			"tls_ca":          string(caCert.Pem),
 			"tls_certificate": string(clientCert.Pem),
-			"tls_key":         string(clientCert.PrivateKeyPEM()),
+			"private_key":     string(clientCert.PrivateKeyPEM()),
 		},
 		VerifyConnection: false,
 	})
@@ -101,7 +101,7 @@ func TestPostgreSQL_InitializeWithInlineTLS(t *testing.T) {
 	require.True(t, db.TLSConfig.RootCAs.Equal(expectedRootCAs))
 	require.Len(t, db.TLSConfig.Certificates, 1)
 	require.Equal(t, string(caCert.Pem), resp.Config["tls_ca"])
-	require.Equal(t, "[tls_key]", db.secretValues()[string(clientCert.PrivateKeyPEM())])
+	require.Equal(t, "[private_key]", db.secretValues()[string(clientCert.PrivateKeyPEM())])
 }
 
 func TestPostgreSQL_InitializeInlineTLSErrors(t *testing.T) {
@@ -127,18 +127,18 @@ func TestPostgreSQL_InitializeInlineTLSErrors(t *testing.T) {
 		},
 		"certificate without key": {
 			config:      map[string]any{"tls_certificate": string(clientCert.Pem)},
-			errContains: "both tls_certificate and tls_key are required",
+			errContains: "both tls_certificate and private_key are required",
 		},
 		"key without certificate": {
-			config:      map[string]any{"tls_key": string(clientCert.PrivateKeyPEM())},
-			errContains: "both tls_certificate and tls_key are required",
+			config:      map[string]any{"private_key": string(clientCert.PrivateKeyPEM())},
+			errContains: "both tls_certificate and private_key are required",
 		},
 		"invalid certificate and key": {
 			config: map[string]any{
 				"tls_certificate": string(clientCert.Pem),
-				"tls_key":         "not PEM",
+				"private_key":     "not PEM",
 			},
-			errContains: "unable to load tls_certificate and tls_key",
+			errContains: "unable to load tls_certificate and private_key",
 		},
 	}
 
