@@ -92,9 +92,9 @@ func (p *PostgreSQL) Initialize(ctx context.Context, req dbplugin.InitializeRequ
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("failed to retrieve tls_certificate: %w", err)
 	}
-	privateKey, err := strutil.GetString(req.Config, "private_key")
+	privateKey, err := strutil.GetString(req.Config, "tls_key")
 	if err != nil {
-		return dbplugin.InitializeResponse{}, fmt.Errorf("failed to retrieve private_key: %w", err)
+		return dbplugin.InitializeResponse{}, fmt.Errorf("failed to retrieve tls_key: %w", err)
 	}
 	p.tlsPrivateKey = privateKey
 	ca, err := strutil.GetString(req.Config, "tls_ca")
@@ -114,12 +114,12 @@ func (p *PostgreSQL) Initialize(ctx context.Context, req dbplugin.InitializeRequ
 	}
 
 	if (certificate == "") != (privateKey == "") {
-		return dbplugin.InitializeResponse{}, errors.New("both tls_certificate and private_key are required")
+		return dbplugin.InitializeResponse{}, errors.New("both tls_certificate and tls_key are required")
 	}
 	if certificate != "" {
 		clientCertificate, err := tls.X509KeyPair([]byte(certificate), []byte(privateKey))
 		if err != nil {
-			return dbplugin.InitializeResponse{}, fmt.Errorf("unable to load tls_certificate and private_key: %w", err)
+			return dbplugin.InitializeResponse{}, fmt.Errorf("unable to load tls_certificate and tls_key: %w", err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCertificate}
 		useTLS = true
@@ -564,7 +564,7 @@ func (p *PostgreSQL) defaultDeleteUser(ctx context.Context, username string) err
 func (p *PostgreSQL) secretValues() map[string]string {
 	return map[string]string{
 		p.Password:      "[password]",
-		p.tlsPrivateKey: "[private_key]",
+		p.tlsPrivateKey: "[tls_key]",
 	}
 }
 
