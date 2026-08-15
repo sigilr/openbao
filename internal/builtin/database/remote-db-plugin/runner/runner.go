@@ -36,6 +36,7 @@ import (
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
+	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
 )
 
@@ -414,6 +415,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbMSSQL.New
 	case "oracle-database-plugin":
 		factory = dbOracle.New
+	case "rabbitmq-database-plugin":
+		factory = dbRabbitmq.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

@@ -182,6 +182,25 @@ export const AVAILABLE_PLUGIN_TYPES = [
     ],
   },
   {
+    value: 'rabbitmq-database-plugin',
+    displayName: 'RabbitMQ',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'connection_uri', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'tls_ca', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_certificate', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
     value: 'remote-elasticsearch-plugin',
     displayName: 'Elasticsearch (Remote)',
     fields: [
@@ -260,6 +279,26 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'remote-rabbitmq-plugin',
+    displayName: 'RabbitMQ (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'connection_uri', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'tls_ca', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_certificate', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -283,6 +322,8 @@ export const STATEMENT_FIELDS = {
     'remote-mssql-plugin': [],
     'oracle-database-plugin': [],
     'remote-oracle-plugin': [],
+    'rabbitmq-database-plugin': [],
+    'remote-rabbitmq-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -304,6 +345,8 @@ export const STATEMENT_FIELDS = {
     'remote-mssql-plugin': ['creation_statements', 'revocation_statements'],
     'oracle-database-plugin': ['creation_statements', 'revocation_statements'],
     'remote-oracle-plugin': ['creation_statements', 'revocation_statements'],
+    'rabbitmq-database-plugin': ['creation_statements'],
+    'remote-rabbitmq-plugin': ['creation_statements'],
   },
 };
 

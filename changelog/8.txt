@@ -1,0 +1,3 @@
+```release-note:change
+secrets/rabbitmq: the standalone `rabbitmq/` secrets engine has been removed. RabbitMQ credential management is now available as `rabbitmq-database-plugin` (and `remote-rabbitmq-plugin` for remote-db-plugin hub/spoke) under the unified `database/` secrets engine, giving it shared lease tracking and root-credential rotation with the rest of the database plugins, plus new `tls_ca`/`tls_certificate`/`tls_key`/`insecure` connection options. Existing `rabbitmq/` mounts must be migrated: re-create roles as `creation_statements` JSON documents (same `tags`/`vhosts`/`vhost_topics` shape as before) under `database/roles/...` against a `database/config/...` entry configured with `plugin_name=rabbitmq-database-plugin`.
+```
