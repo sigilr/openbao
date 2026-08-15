@@ -346,6 +346,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/custom",
                         "secrets/databases/influxdb",
                         "secrets/databases/mongodb",
+                        "secrets/databases/mssql",
                         "secrets/databases/mysql-maria",
                         "secrets/databases/postgresql",
                         "secrets/databases/valkey",
