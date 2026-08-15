@@ -23,8 +23,12 @@ const sidebars: SidebarsConfig = {
           Databases: [
             "secret/databases/index",
             "secret/databases/cassandra",
+            "secret/databases/elasticsearch",
             "secret/databases/influxdb",
+            "secret/databases/mongodb",
+            "secret/databases/mssql",
             "secret/databases/mysql-maria",
+            "secret/databases/oracle",
             "secret/databases/postgresql",
             "secret/databases/rabbitmq",
             "secret/databases/valkey",

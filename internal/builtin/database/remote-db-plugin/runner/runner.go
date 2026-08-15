@@ -29,8 +29,12 @@ import (
 
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
+	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
+	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
+	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
+	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
@@ -403,6 +407,14 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "elasticsearch-database-plugin":
+		factory = dbES.New
+	case "mongodb-database-plugin":
+		factory = dbMongo.New
+	case "mssql-database-plugin":
+		factory = dbMSSQL.New
+	case "oracle-database-plugin":
+		factory = dbOracle.New
 	case "rabbitmq-database-plugin":
 		factory = dbRabbitmq.New
 	default:
