@@ -4,12 +4,48 @@
 package connutil
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+type noopConnector struct{}
+
+func (noopConnector) Connect(context.Context) (driver.Conn, error) {
+	return nil, assert.AnError
+}
+
+func (noopConnector) Driver() driver.Driver { return noopDriver{} }
+
+type noopDriver struct{}
+
+func (noopDriver) Open(string) (driver.Conn, error) { return nil, assert.AnError }
+
+func TestSQLConnectionProducerOpenDB(t *testing.T) {
+	t.Parallel()
+
+	producer := &SQLConnectionProducer{Type: "hdb"}
+	var gotDriver, gotDSN string
+	producer.OpenDB = func(driverName, dataSourceName string) (*sql.DB, error) {
+		gotDriver, gotDSN = driverName, dataSourceName
+		return sql.OpenDB(noopConnector{}), nil
+	}
+
+	_, err := producer.Init(t.Context(), map[string]any{
+		"connection_url": "hdb://user:password@database.example:39041",
+	}, false)
+	assert.NoError(t, err)
+
+	_, err = producer.Connection(t.Context())
+	assert.NoError(t, err)
+	assert.Equal(t, "hdb", gotDriver)
+	assert.Equal(t, "hdb://user:password@database.example:39041", gotDSN)
+}
 
 func TestSQLPasswordChars(t *testing.T) {
 	testCases := []struct {

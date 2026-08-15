@@ -28,6 +28,7 @@ import (
 	"time"
 
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
+	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -405,6 +406,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbInflux.New
 	case "mongodb-database-plugin":
 		factory = dbMongo.New
+	case "mssql-database-plugin":
+		factory = dbMSSQL.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
