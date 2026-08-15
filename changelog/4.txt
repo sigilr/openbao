@@ -1,0 +1,3 @@
+```release-note:feature
+plugins/database: add the MongoDB database plugin (mongodb-database-plugin).
+```
