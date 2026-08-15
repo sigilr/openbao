@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -402,6 +403,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "mongodb-database-plugin":
+		factory = dbMongo.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
