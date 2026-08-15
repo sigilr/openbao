@@ -33,6 +33,7 @@ import (
 	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
+	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbValkey "github.com/openbao/openbao/v2/internal/builtin/database/valkey"
 )
@@ -408,6 +409,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbMongo.New
 	case "mssql-database-plugin":
 		factory = dbMSSQL.New
+	case "oracle-database-plugin":
+		factory = dbOracle.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

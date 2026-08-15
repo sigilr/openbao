@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
             "secret/databases/mongodb",
             "secret/databases/mssql",
             "secret/databases/mysql-maria",
+            "secret/databases/oracle",
             "secret/databases/postgresql",
             "secret/databases/valkey",
           ],
