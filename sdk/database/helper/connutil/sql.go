@@ -30,6 +30,9 @@ type SQLConnectionProducer struct {
 	Username                 string `json:"username" mapstructure:"username" structs:"username"`
 	Password                 string `json:"password" mapstructure:"password" structs:"password"`
 	DisableEscaping          bool   `json:"disable_escaping" mapstructure:"disable_escaping" structs:"disable_escaping"`
+	// OpenDB optionally replaces sql.Open for plugins that need to construct a
+	// driver-native connector (for example, to supply an in-memory TLS config).
+	OpenDB func(driverName, dataSourceName string) (*sql.DB, error) `json:"-" mapstructure:"-" structs:"-"`
 
 	Type                  string
 	RawConfig             map[string]any
@@ -159,7 +162,11 @@ func (c *SQLConnectionProducer) Connection(ctx context.Context) (any, error) {
 	}
 
 	var err error
-	c.db, err = sql.Open(dbType, conn)
+	if c.OpenDB != nil {
+		c.db, err = c.OpenDB(dbType, conn)
+	} else {
+		c.db, err = sql.Open(dbType, conn)
+	}
 	if err != nil {
 		return nil, err
 	}
