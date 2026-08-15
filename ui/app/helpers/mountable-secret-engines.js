@@ -23,11 +23,6 @@ const MOUNTABLE_SECRET_ENGINES = [
     category: 'generic',
   },
   {
-    displayName: 'RabbitMQ',
-    type: 'rabbitmq',
-    category: 'infra',
-  },
-  {
     displayName: 'SSH',
     type: 'ssh',
     category: 'generic',

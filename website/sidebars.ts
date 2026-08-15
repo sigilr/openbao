@@ -352,6 +352,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/mysql-maria",
                         "secrets/databases/oracle",
                         "secrets/databases/postgresql",
+                        "secrets/databases/rabbitmq",
                         "secrets/databases/valkey",
                     ],
                     Identity: [
@@ -379,7 +380,6 @@ const sidebars: SidebarsConfig = {
                         "secrets/pki/rotation-primitives",
                     ],
                 },
-                "secrets/rabbitmq",
                 {
                     SSH: [
                         "secrets/ssh/index",
@@ -564,7 +564,6 @@ const sidebars: SidebarsConfig = {
                 "api/secret/kubernetes",
                 "api/secret/ldap",
                 "api/secret/pki",
-                "api/secret/rabbitmq",
                 "api/secret/ssh",
                 "api/secret/totp",
                 "api/secret/transit",

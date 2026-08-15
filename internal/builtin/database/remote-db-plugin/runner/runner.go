@@ -31,6 +31,7 @@ import (
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
+	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -414,6 +415,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbMSSQL.New
 	case "oracle-database-plugin":
 		factory = dbOracle.New
+	case "rabbitmq-database-plugin":
+		factory = dbRabbitmq.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
