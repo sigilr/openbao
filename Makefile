@@ -249,7 +249,10 @@ mongodb-database-plugin:
 mssql-database-plugin:
 	@CGO_ENABLED=0 go build -o bin/mssql-database-plugin ./internal/builtin/database/mssql/mssql-database-plugin
 
-.PHONY: bin default prep test vet bootstrap fmt fmtcheck mssql-database-plugin mongodb-database-plugin mysql-database-plugin mysql-legacy-database-plugin cassandra-database-plugin influxdb-database-plugin postgresql-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
+oracle-database-plugin:
+	@CGO_ENABLED=0 go build -o bin/oracle-database-plugin ./internal/builtin/database/oracle/oracle-database-plugin
+
+.PHONY: bin default prep test vet bootstrap fmt fmtcheck oracle-database-plugin mssql-database-plugin mongodb-database-plugin mysql-database-plugin mysql-legacy-database-plugin cassandra-database-plugin influxdb-database-plugin postgresql-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
 
 .NOTPARALLEL: ember-dist ember-dist-dev
 

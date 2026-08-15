@@ -385,3 +385,5 @@ require (
 )
 
 require github.com/microsoft/go-mssqldb v1.10.0
+
+require github.com/sijms/go-ora/v2 v2.9.0

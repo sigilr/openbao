@@ -3886,9 +3886,9 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 			"keys": []string{
 				"cassandra-database-plugin", "influxdb-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
-				"postgresql-database-plugin", "redis-database-plugin",
+				"oracle-database-plugin", "postgresql-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
+				"remote-oracle-plugin", "remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
 		}); diff != nil {
@@ -3917,9 +3917,9 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 			"database": []string{
 				"cassandra-database-plugin", "influxdb-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
-				"postgresql-database-plugin", "redis-database-plugin",
+				"oracle-database-plugin", "postgresql-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
+				"remote-oracle-plugin", "remote-postgres-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
 			"detailed": []map[string]any{{
@@ -3983,6 +3983,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"type":               "database",
 				"version":            "v2.0.0+builtin.bao",
 			}, {
+				"name":               "oracle-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
 				"name":               "postgresql-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
@@ -4020,6 +4026,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "remote-mysql-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-oracle-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

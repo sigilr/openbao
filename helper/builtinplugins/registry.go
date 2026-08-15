@@ -24,6 +24,7 @@ import (
 	logicalTransit "github.com/openbao/openbao/builtin/logical/transit"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
+	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
 	dbRemote "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
 	logicalRelay "github.com/openbao/openbao/internal/builtin/logical/relay"
 	dbCass "github.com/openbao/openbao/plugins/database/cassandra"
@@ -86,6 +87,7 @@ func newRegistry() *registry {
 			"influxdb-database-plugin":   {Factory: dbInflux.New},
 			"mongodb-database-plugin":    {Factory: dbMongo.New},
 			"mssql-database-plugin":      {Factory: dbMSSQL.New},
+			"oracle-database-plugin":     {Factory: dbOracle.New},
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
@@ -97,6 +99,7 @@ func newRegistry() *registry {
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
 			"remote-mongodb-plugin":      {Factory: dbRemote.New("mongodb-database-plugin")},
 			"remote-mssql-plugin":        {Factory: dbRemote.New("mssql-database-plugin")},
+			"remote-oracle-plugin":       {Factory: dbRemote.New("oracle-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},

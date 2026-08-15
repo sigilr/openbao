@@ -143,6 +143,24 @@ export const AVAILABLE_PLUGIN_TYPES = [
     ],
   },
   {
+    value: 'oracle-database-plugin',
+    displayName: 'Oracle',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'max_open_connections', group: 'pluginConfig' },
+      { attr: 'max_idle_connections', group: 'pluginConfig' },
+      { attr: 'max_connection_lifetime', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
     value: 'remote-mongodb-plugin',
     displayName: 'MongoDB (Remote)',
     fields: [
@@ -181,6 +199,25 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'remote-oracle-plugin',
+    displayName: 'Oracle (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'max_open_connections', group: 'pluginConfig' },
+      { attr: 'max_idle_connections', group: 'pluginConfig' },
+      { attr: 'max_connection_lifetime', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -200,6 +237,8 @@ export const STATEMENT_FIELDS = {
     'remote-mongodb-plugin': [],
     'mssql-database-plugin': [],
     'remote-mssql-plugin': [],
+    'oracle-database-plugin': [],
+    'remote-oracle-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -217,6 +256,8 @@ export const STATEMENT_FIELDS = {
     'remote-mongodb-plugin': ['creation_statements', 'revocation_statements'],
     'mssql-database-plugin': ['creation_statements', 'revocation_statements'],
     'remote-mssql-plugin': ['creation_statements', 'revocation_statements'],
+    'oracle-database-plugin': ['creation_statements', 'revocation_statements'],
+    'remote-oracle-plugin': ['creation_statements', 'revocation_statements'],
   },
 };
 
