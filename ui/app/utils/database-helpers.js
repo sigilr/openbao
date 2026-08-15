@@ -102,6 +102,46 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'mongodb-database-plugin',
+    displayName: 'MongoDB',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'write_concern', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'tls_ca', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_certificate_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'socket_timeout', group: 'pluginConfig' },
+      { attr: 'connect_timeout', group: 'pluginConfig' },
+      { attr: 'server_selection_timeout', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
+    value: 'remote-mongodb-plugin',
+    displayName: 'MongoDB (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'connection_url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'write_concern', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'tls_ca', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'tls_certificate_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -117,6 +157,8 @@ export const STATEMENT_FIELDS = {
     'mysql-legacy-database-plugin': [],
     'mysql-rds-database-plugin': [],
     'postgresql-database-plugin': [],
+    'mongodb-database-plugin': [],
+    'remote-mongodb-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -130,6 +172,8 @@ export const STATEMENT_FIELDS = {
       'rollback_statements',
       'renew_statements',
     ],
+    'mongodb-database-plugin': ['creation_statements', 'revocation_statements'],
+    'remote-mongodb-plugin': ['creation_statements', 'revocation_statements'],
   },
 };
 

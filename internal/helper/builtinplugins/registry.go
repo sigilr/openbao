@@ -18,6 +18,7 @@ import (
 	credUserpass "github.com/openbao/openbao/v2/internal/builtin/credential/userpass"
 	dbCass "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
+	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
 	dbMysql "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRemote "github.com/openbao/openbao/v2/internal/builtin/database/remote-db-plugin"
@@ -82,6 +83,7 @@ func newRegistry() *registry {
 
 			"cassandra-database-plugin":  {Factory: dbCass.New},
 			"influxdb-database-plugin":   {Factory: dbInflux.New},
+			"mongodb-database-plugin":    {Factory: dbMongo.New},
 			"postgresql-database-plugin": {Factory: dbPostgres.New},
 			"redis-database-plugin":      {Factory: dbValkey.New},
 			"valkey-database-plugin":     {Factory: dbValkey.New},
@@ -91,6 +93,7 @@ func newRegistry() *registry {
 			"remote-postgres-plugin":     {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-redis-plugin":        {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-valkey-plugin":       {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-mongodb-plugin":      {Factory: dbRemote.New("mongodb-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},
