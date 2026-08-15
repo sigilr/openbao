@@ -107,6 +107,7 @@ $ bao read database/creds/readonly
 | `remote-valkey-plugin` | `valkey-database-plugin` |
 | `remote-cassandra-plugin` | `cassandra-database-plugin` |
 | `remote-influxdb-plugin` | `influxdb-database-plugin` |
+| `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
 | `remote-mongodb-plugin` | `mongodb-database-plugin` |
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |
 | `remote-oracle-plugin` | `oracle-database-plugin` |
