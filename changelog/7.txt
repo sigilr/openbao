@@ -1,0 +1,3 @@
+```release-note:feature
+plugins/database: add the Elasticsearch / OpenSearch database plugin (elasticsearch-database-plugin).
+```

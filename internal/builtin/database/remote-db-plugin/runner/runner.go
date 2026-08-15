@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
@@ -405,6 +406,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "elasticsearch-database-plugin":
+		factory = dbES.New
 	case "mongodb-database-plugin":
 		factory = dbMongo.New
 	case "mssql-database-plugin":
