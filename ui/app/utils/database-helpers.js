@@ -299,6 +299,39 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'neo4j-database-plugin',
+    displayName: 'Neo4j',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'uri', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'database', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
+    value: 'remote-neo4j-plugin',
+    displayName: 'Neo4j (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'uri', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'database', group: 'pluginConfig' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -324,6 +357,8 @@ export const STATEMENT_FIELDS = {
     'remote-oracle-plugin': [],
     'rabbitmq-database-plugin': [],
     'remote-rabbitmq-plugin': [],
+    'neo4j-database-plugin': [],
+    'remote-neo4j-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -347,6 +382,8 @@ export const STATEMENT_FIELDS = {
     'remote-oracle-plugin': ['creation_statements', 'revocation_statements'],
     'rabbitmq-database-plugin': ['creation_statements'],
     'remote-rabbitmq-plugin': ['creation_statements'],
+    'neo4j-database-plugin': ['creation_statements'],
+    'remote-neo4j-plugin': ['creation_statements'],
   },
 };
 
