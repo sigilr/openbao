@@ -5,9 +5,10 @@ SPDX-License-Identifier: MPL-2.0
 
 # Apache Ignite Database Plugin
 
-Issues dynamic credentials against Apache Ignite via its REST API and
-native SQL `CREATE USER` DDL. Available as `ignite-database-plugin`
-(built-in) and `remote-ignite-plugin` (proxied through a spoke).
+Issues dynamic credentials against Apache Ignite via the thin client
+binary protocol and native SQL `CREATE USER` DDL. Available as
+`ignite-database-plugin` (built-in) and `remote-ignite-plugin`
+(proxied through a spoke).
 
 See [DESIGN.md](DESIGN.md) and [TEST.md](TEST.md).
 
@@ -21,7 +22,7 @@ $ bao secrets enable database
 
 $ bao write database/config/ignite \
     plugin_name=ignite-database-plugin \
-    url=http://ignite.example.com:8080 \
+    url=tcp://ignite.example.com:10800 \
     username=ignite password=ignite \
     allowed_roles=reader
 
@@ -36,9 +37,9 @@ $ bao write database/roles/reader \
 | Field | Required | Description |
 | --- | --- | --- |
 | `plugin_name` | yes | `ignite-database-plugin` or `remote-ignite-plugin` |
-| `url` | yes | Ignite REST base URL |
+| `url` | yes* | Thin client target; only host/port are used (e.g. `tcp://ignite:10800`) |
+| `host` / `port` | no | Explicit override of `url`; port defaults to 10800 |
 | `username` / `password` | yes | Root credentials |
-| `cache_name` | no | Default `PUBLIC` |
 | `ca_cert` / `ca_path` | no | Custom CA PEM (string or path) |
 | `client_cert` / `client_key` | no | mTLS PEM client identity |
 | `insecure` | no | Skip TLS verify (dev only) |

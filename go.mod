@@ -26,6 +26,7 @@ replace github.com/boltdb/bolt => ./internal/helper/stubbolt
 require (
 	cloud.google.com/go/monitoring v1.29.0
 	github.com/ProtonMail/go-crypto v1.4.1
+	github.com/amsokol/ignite-go-client v0.12.2
 	github.com/armon/go-radix v1.0.0
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/cenkalti/backoff/v5 v5.0.3

@@ -2,27 +2,27 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Package ignite implements an OpenBao v5 database plugin for Apache
-// Ignite using the Ignite REST API. Dynamic credentials become native
-// SQL users created via CREATE USER / ALTER USER / DROP USER, which
-// Ignite 2.5+ supports when persistence is enabled and
-// `authenticationEnabled=true` is set on the cluster.
+// Ignite using the thin client binary protocol (port 10800). Dynamic
+// credentials become native SQL users created via CREATE USER / ALTER
+// USER / DROP USER, which Ignite 2.5+ supports when persistence is
+// enabled and `authenticationEnabled=true` is set on the cluster.
 package ignite
 
 import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
+	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	ignite "github.com/amsokol/ignite-go-client/binary/v1"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"github.com/mitchellh/mapstructure"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
@@ -34,29 +34,39 @@ import (
 const (
 	igniteTypeName = "ignite"
 
+	defaultPort = 10800
+
 	// Ignite identifiers are case-folded and capped. Cap at 32 for safety.
 	defaultUserNameTemplate = `{{ printf "v_%s_%s_%s" (.DisplayName | truncate 8) (.RoleName | truncate 8) (random 8) | replace "-" "_" | uppercase | truncate 32 }}`
+
+	dialTimeout = 10 * time.Second
+	queryLimit  = 30 * time.Second
 )
 
 // ReportedVersion is overridable at build time.
 var ReportedVersion = ""
 
-// Ignite implements dbplugin.Database. The Ignite REST API requires the
-// caller to pick a `cmd` per request; `qrydistexe` runs a SQL statement
-// on the cluster's PUBLIC cache.
+// Ignite implements dbplugin.Database over the Ignite thin client
+// binary protocol. Statements run through OP_QUERY_SQL_FIELDS with no
+// bound cache, so user-management DDL does not require any cache to
+// exist on the cluster.
 type Ignite struct {
 	mu sync.Mutex
 
 	config           *igniteConfig
-	httpClient       *http.Client
 	usernameProducer template.StringTemplate
 }
 
 type igniteConfig struct {
-	URL       string `mapstructure:"url"`
-	Username  string `mapstructure:"username"`
-	Password  string `mapstructure:"password"`
-	CacheName string `mapstructure:"cache_name"`
+	// URL is accepted for backwards compatibility with configs written
+	// for the REST-based plugin; only host and port are used.
+	URL string `mapstructure:"url"`
+	// Host and Port override whatever URL provides.
+	Host string `mapstructure:"host"`
+	Port int    `mapstructure:"port"`
+
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 
 	CACert     string `mapstructure:"ca_cert"`
 	CAPath     string `mapstructure:"ca_path"`
@@ -95,12 +105,6 @@ func (i *Ignite) PluginVersion() logical.PluginVersion {
 }
 
 func (i *Ignite) Close() error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.httpClient != nil {
-		i.httpClient.CloseIdleConnections()
-	}
-	i.httpClient = nil
 	return nil
 }
 
@@ -112,18 +116,14 @@ func (i *Ignite) Initialize(ctx context.Context, req dbplugin.InitializeRequest)
 	if err := mapstructure.WeakDecode(req.Config, cfg); err != nil {
 		return dbplugin.InitializeResponse{}, err
 	}
-	if cfg.URL == "" {
-		return dbplugin.InitializeResponse{}, errors.New("url is required")
+	if err := normalizeTarget(cfg); err != nil {
+		return dbplugin.InitializeResponse{}, err
 	}
 	if cfg.Username == "" || cfg.Password == "" {
 		return dbplugin.InitializeResponse{}, errors.New("username and password are required")
 	}
-	if cfg.CacheName == "" {
-		cfg.CacheName = "PUBLIC"
-	}
 
-	client, err := newHTTPClient(cfg)
-	if err != nil {
+	if _, err := buildTLSConfig(cfg); err != nil {
 		return dbplugin.InitializeResponse{}, err
 	}
 
@@ -143,11 +143,10 @@ func (i *Ignite) Initialize(ctx context.Context, req dbplugin.InitializeRequest)
 	}
 
 	i.config = cfg
-	i.httpClient = client
 	i.usernameProducer = up
 
 	if req.VerifyConnection {
-		if err := i.ping(ctx); err != nil {
+		if err := i.withClient(ctx, func(c ignite.Client) error { return nil }); err != nil {
 			return dbplugin.InitializeResponse{}, fmt.Errorf("failed to verify connection: %w", err)
 		}
 	}
@@ -156,10 +155,10 @@ func (i *Ignite) Initialize(ctx context.Context, req dbplugin.InitializeRequest)
 }
 
 // NewUser runs every command in creation_statements through the Ignite
-// REST API. Statements are not parameterized because Ignite's CREATE USER
-// DDL doesn't accept parameters; instead, the username is uppercased +
-// underscored and validated to a safe identifier set (rejects single
-// quotes, semicolons, and double quotes).
+// thin client protocol. Statements are not parameterized because
+// Ignite's CREATE USER DDL doesn't accept bind parameters; instead, the
+// username is uppercased + underscored and validated to a safe
+// identifier set (rejects single quotes, semicolons, and double quotes).
 func (i *Ignite) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
 	if len(req.Statements.Commands) == 0 {
 		return dbplugin.NewUserResponse{}, dbutil.ErrEmptyCreationStatement
@@ -257,51 +256,131 @@ func (i *Ignite) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest)
 	return dbplugin.DeleteUserResponse{}, nil
 }
 
-// --- HTTP / SQL helpers ----------------------------------------------------
+// --- thin client helpers ----------------------------------------------------
 
-func (i *Ignite) ping(ctx context.Context) error {
-	q := url.Values{}
-	q.Set("cmd", "version")
-	q.Set("ignite.login", i.config.Username)
-	q.Set("ignite.password", i.config.Password)
-	return i.doGet(ctx, q)
+// normalizeTarget resolves the host/port to dial. Explicit host/port
+// fields win; otherwise they are parsed from url (scheme ignored), so
+// configs written for the old REST plugin keep working.
+func normalizeTarget(cfg *igniteConfig) error {
+	host, port := cfg.Host, cfg.Port
+	if host == "" && cfg.URL != "" {
+		u, err := url.Parse(cfg.URL)
+		if err != nil {
+			return fmt.Errorf("unable to parse url: %w", err)
+		}
+		host = u.Hostname()
+		if p := u.Port(); p != "" {
+			var err error
+			port, err = strconv.Atoi(p)
+			if err != nil {
+				return fmt.Errorf("unable to parse port in url: %w", err)
+			}
+		}
+	}
+	if host == "" {
+		return errors.New("host or url is required")
+	}
+	if port == 0 {
+		port = defaultPort
+	}
+	cfg.Host, cfg.Port = host, port
+	return nil
+}
+
+func buildTLSConfig(cfg *igniteConfig) (*tls.Config, error) {
+	tlsCfg := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: cfg.Insecure,
+		ServerName:         cfg.Host,
+	}
+
+	if cfg.CACert != "" || cfg.CAPath != "" {
+		pool := x509.NewCertPool()
+		if cfg.CACert != "" {
+			if !pool.AppendCertsFromPEM([]byte(cfg.CACert)) {
+				return nil, errors.New("failed to parse ca_cert PEM")
+			}
+		}
+		if cfg.CAPath != "" {
+			pem, err := os.ReadFile(cfg.CAPath)
+			if err != nil {
+				return nil, fmt.Errorf("read ca_path: %w", err)
+			}
+			if !pool.AppendCertsFromPEM(pem) {
+				return nil, errors.New("failed to parse ca_path PEM")
+			}
+		}
+		tlsCfg.RootCAs = pool
+	}
+
+	if cfg.ClientCert != "" && cfg.ClientKey != "" {
+		cert, err := tls.X509KeyPair([]byte(cfg.ClientCert), []byte(cfg.ClientKey))
+		if err != nil {
+			return nil, fmt.Errorf("client cert/key: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsCfg, nil
+}
+
+// withClient opens a thin client connection, runs fn, and closes it.
+// A fresh connection per call keeps reconnect logic trivial; credential
+// operations are infrequent enough that the handshake cost is fine.
+func (i *Ignite) withClient(ctx context.Context, fn func(c ignite.Client) error) error {
+	cfg := i.config
+	tlsCfg, err := buildTLSConfig(cfg)
+	if err != nil {
+		return err
+	}
+
+	dialer := net.Dialer{Timeout: dialTimeout}
+	if deadline, ok := ctx.Deadline(); ok {
+		dialer.Deadline = deadline
+	}
+
+	c, err := ignite.Connect(ignite.ConnInfo{
+		Network:   "tcp",
+		Host:      cfg.Host,
+		Port:      cfg.Port,
+		Major:     1,
+		Minor:     1,
+		Patch:     0,
+		Username:  cfg.Username,
+		Password:  cfg.Password,
+		Dialer:    dialer,
+		TLSConfig: tlsCfg,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s:%d: %w", cfg.Host, cfg.Port, err)
+	}
+	defer c.Close() //nolint:errcheck
+
+	return fn(c)
 }
 
 func (i *Ignite) execSQL(ctx context.Context, statement string) error {
-	q := url.Values{}
-	q.Set("cmd", "qryfldexe")
-	q.Set("cacheName", i.config.CacheName)
-	q.Set("pageSize", "1")
-	q.Set("qry", statement)
-	q.Set("ignite.login", i.config.Username)
-	q.Set("ignite.password", i.config.Password)
-	return i.doGet(ctx, q)
-}
-
-func (i *Ignite) doGet(ctx context.Context, q url.Values) error {
-	base := strings.TrimRight(i.config.URL, "/")
-	full := fmt.Sprintf("%s/ignite?%s", base, q.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
-	if err != nil {
+	return i.withClient(ctx, func(c ignite.Client) error {
+		timeout := queryLimit
+		if deadline, ok := ctx.Deadline(); ok {
+			timeout = time.Until(deadline)
+			if timeout <= 0 {
+				return ctx.Err()
+			}
+		}
+		// The wire format carries a cache id derived from the Java string
+		// hash of the cache name; 0 means "no cache". The library maps an
+		// empty name to hash 1, so hand it a NUL string whose hash is 0.
+		const noCache = "\x00\x00"
+		_, err := c.QuerySQLFields(noCache, false, ignite.QuerySQLFieldsData{
+			Schema:        "PUBLIC",
+			Query:         statement,
+			PageSize:      1,
+			StatementType: ignite.StatementTypeAny,
+			Timeout:       timeout.Milliseconds(),
+		})
 		return err
-	}
-	resp, err := i.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("ignite REST failed: %s: %s", resp.Status, string(b))
-	}
-	var env struct {
-		SuccessStatus int    `json:"successStatus"`
-		Error         string `json:"error"`
-	}
-	if err := json.Unmarshal(b, &env); err == nil && env.SuccessStatus != 0 {
-		return fmt.Errorf("ignite REST: status=%d error=%s", env.SuccessStatus, env.Error)
-	}
-	return nil
+	})
 }
 
 // renderTemplate replaces {{key}} with bindings[key]. We deliberately do
@@ -338,43 +417,4 @@ func safePassword(p string) error {
 		return errors.New("password contains a single quote, which Ignite DDL can't escape safely")
 	}
 	return nil
-}
-
-func newHTTPClient(cfg *igniteConfig) (*http.Client, error) {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.Insecure,
-	}
-
-	if cfg.CACert != "" || cfg.CAPath != "" {
-		pool := x509.NewCertPool()
-		if cfg.CACert != "" {
-			if !pool.AppendCertsFromPEM([]byte(cfg.CACert)) {
-				return nil, errors.New("failed to parse ca_cert PEM")
-			}
-		}
-		if cfg.CAPath != "" {
-			pem, err := os.ReadFile(cfg.CAPath)
-			if err != nil {
-				return nil, fmt.Errorf("read ca_path: %w", err)
-			}
-			if !pool.AppendCertsFromPEM(pem) {
-				return nil, errors.New("failed to parse ca_path PEM")
-			}
-		}
-		tlsCfg.RootCAs = pool
-	}
-
-	if cfg.ClientCert != "" && cfg.ClientKey != "" {
-		cert, err := tls.X509KeyPair([]byte(cfg.ClientCert), []byte(cfg.ClientKey))
-		if err != nil {
-			return nil, fmt.Errorf("client cert/key: %w", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
-	}
-
-	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsCfg},
-	}, nil
 }
