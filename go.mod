@@ -98,6 +98,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.0
+	github.com/ncw/swift/v2 v2.0.5
 	github.com/oklog/run v1.2.0
 	github.com/okta/okta-sdk-golang/v2 v2.20.0
 	github.com/openbao/go-kms-wrapping/kms/transit/v2 v2.0.0-20260626131931-998c8a6f17f4
