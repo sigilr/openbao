@@ -5,17 +5,122 @@ package milvus
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"os"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
+	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 )
+
+type fakeMilvusServer struct {
+	milvuspb.UnimplementedMilvusServiceServer
+
+	createRequests []*milvuspb.CreateCredentialRequest
+	roleRequests   []*milvuspb.OperateUserRoleRequest
+	updateRequests []*milvuspb.UpdateCredentialRequest
+	deleteRequests []*milvuspb.DeleteCredentialRequest
+	createStatus   *commonpb.Status
+	roleStatus     *commonpb.Status
+	updateStatus   *commonpb.Status
+	deleteStatus   *commonpb.Status
+}
+
+func successStatus() *commonpb.Status {
+	return &commonpb.Status{ErrorCode: commonpb.ErrorCode_Success}
+}
+
+func (s *fakeMilvusServer) Connect(context.Context, *milvuspb.ConnectRequest) (*milvuspb.ConnectResponse, error) {
+	return &milvuspb.ConnectResponse{Status: successStatus(), Identifier: 1}, nil
+}
+
+func (s *fakeMilvusServer) GetVersion(context.Context, *milvuspb.GetVersionRequest) (*milvuspb.GetVersionResponse, error) {
+	return &milvuspb.GetVersionResponse{Status: successStatus(), Version: "2.4.0"}, nil
+}
+
+func (s *fakeMilvusServer) CreateCredential(_ context.Context, req *milvuspb.CreateCredentialRequest) (*commonpb.Status, error) {
+	s.createRequests = append(s.createRequests, req)
+	if s.createStatus != nil {
+		return s.createStatus, nil
+	}
+	return successStatus(), nil
+}
+
+func (s *fakeMilvusServer) OperateUserRole(_ context.Context, req *milvuspb.OperateUserRoleRequest) (*commonpb.Status, error) {
+	s.roleRequests = append(s.roleRequests, req)
+	if s.roleStatus != nil {
+		return s.roleStatus, nil
+	}
+	return successStatus(), nil
+}
+
+func (s *fakeMilvusServer) UpdateCredential(_ context.Context, req *milvuspb.UpdateCredentialRequest) (*commonpb.Status, error) {
+	s.updateRequests = append(s.updateRequests, req)
+	if s.updateStatus != nil {
+		return s.updateStatus, nil
+	}
+	return successStatus(), nil
+}
+
+func (s *fakeMilvusServer) DeleteCredential(_ context.Context, req *milvuspb.DeleteCredentialRequest) (*commonpb.Status, error) {
+	s.deleteRequests = append(s.deleteRequests, req)
+	if s.deleteStatus != nil {
+		return s.deleteStatus, nil
+	}
+	return successStatus(), nil
+}
+
+func startFakeMilvusServer(t *testing.T, server *fakeMilvusServer) string {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	grpcServer := grpc.NewServer()
+	milvuspb.RegisterMilvusServiceServer(grpcServer, server)
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		_ = listener.Close()
+	})
+
+	return listener.Addr().String()
+}
+
+func initializeTestMilvus(t *testing.T, server *fakeMilvusServer) *Milvus {
+	t.Helper()
+
+	db := newMilvus()
+	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"url":      startFakeMilvusServer(t, server),
+			"username": "root",
+			"password": "Milvus123",
+		},
+		VerifyConnection: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+	return db
+}
+
+func decodePassword(t *testing.T, password string) string {
+	t.Helper()
+
+	decoded, err := base64.StdEncoding.DecodeString(password)
+	require.NoError(t, err)
+	return string(decoded)
+}
 
 func TestMilvus_TypeAndVersion(t *testing.T) {
 	db := newMilvus()
@@ -32,38 +137,9 @@ func TestMilvus_StatementParsing(t *testing.T) {
 	require.Equal(t, []string{"admin", "reader"}, s.Roles)
 }
 
-func TestMilvus_FakeServer(t *testing.T) {
-	type call struct {
-		path string
-		body map[string]any
-	}
-	var mu sync.Mutex
-	var calls []call
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		c := call{path: r.URL.Path}
-		var b map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		c.body = b
-		calls = append(calls, c)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":0}`))
-	}))
-	defer srv.Close() //nolint:errcheck
-
-	db := newMilvus()
-	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]any{
-			"url":      srv.URL,
-			"username": "root",
-			"password": "Milvus123",
-		},
-		VerifyConnection: true,
-	})
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck
+func TestMilvus_CredentialLifecycle(t *testing.T) {
+	server := &fakeMilvusServer{}
+	db := initializeTestMilvus(t, server)
 
 	resp, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
 		UsernameConfig: dbplugin.UsernameMetadata{DisplayName: "t", RoleName: "t"},
@@ -83,45 +159,62 @@ func TestMilvus_FakeServer(t *testing.T) {
 	_, err = db.DeleteUser(context.Background(), dbplugin.DeleteUserRequest{Username: resp.Username})
 	require.NoError(t, err)
 
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, calls, 5)
-	require.Equal(t, "/v2/vectordb/users/list", calls[0].path) // ping
-	require.Equal(t, "/v2/vectordb/users/create", calls[1].path)
-	require.Equal(t, "/v2/vectordb/users/grant_role", calls[2].path)
-	require.Equal(t, "/v2/vectordb/users/update_password", calls[3].path)
-	require.Equal(t, "/v2/vectordb/users/drop", calls[4].path)
+	require.Len(t, server.createRequests, 1)
+	require.Equal(t, resp.Username, server.createRequests[0].GetUsername())
+	require.Equal(t, "BaoMilvusPass123", decodePassword(t, server.createRequests[0].GetPassword()))
+
+	require.Len(t, server.roleRequests, 1)
+	require.Equal(t, resp.Username, server.roleRequests[0].GetUsername())
+	require.Equal(t, "public", server.roleRequests[0].GetRoleName())
+	require.Equal(t, milvuspb.OperateUserRoleType_AddUserToRole, server.roleRequests[0].GetType())
+
+	require.Len(t, server.updateRequests, 1)
+	require.Equal(t, resp.Username, server.updateRequests[0].GetUsername())
+	require.Empty(t, decodePassword(t, server.updateRequests[0].GetOldPassword()))
+	require.Equal(t, "BaoMilvusPass456", decodePassword(t, server.updateRequests[0].GetNewPassword()))
+
+	require.Len(t, server.deleteRequests, 1)
+	require.Equal(t, resp.Username, server.deleteRequests[0].GetUsername())
 }
 
-// TestMilvus_APIError verifies the plugin treats `{"code": non-zero}` as a
-// failure even though the HTTP status is 200.
-func TestMilvus_APIError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"code":1, "message":"user already exists"}`))
-	}))
-	defer srv.Close() //nolint:errcheck
-
-	db := newMilvus()
-	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
-		Config: map[string]any{
-			"url":      srv.URL,
-			"username": "root",
-			"password": "Milvus123",
+func TestMilvus_CreateCredentialError(t *testing.T) {
+	server := &fakeMilvusServer{
+		createStatus: &commonpb.Status{
+			ErrorCode: commonpb.ErrorCode_CreateCredentialFailure,
+			Reason:    "user already exists",
 		},
-		VerifyConnection: false,
-	})
-	require.NoError(t, err)
-	defer db.Close() //nolint:errcheck
+	}
+	db := initializeTestMilvus(t, server)
 
-	_, err = db.NewUser(context.Background(), dbplugin.NewUserRequest{
+	_, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
 		UsernameConfig: dbplugin.UsernameMetadata{DisplayName: "t", RoleName: "t"},
 		Statements:     dbplugin.Statements{Commands: []string{`{"roles":["public"]}`}},
 		Password:       "BaoMilvusPass123",
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "code=1")
-	require.Contains(t, err.Error(), "user already exists")
+	require.ErrorContains(t, err, "user already exists")
+	require.Empty(t, server.roleRequests)
+	require.Empty(t, server.deleteRequests)
+}
+
+func TestMilvus_RoleGrantFailureDeletesCredential(t *testing.T) {
+	server := &fakeMilvusServer{
+		roleStatus: &commonpb.Status{
+			ErrorCode: commonpb.ErrorCode_OperateUserRoleFailure,
+			Reason:    "role does not exist",
+		},
+	}
+	db := initializeTestMilvus(t, server)
+
+	_, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
+		UsernameConfig: dbplugin.UsernameMetadata{DisplayName: "t", RoleName: "t"},
+		Statements:     dbplugin.Statements{Commands: []string{`{"roles":["missing"]}`}},
+		Password:       "BaoMilvusPass123",
+	})
+	require.ErrorContains(t, err, "role does not exist")
+	require.Len(t, server.createRequests, 1)
+	require.Len(t, server.roleRequests, 1)
+	require.Len(t, server.deleteRequests, 1)
+	require.Equal(t, server.createRequests[0].GetUsername(), server.deleteRequests[0].GetUsername())
 }
 
 func TestMilvus_Acceptance(t *testing.T) {

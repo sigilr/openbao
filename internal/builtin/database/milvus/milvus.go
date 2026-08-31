@@ -6,26 +6,24 @@
 package milvus
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-secure-stdlib/strutil"
+	milvusclient "github.com/milvus-io/milvus-sdk-go/v2/client"
 	"github.com/mitchellh/mapstructure"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -46,15 +44,14 @@ type Milvus struct {
 	mu sync.Mutex
 
 	config           *milvusConfig
-	httpClient       *http.Client
+	client           milvusclient.Client
 	usernameProducer template.StringTemplate
 }
-
 type milvusConfig struct {
 	URL      string `mapstructure:"url"`
 	Username string `mapstructure:"username"`
 	Password string `mapstructure:"password"`
-	Token    string `mapstructure:"token"` // alternate to username/password (Zilliz Cloud style)
+	Token    string `mapstructure:"token"`
 	DBName   string `mapstructure:"db_name"`
 
 	CACert     string `mapstructure:"ca_cert"`
@@ -107,10 +104,12 @@ func (m *Milvus) PluginVersion() logical.PluginVersion {
 func (m *Milvus) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.httpClient != nil {
-		m.httpClient.CloseIdleConnections()
+	if m.client != nil {
+		if err := m.client.Close(); err != nil {
+			return err
+		}
 	}
-	m.httpClient = nil
+	m.client = nil
 	return nil
 }
 
@@ -129,9 +128,14 @@ func (m *Milvus) Initialize(ctx context.Context, req dbplugin.InitializeRequest)
 		return dbplugin.InitializeResponse{}, errors.New("either token, or both username and password are required")
 	}
 
-	client, err := newHTTPClient(cfg)
+	clientConfig, err := newMilvusClientConfig(cfg)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, err
+	}
+
+	client, err := milvusclient.NewClient(ctx, *clientConfig)
+	if err != nil {
+		return dbplugin.InitializeResponse{}, fmt.Errorf("create Milvus client: %w", err)
 	}
 
 	usernameTemplate, err := strutil.GetString(req.Config, "username_template")
@@ -150,16 +154,73 @@ func (m *Milvus) Initialize(ctx context.Context, req dbplugin.InitializeRequest)
 	}
 
 	m.config = cfg
-	m.httpClient = client
+	m.client = client
 	m.usernameProducer = up
 
 	if req.VerifyConnection {
-		if err := m.healthcheck(ctx); err != nil {
+		if _, err := m.client.GetVersion(ctx); err != nil {
+			_ = m.client.Close()
+			m.client = nil
 			return dbplugin.InitializeResponse{}, fmt.Errorf("failed to verify connection: %w", err)
 		}
 	}
 
 	return dbplugin.InitializeResponse{Config: req.Config}, nil
+}
+
+func newMilvusClientConfig(cfg *milvusConfig) (*milvusclient.Config, error) {
+	clientConfig := &milvusclient.Config{
+		Address:  cfg.URL,
+		Username: cfg.Username,
+		Password: cfg.Password,
+		APIKey:   cfg.Token,
+		DBName:   cfg.DBName,
+	}
+
+	if cfg.CACert == "" && cfg.CAPath == "" && cfg.ClientCert == "" && cfg.ClientKey == "" && !cfg.Insecure {
+		return clientConfig, nil
+	}
+
+	if (cfg.ClientCert == "") != (cfg.ClientKey == "") {
+		return nil, errors.New("client_cert and client_key must be provided together")
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: cfg.Insecure,
+	}
+
+	if cfg.CACert != "" || cfg.CAPath != "" {
+		pool := x509.NewCertPool()
+		if cfg.CACert != "" && !pool.AppendCertsFromPEM([]byte(cfg.CACert)) {
+			return nil, errors.New("failed to parse ca_cert PEM")
+		}
+		if cfg.CAPath != "" {
+			caPEM, err := os.ReadFile(cfg.CAPath)
+			if err != nil {
+				return nil, fmt.Errorf("read ca_path: %w", err)
+			}
+			if !pool.AppendCertsFromPEM(caPEM) {
+				return nil, errors.New("failed to parse ca_path PEM")
+			}
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	if cfg.ClientCert != "" {
+		certificate, err := tls.X509KeyPair([]byte(cfg.ClientCert), []byte(cfg.ClientKey))
+		if err != nil {
+			return nil, fmt.Errorf("client cert/key: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{certificate}
+	}
+
+	clientConfig.EnableTLSAuth = true
+	clientConfig.DialOptions = append(
+		append([]grpc.DialOption{}, milvusclient.DefaultGrpcOpts...),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+	)
+	return clientConfig, nil
 }
 
 // NewUser creates the user, then grants each role from the statement. If
@@ -182,27 +243,19 @@ func (m *Milvus) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbpl
 		return dbplugin.NewUserResponse{}, err
 	}
 
-	if err := m.doJSON(ctx, "users/create", map[string]string{
-		"userName": username,
-		"password": req.Password,
-	}); err != nil {
-		return dbplugin.NewUserResponse{}, fmt.Errorf("create user: %w", err)
-	}
-
-	cleanup := func(opErr error) (dbplugin.NewUserResponse, error) {
-		_ = m.doJSON(ctx, "users/drop", map[string]string{"userName": username})
-		return dbplugin.NewUserResponse{}, opErr
+	if err := m.client.CreateCredential(ctx, username, req.Password); err != nil {
+		return dbplugin.NewUserResponse{}, fmt.Errorf("failed to create Milvus user: %w", err)
 	}
 
 	for _, role := range stmt.Roles {
 		if role == "" {
 			continue
 		}
-		if err := m.doJSON(ctx, "users/grant_role", map[string]string{
-			"userName": username,
-			"roleName": role,
-		}); err != nil {
-			return cleanup(fmt.Errorf("grant role %q: %w", role, err))
+		if err := m.client.AddUserRole(ctx, username, role); err != nil {
+			if cleanupErr := m.client.DeleteCredential(ctx, username); cleanupErr != nil {
+				return dbplugin.NewUserResponse{}, fmt.Errorf("failed to grant role %q: %w; failed to remove partially created user: %v", role, err, cleanupErr)
+			}
+			return dbplugin.NewUserResponse{}, fmt.Errorf("failed to grant role %q: %w", role, err)
 		}
 	}
 
@@ -223,11 +276,11 @@ func (m *Milvus) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.doJSON(ctx, "users/update_password", map[string]string{
-		"userName":    req.Username,
-		"newPassword": req.Password.NewPassword,
-	}); err != nil {
-		return dbplugin.UpdateUserResponse{}, fmt.Errorf("update password: %w", err)
+	// OpenBao does not retain or provide the managed user's previous password.
+	// Milvus permits a configured superuser to reset another user's password
+	// without verifying the old password, so leave oldPassword empty here.
+	if err := m.client.UpdateCredential(ctx, req.Username, "", req.Password.NewPassword); err != nil {
+		return dbplugin.UpdateUserResponse{}, fmt.Errorf("failed to update Milvus user password: %w", err)
 	}
 	return dbplugin.UpdateUserResponse{}, nil
 }
@@ -236,104 +289,8 @@ func (m *Milvus) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.doJSON(ctx, "users/drop", map[string]string{"userName": req.Username}); err != nil {
-		return dbplugin.DeleteUserResponse{}, fmt.Errorf("drop user: %w", err)
+	if err := m.client.DeleteCredential(ctx, req.Username); err != nil {
+		return dbplugin.DeleteUserResponse{}, fmt.Errorf("failed to delete Milvus user: %w", err)
 	}
 	return dbplugin.DeleteUserResponse{}, nil
-}
-
-// --- HTTP helpers -----------------------------------------------------------
-
-func (m *Milvus) healthcheck(ctx context.Context) error {
-	// users/list is the cheapest authenticated call on /v2/vectordb.
-	return m.doJSON(ctx, "users/list", map[string]any{})
-}
-
-func (m *Milvus) doJSON(ctx context.Context, op string, body any) error {
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(body); err != nil {
-		return err
-	}
-	path := fmt.Sprintf("v2/vectordb/%s", op)
-	req, err := m.newRequest(ctx, http.MethodPost, path, &buf)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("POST %s failed: %s: %s", path, resp.Status, string(b))
-	}
-	// Milvus returns 200 with {"code": <non-zero>, "message": "..."} for
-	// API-level errors. Parse the envelope so we don't silently succeed.
-	var env struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(b, &env); err == nil && env.Code != 0 {
-		return fmt.Errorf("milvus %s: code=%d message=%s", path, env.Code, env.Message)
-	}
-	return nil
-}
-
-func (m *Milvus) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
-	base := strings.TrimRight(m.config.URL, "/")
-	full := fmt.Sprintf("%s/%s", base, strings.TrimLeft(path, "/"))
-	req, err := http.NewRequestWithContext(ctx, method, full, body)
-	if err != nil {
-		return nil, err
-	}
-	if m.config.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+m.config.Token)
-	} else {
-		req.SetBasicAuth(m.config.Username, m.config.Password)
-	}
-	if m.config.DBName != "" {
-		req.Header.Set("dbName", m.config.DBName)
-	}
-	return req, nil
-}
-
-func newHTTPClient(cfg *milvusConfig) (*http.Client, error) {
-	tlsCfg := &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.Insecure,
-	}
-
-	if cfg.CACert != "" || cfg.CAPath != "" {
-		pool := x509.NewCertPool()
-		if cfg.CACert != "" {
-			if !pool.AppendCertsFromPEM([]byte(cfg.CACert)) {
-				return nil, errors.New("failed to parse ca_cert PEM")
-			}
-		}
-		if cfg.CAPath != "" {
-			pem, err := os.ReadFile(cfg.CAPath)
-			if err != nil {
-				return nil, fmt.Errorf("read ca_path: %w", err)
-			}
-			if !pool.AppendCertsFromPEM(pem) {
-				return nil, errors.New("failed to parse ca_path PEM")
-			}
-		}
-		tlsCfg.RootCAs = pool
-	}
-
-	if cfg.ClientCert != "" && cfg.ClientKey != "" {
-		cert, err := tls.X509KeyPair([]byte(cfg.ClientCert), []byte(cfg.ClientKey))
-		if err != nil {
-			return nil, fmt.Errorf("client cert/key: %w", err)
-		}
-		tlsCfg.Certificates = []tls.Certificate{cert}
-	}
-
-	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsCfg},
-	}, nil
 }
