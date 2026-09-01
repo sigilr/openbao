@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	hdbdriver "github.com/SAP/go-hdb/driver"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
@@ -157,9 +159,18 @@ func (h *HANA) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplug
 		return dbplugin.NewUserResponse{}, err
 	}
 
-	// HANA identifiers are case-folded to uppercase and do not allow hyphens.
-	username = strings.ReplaceAll(username, "-", "_")
-	username = strings.ToUpper(username)
+	// HANA user names must be undelimited identifiers. Metadata supplied by
+	// orchestrators commonly contains dots and hyphens, so normalize all SQL
+	// punctuation to underscores before storing the username in the lease.
+	username = strings.Map(func(r rune) rune {
+		if r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToUpper(r)
+		}
+		return '_'
+	}, username)
+	if err := validateUsername(username); err != nil {
+		return dbplugin.NewUserResponse{}, err
+	}
 
 	// HANA enforces the VALID UNTIL clause server-side, so the role-supplied
 	// SQL alone is enough to deactivate the user even if OpenBao never sends
@@ -204,6 +215,9 @@ func (h *HANA) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (
 
 	if req.Username == "" {
 		return dbplugin.UpdateUserResponse{}, errors.New("missing username")
+	}
+	if err := validateUsername(req.Username); err != nil {
+		return dbplugin.UpdateUserResponse{}, err
 	}
 	if req.Password == nil && req.Expiration == nil {
 		return dbplugin.UpdateUserResponse{}, nil
@@ -307,10 +321,14 @@ func (h *HANA) updateUserExpiration(ctx context.Context, tx *sql.Tx, username st
 // DeleteUser revokes the user. With no custom revocation_statements, runs
 // the default soft-drop: deactivate the user, then DROP USER ... RESTRICT
 // (drops only if no dependencies remain — same semantics as the upstream
-// Vault plugin, but identifiers are quoted to neutralize injection.
+// Vault plugin. HANA requires user names to be undelimited identifiers, so
+// names are validated before interpolation instead of being quoted.
 func (h *HANA) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest) (dbplugin.DeleteUserResponse, error) {
 	h.Lock()
 	defer h.Unlock()
+	if err := validateUsername(req.Username); err != nil {
+		return dbplugin.DeleteUserResponse{}, err
+	}
 
 	if len(req.Statements.Commands) == 0 {
 		return h.revokeUserDefault(ctx, req)
@@ -356,11 +374,9 @@ func (h *HANA) revokeUserDefault(ctx context.Context, req dbplugin.DeleteUserReq
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Identifier interpolation here is unavoidable — HANA does not accept
-	// placeholders for DDL — so quote the identifier first.
-	quoted := dbutil.QuoteIdentifier(req.Username)
-
-	disable := fmt.Sprintf("ALTER USER %s DEACTIVATE USER NOW", quoted)
+	// HANA requires user names to be undelimited identifiers. DeleteUser
+	// validates the name before it reaches this interpolation point.
+	disable := fmt.Sprintf("ALTER USER %s DEACTIVATE USER NOW", req.Username)
 	disableStmt, err := tx.PrepareContext(ctx, disable)
 	if err != nil {
 		return dbplugin.DeleteUserResponse{}, err
@@ -370,7 +386,7 @@ func (h *HANA) revokeUserDefault(ctx context.Context, req dbplugin.DeleteUserReq
 		return dbplugin.DeleteUserResponse{}, err
 	}
 
-	drop := fmt.Sprintf("DROP USER %s RESTRICT", quoted)
+	drop := fmt.Sprintf("DROP USER %s RESTRICT", req.Username)
 	dropStmt, err := tx.PrepareContext(ctx, drop)
 	if err != nil {
 		return dbplugin.DeleteUserResponse{}, err
@@ -385,4 +401,24 @@ func (h *HANA) revokeUserDefault(ctx context.Context, req dbplugin.DeleteUserReq
 	}
 
 	return dbplugin.DeleteUserResponse{}, nil
+}
+
+// validateUsername restricts generated HANA users to identifiers that are
+// safe to interpolate into user-management statements. HANA does not permit
+// quoted (delimited) user names, and DDL identifiers cannot be parameters.
+func validateUsername(username string) error {
+	if username == "" {
+		return errors.New("missing username")
+	}
+	if utf8.RuneCountInString(username) > 127 {
+		return errors.New("username exceeds HANA's 127-character limit")
+	}
+
+	for i, r := range username {
+		if (i == 0 && r != '_' && !unicode.IsLetter(r)) ||
+			(i > 0 && r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)) {
+			return fmt.Errorf("username %q is not a valid undelimited HANA identifier", username)
+		}
+	}
+	return nil
 }
