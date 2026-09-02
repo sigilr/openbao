@@ -242,19 +242,77 @@ func (k *Kafka) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplu
 	}
 
 	cleanup := func(opErr error) (dbplugin.NewUserResponse, error) {
+		// Clean up any created ACLs
+		delAllow := kadm.NewACLs().AnyResource().Allow("User:" + username).AllowHosts().Operations(kadm.OpAny)
+		_, _ = k.admin.DeleteACLs(ctx, delAllow)
+		delDeny := kadm.NewACLs().AnyResource().Deny("User:" + username).DenyHosts().Operations(kadm.OpAny)
+		_, _ = k.admin.DeleteACLs(ctx, delDeny)
+		// Clean up created SCRAM credential
 		_, _ = k.admin.AlterUserSCRAMs(ctx,
 			[]kadm.DeleteSCRAM{{User: username, Mechanism: mech}}, nil)
 		return dbplugin.NewUserResponse{}, opErr
 	}
 
-	// ACL provisioning is currently out of scope for this plugin — Kafka
-	// AdminClient ACL semantics need careful translation per resource type
-	// and operation, and we don't want to ship a half-implementation that
-	// silently grants the wrong access. Operators who need ACLs should
-	// provision them via the cluster's existing tooling (kafka-acls.sh) and
-	// reference the username this plugin returns.
 	if len(stmt.ACLs) > 0 {
-		return cleanup(errors.New("acls in creation_statements are not yet supported; provision out of band against the returned username"))
+		for _, acl := range stmt.ACLs {
+			op, err := parseACLOperation(acl.Operation)
+			if err != nil {
+				return cleanup(err)
+			}
+			pattern, err := parseACLPattern(acl.PatternType)
+			if err != nil {
+				return cleanup(err)
+			}
+
+			b := kadm.NewACLs().ResourcePatternType(pattern).Operations(op)
+
+			switch strings.ToUpper(strings.TrimSpace(acl.Permission)) {
+			case "DENY":
+				b.Deny("User:" + username)
+			case "", "ALLOW":
+				b.Allow("User:" + username)
+			default:
+				return cleanup(fmt.Errorf("unsupported ACL permission %q", acl.Permission))
+			}
+
+			resName := strings.TrimSpace(acl.ResourceName)
+			switch strings.ToUpper(strings.TrimSpace(acl.ResourceType)) {
+			case "TOPIC":
+				if resName == "" {
+					return cleanup(errors.New("resource_name is required for resource_type TOPIC"))
+				}
+				b.Topics(resName)
+			case "GROUP":
+				if resName == "" {
+					return cleanup(errors.New("resource_name is required for resource_type GROUP"))
+				}
+				b.Groups(resName)
+			case "CLUSTER":
+				b.Clusters()
+			case "TRANSACTIONAL_ID", "TRANSACTIONALID":
+				if resName == "" {
+					return cleanup(errors.New("resource_name is required for resource_type TRANSACTIONAL_ID"))
+				}
+				b.TransactionalIDs(resName)
+			case "DELEGATION_TOKEN", "DELEGATIONTOKEN":
+				if resName == "" {
+					return cleanup(errors.New("resource_name is required for resource_type DELEGATION_TOKEN"))
+				}
+				b.DelegationTokens(resName)
+			default:
+				return cleanup(fmt.Errorf("unsupported ACL resource_type %q", acl.ResourceType))
+			}
+
+			results, err := k.admin.CreateACLs(ctx, b)
+			if err != nil {
+				return cleanup(fmt.Errorf("create ACL: %w", err))
+			}
+			for _, res := range results {
+				if res.Err != nil {
+					return cleanup(fmt.Errorf("create ACL failed on resource %s: %w", res.Name, res.Err))
+				}
+			}
+		}
 	}
 
 	return dbplugin.NewUserResponse{Username: username}, nil
@@ -299,13 +357,18 @@ func (k *Kafka) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest) 
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	// Delete both mechanisms; missing ones are not an error.
-	deletes := []kadm.DeleteSCRAM{
-		{User: req.Username, Mechanism: kadm.ScramSha256},
-		{User: req.Username, Mechanism: kadm.ScramSha512},
-	}
-	if _, err := k.admin.AlterUserSCRAMs(ctx, deletes, nil); err != nil {
-		return dbplugin.DeleteUserResponse{}, fmt.Errorf("delete scram credential: %w", err)
+	// 1. Delete all ACLs (Allow and Deny) for this principal across all resources/operations/hosts
+	delAllow := kadm.NewACLs().AnyResource().Allow("User:" + req.Username).AllowHosts().Operations(kadm.OpAny)
+	_, _ = k.admin.DeleteACLs(ctx, delAllow)
+
+	delDeny := kadm.NewACLs().AnyResource().Deny("User:" + req.Username).DenyHosts().Operations(kadm.OpAny)
+	_, _ = k.admin.DeleteACLs(ctx, delDeny)
+
+	// 2. Delete SCRAM credentials per mechanism individually (Kafka rejects duplicate user in a single request)
+	_, err256 := k.admin.AlterUserSCRAMs(ctx, []kadm.DeleteSCRAM{{User: req.Username, Mechanism: kadm.ScramSha256}}, nil)
+	_, err512 := k.admin.AlterUserSCRAMs(ctx, []kadm.DeleteSCRAM{{User: req.Username, Mechanism: kadm.ScramSha512}}, nil)
+	if err256 != nil && err512 != nil {
+		return dbplugin.DeleteUserResponse{}, fmt.Errorf("delete scram credential: %w", err256)
 	}
 	return dbplugin.DeleteUserResponse{}, nil
 }
@@ -367,4 +430,44 @@ func buildTLS(cfg *kafkaConfig) (*tls.Config, error) {
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 	return tlsCfg, nil
+}
+
+func parseACLOperation(op string) (kadm.ACLOperation, error) {
+	switch strings.ToUpper(strings.TrimSpace(op)) {
+	case "READ":
+		return kadm.OpRead, nil
+	case "WRITE":
+		return kadm.OpWrite, nil
+	case "CREATE":
+		return kadm.OpCreate, nil
+	case "DELETE":
+		return kadm.OpDelete, nil
+	case "ALTER":
+		return kadm.OpAlter, nil
+	case "DESCRIBE":
+		return kadm.OpDescribe, nil
+	case "CLUSTER_ACTION", "CLUSTERACTION":
+		return kadm.OpClusterAction, nil
+	case "DESCRIBE_CONFIGS", "DESCRIBECONFIGS":
+		return kadm.OpDescribeConfigs, nil
+	case "ALTER_CONFIGS", "ALTERCONFIGS":
+		return kadm.OpAlterConfigs, nil
+	case "IDEMPOTENT_WRITE", "IDEMPOTENTWRITE":
+		return kadm.OpIdempotentWrite, nil
+	case "ALL":
+		return kadm.OpAll, nil
+	default:
+		return 0, fmt.Errorf("unsupported ACL operation %q", op)
+	}
+}
+
+func parseACLPattern(p string) (kadm.ACLPattern, error) {
+	switch strings.ToUpper(strings.TrimSpace(p)) {
+	case "", "LITERAL":
+		return kadm.ACLPatternLiteral, nil
+	case "PREFIXED":
+		return kadm.ACLPatternPrefixed, nil
+	default:
+		return 0, fmt.Errorf("unsupported ACL pattern_type %q", p)
+	}
 }

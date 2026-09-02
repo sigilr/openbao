@@ -44,12 +44,7 @@ client and supports both the SCRAM AdminClient flow and TLS dial config.
 ```
 
 - `mechanism` and `iterations` default to `SCRAM-SHA-256` / 4096 when omitted.
-- `acls` is **not yet implemented**. If the array is non-empty the plugin
-  returns an error and deletes the just-created credential — Kafka ACL
-  translation needs careful per-resource handling and we don't want to
-  ship a half-implementation that silently grants the wrong access.
-  Operators who need ACLs should provision them out of band via
-  `kafka-acls.sh` against the username this plugin returns.
+- `acls` is an array of ACL objects (`resource_type`, `resource_name`, `pattern_type`, `operation`, `permission`). When specified, ACLs are provisioned for the generated user upon creation and dropped upon revocation.
 
 ## Lifecycle
 
@@ -58,8 +53,8 @@ client and supports both the SCRAM AdminClient flow and TLS dial config.
 1. Generate a username.
 2. Parse the statement; default mechanism / iterations.
 3. `AlterUserSCRAMs(ctx, nil, []UpsertSCRAM{...})` to create the credential.
-4. If ACLs are requested → return an error and delete the credential.
-5. Otherwise return the username.
+4. If ACLs are requested → create ACLs using `kadm.CreateACLs`. If ACL creation fails, roll back by deleting ACLs and the SCRAM credential.
+5. Return the username.
 
 ### UpdateUser
 
@@ -70,8 +65,8 @@ mechanism stored in OpenBao.
 
 ### DeleteUser
 
-`AlterUserSCRAMs(ctx, []DeleteSCRAM{{User, ScramSha256}, {User, ScramSha512}}, nil)`
-to drop both mechanisms in one call. Missing records are not an error.
+1. `DeleteACLs(ctx, delACL)` to remove all ACLs associated with `User:<username>`.
+2. `AlterUserSCRAMs` to delete SCRAM credentials for the user.
 
 ## Failure modes
 
@@ -80,7 +75,7 @@ to drop both mechanisms in one call. Missing records are not an error.
 | Empty `creation_statements` | `dbutil.ErrEmptyCreationStatement` |
 | Non-JSON `creation_statements` | "creation_statements must be a JSON role doc" |
 | Unknown mechanism | "unsupported mechanism" |
-| `acls` non-empty | Credential created then deleted; error returned |
+| Invalid ACL / ACL creation failure | Credential rolled back and error returned |
 | AdminClient connection broken | Surfaced as Init / NewUser error |
 
 ## Tests

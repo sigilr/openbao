@@ -54,13 +54,65 @@ func TestKafka_KadmScramMechanism(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestKafka_NewUser_ACLsRejected(t *testing.T) {
-	// We can't easily mock the franz-go AdminClient, so this test only
-	// validates that the JSON path with ACLs returns the "not supported"
-	// error before any client call. The AlterUserSCRAMs call happens BEFORE
-	// the ACL check in the current implementation — which means an empty
-	// k.admin will dereference nil. Skip this test until we mock the client.
-	t.Skip("requires a mock kadm.Client; covered manually via TEST.md")
+func TestKafka_ParseACLOperation(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected kadm.ACLOperation
+		err      bool
+	}{
+		{"READ", kadm.OpRead, false},
+		{"Write", kadm.OpWrite, false},
+		{"CREATE", kadm.OpCreate, false},
+		{"DELETE", kadm.OpDelete, false},
+		{"ALTER", kadm.OpAlter, false},
+		{"DESCRIBE", kadm.OpDescribe, false},
+		{"CLUSTER_ACTION", kadm.OpClusterAction, false},
+		{"DESCRIBE_CONFIGS", kadm.OpDescribeConfigs, false},
+		{"ALTER_CONFIGS", kadm.OpAlterConfigs, false},
+		{"IDEMPOTENT_WRITE", kadm.OpIdempotentWrite, false},
+		{"ALL", kadm.OpAll, false},
+		{"UNKNOWN_OP", 0, true},
+	}
+	for _, tc := range cases {
+		op, err := parseACLOperation(tc.input)
+		if tc.err {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, op)
+		}
+	}
+}
+
+func TestKafka_ParseACLPattern(t *testing.T) {
+	p, err := parseACLPattern("LITERAL")
+	require.NoError(t, err)
+	require.Equal(t, kadm.ACLPatternLiteral, p)
+
+	p, err = parseACLPattern("prefixed")
+	require.NoError(t, err)
+	require.Equal(t, kadm.ACLPatternPrefixed, p)
+
+	p, err = parseACLPattern("")
+	require.NoError(t, err)
+	require.Equal(t, kadm.ACLPatternLiteral, p)
+
+	_, err = parseACLPattern("INVALID")
+	require.Error(t, err)
+}
+
+func TestKafka_StatementParsingWithACLs(t *testing.T) {
+	raw := `{"mechanism":"SCRAM-SHA-256","iterations":4096,"acls":[{"resource_type":"TOPIC","resource_name":"my-topic","pattern_type":"LITERAL","operation":"WRITE","permission":"ALLOW"},{"resource_type":"GROUP","resource_name":"my-group","operation":"READ","permission":"ALLOW"}]}`
+	var s kafkaStatement
+	require.NoError(t, json.Unmarshal([]byte(raw), &s))
+	require.Equal(t, "SCRAM-SHA-256", s.Mechanism)
+	require.Equal(t, 4096, s.Iterations)
+	require.Len(t, s.ACLs, 2)
+	require.Equal(t, "TOPIC", s.ACLs[0].ResourceType)
+	require.Equal(t, "my-topic", s.ACLs[0].ResourceName)
+	require.Equal(t, "WRITE", s.ACLs[0].Operation)
+	require.Equal(t, "ALLOW", s.ACLs[0].Permission)
+	require.Equal(t, "GROUP", s.ACLs[1].ResourceType)
 }
 
 func TestKafka_UpdateUser_Validation(t *testing.T) {
