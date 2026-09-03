@@ -4,14 +4,17 @@
 // Qdrant supports granular access control (RBAC) via JSON Web Tokens (JWT)
 // signed with the instance's admin API key using HS256:
 //   - Initialize parses config and verifies the API key against `/readyz`.
-//   - NewUser generates a unique username and signs an HS256 JWT containing
-//     the permissions defined in the role's creation_statements and lease TTL (exp),
-//     returning the signed JWT in NewUserResponse.Password.
+//   - NewUser generates a unique username, inserts a validation point into the
+//     validation collection (default: "openbao_users"), signs an HS256 JWT
+//     containing permissions, lease expiry (exp), and a value_exists claim,
+//     and returns the signed JWT in NewUserResponse.Password.
 //   - UpdateUser handles static-role rotation.
-//   - DeleteUser is a no-op (Qdrant JWT tokens are stateless and expire at exp).
+//   - DeleteUser revokes the user's token by deleting its validation point from
+//     the validation collection, immediately invalidating the token via value_exists.
 package qdrant
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,12 +23,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
@@ -33,8 +38,9 @@ import (
 )
 
 const (
-	qdrantTypeName          = "qdrant"
-	defaultUserNameTemplate = `{{ printf "v-%s-%s-%s-%s" (.DisplayName | truncate 8) (.RoleName | truncate 8) (random 20) (unix_time) | truncate 63 }}`
+	qdrantTypeName              = "qdrant"
+	defaultUserNameTemplate     = `{{ printf "v-%s-%s-%s-%s" (.DisplayName | truncate 8) (.RoleName | truncate 8) (random 20) (unix_time) | truncate 63 }}`
+	defaultValidationCollection = "openbao_users"
 )
 
 // ReportedVersion is overridable at build time.
@@ -49,8 +55,9 @@ type Qdrant struct {
 }
 
 type qdrantConfig struct {
-	URL    string `mapstructure:"url"`
-	APIKey string `mapstructure:"api_key"`
+	URL                  string `mapstructure:"url"`
+	APIKey               string `mapstructure:"api_key"`
+	ValidationCollection string `mapstructure:"validation_collection"`
 
 	CACert     string `mapstructure:"ca_cert"`
 	CAPath     string `mapstructure:"ca_path"`
@@ -230,9 +237,40 @@ func (q *Qdrant) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbpl
 		claims["access"] = "m"
 	}
 
+	validationCol := q.validationCollection()
+	if _, hasValExists := claims["value_exists"]; !hasValExists {
+		claims["value_exists"] = map[string]any{
+			"collection": validationCol,
+			"matches": []map[string]any{
+				{
+					"key":   "user_id",
+					"value": username,
+				},
+			},
+		}
+	} else {
+		if ve, ok := claims["value_exists"].(map[string]any); ok {
+			if col, ok := ve["collection"].(string); ok && col != "" {
+				validationCol = col
+			}
+		}
+	}
+
+	if q.client != nil {
+		if err := q.ensureCollection(ctx, validationCol); err != nil {
+			return dbplugin.NewUserResponse{}, fmt.Errorf("failed to ensure validation collection: %w", err)
+		}
+		if err := q.insertValidationPoint(ctx, validationCol, username); err != nil {
+			return dbplugin.NewUserResponse{}, fmt.Errorf("failed to insert validation point: %w", err)
+		}
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString([]byte(q.config.APIKey))
 	if err != nil {
+		if q.client != nil {
+			_ = q.deleteValidationPoints(ctx, validationCol, username)
+		}
 		return dbplugin.NewUserResponse{}, fmt.Errorf("failed to sign JWT token: %w", err)
 	}
 
@@ -255,9 +293,138 @@ func (q *Qdrant) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest)
 	return dbplugin.UpdateUserResponse{}, nil
 }
 
-// DeleteUser is a no-op because Qdrant JWT tokens are stateless and expire at exp.
+// DeleteUser revokes the user's JWT by deleting its validation point from Qdrant.
 func (q *Qdrant) DeleteUser(ctx context.Context, req dbplugin.DeleteUserRequest) (dbplugin.DeleteUserResponse, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if req.Username == "" {
+		return dbplugin.DeleteUserResponse{}, errors.New("missing username")
+	}
+
+	if q.client != nil {
+		validationCol := q.validationCollection()
+		if err := q.deleteValidationPoints(ctx, validationCol, req.Username); err != nil {
+			return dbplugin.DeleteUserResponse{}, err
+		}
+	}
+
 	return dbplugin.DeleteUserResponse{}, nil
+}
+
+func (q *Qdrant) validationCollection() string {
+	if q.config != nil && q.config.ValidationCollection != "" {
+		return q.config.ValidationCollection
+	}
+	return defaultValidationCollection
+}
+
+func (q *Qdrant) doRequest(ctx context.Context, method, path string, reqBody any) (*http.Response, []byte, error) {
+	if q.client == nil || q.config == nil {
+		return nil, nil, errors.New("qdrant client not initialized")
+	}
+	base := strings.TrimRight(q.config.URL, "/")
+	var r io.Reader
+	if reqBody != nil {
+		b, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		r = bytes.NewReader(b)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, base+path, r)
+	if err != nil {
+		return nil, nil, err
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if q.config.APIKey != "" {
+		req.Header.Set("api-key", q.config.APIKey)
+	}
+
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	return resp, body, nil
+}
+
+func (q *Qdrant) ensureCollection(ctx context.Context, collection string) error {
+	resp, body, err := q.doRequest(ctx, http.MethodGet, "/collections/"+url.PathEscape(collection), nil)
+	if err != nil {
+		return fmt.Errorf("check collection %q: %w", collection, err)
+	}
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	if resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("check collection %q failed: %s: %s", collection, resp.Status, string(body))
+	}
+
+	createPayload := map[string]any{
+		"vectors": map[string]any{},
+	}
+	cResp, cBody, err := q.doRequest(ctx, http.MethodPut, "/collections/"+url.PathEscape(collection), createPayload)
+	if err != nil {
+		return fmt.Errorf("create validation collection %q: %w", collection, err)
+	}
+	if cResp.StatusCode != http.StatusOK && cResp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("create validation collection %q failed: %s: %s", collection, cResp.Status, string(cBody))
+	}
+	return nil
+}
+
+func (q *Qdrant) insertValidationPoint(ctx context.Context, collection, username string) error {
+	pointID := uuid.New().String()
+	payload := map[string]any{
+		"points": []map[string]any{
+			{
+				"id": pointID,
+				"payload": map[string]any{
+					"user_id": username,
+				},
+			},
+		},
+	}
+	resp, body, err := q.doRequest(ctx, http.MethodPut, "/collections/"+url.PathEscape(collection)+"/points?wait=true", payload)
+	if err != nil {
+		return fmt.Errorf("insert validation point for user %q: %w", username, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("insert validation point for user %q failed: %s: %s", username, resp.Status, string(body))
+	}
+	return nil
+}
+
+func (q *Qdrant) deleteValidationPoints(ctx context.Context, collection, username string) error {
+	deletePayload := map[string]any{
+		"filter": map[string]any{
+			"must": []map[string]any{
+				{
+					"key": "user_id",
+					"match": map[string]any{
+						"value": username,
+					},
+				},
+			},
+		},
+	}
+	resp, body, err := q.doRequest(ctx, http.MethodPost, "/collections/"+url.PathEscape(collection)+"/points/delete?wait=true", deletePayload)
+	if err != nil {
+		return fmt.Errorf("delete validation points for user %q: %w", username, err)
+	}
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("delete validation points for user %q failed: %s: %s", username, resp.Status, string(body))
+	}
+	return nil
 }
 
 func (q *Qdrant) healthcheck(ctx context.Context) error {
