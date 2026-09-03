@@ -10,7 +10,9 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -23,11 +25,105 @@ func TestQdrant_TypeAndVersion(t *testing.T) {
 	require.Equal(t, ReportedVersion, db.PluginVersion().Version)
 }
 
-func TestQdrant_NewUserUnsupported(t *testing.T) {
+func TestQdrant_NewUser_JWT(t *testing.T) {
+	adminKey := "test-admin-secret-key-12345"
 	db := newQdrant()
-	_, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "dynamic credentials are not supported")
+	db.config = &qdrantConfig{
+		URL:    "http://localhost:6333",
+		APIKey: adminKey,
+	}
+
+	expTime := time.Now().Add(2 * time.Hour).Truncate(time.Second)
+
+	t.Run("global read access via string", func(t *testing.T) {
+		resp, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
+			UsernameConfig: dbplugin.UsernameMetadata{
+				DisplayName: "testuser",
+				RoleName:    "reader",
+			},
+			Statements: dbplugin.Statements{
+				Commands: []string{"r"},
+			},
+			Expiration: expTime,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Username)
+		require.NotEmpty(t, resp.Password)
+
+		// Parse and validate JWT token
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(resp.Password, claims, func(token *jwt.Token) (interface{}, error) {
+			require.Equal(t, jwt.SigningMethodHS256, token.Method)
+			return []byte(adminKey), nil
+		})
+		require.NoError(t, err)
+		require.True(t, token.Valid)
+		require.Equal(t, "r", claims["access"])
+		require.Equal(t, resp.Username, claims["sub"])
+		require.Equal(t, float64(expTime.Unix()), claims["exp"])
+	})
+
+	t.Run("granular access via native JSON statement", func(t *testing.T) {
+		jsonStmt := `{
+			"access": [
+				{
+					"collection": "Products",
+					"access": "rw"
+				},
+				{
+					"collection": "Users",
+					"access": "r"
+				}
+			]
+		}`
+		resp, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
+			Statements: dbplugin.Statements{
+				Commands: []string{jsonStmt},
+			},
+			Expiration: expTime,
+		})
+		require.NoError(t, err)
+
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(resp.Password, claims, func(token *jwt.Token) (interface{}, error) {
+			return []byte(adminKey), nil
+		})
+		require.NoError(t, err)
+		require.True(t, token.Valid)
+
+		accessList, ok := claims["access"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, accessList, 2)
+	})
+
+	t.Run("collection rules via multiple JSON statements", func(t *testing.T) {
+		stmt1 := `{"collection": "Products", "access": "r"}`
+		stmt2 := `{"collection": "Orders", "access": "rw"}`
+		resp, err := db.NewUser(context.Background(), dbplugin.NewUserRequest{
+			Statements: dbplugin.Statements{
+				Commands: []string{stmt1, stmt2},
+			},
+		})
+		require.NoError(t, err)
+
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(resp.Password, claims, func(token *jwt.Token) (interface{}, error) {
+			return []byte(adminKey), nil
+		})
+		require.NoError(t, err)
+		require.True(t, token.Valid)
+
+		accessList, ok := claims["access"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, accessList, 2)
+	})
+
+	t.Run("missing api_key returns error", func(t *testing.T) {
+		badDB := newQdrant()
+		_, err := badDB.NewUser(context.Background(), dbplugin.NewUserRequest{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "api_key is required")
+	})
 }
 
 func TestQdrant_UpdateUser_Validation(t *testing.T) {

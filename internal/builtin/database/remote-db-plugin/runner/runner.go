@@ -499,7 +499,13 @@ func (r *PluginRunner) handleNewUser(ctx context.Context, plugin dbplugin.Databa
 	if err != nil {
 		return "", fmt.Errorf("NewUser: %w", err)
 	}
-	out, err := json.Marshal(map[string]interface{}{"username": resp.Username})
+	payload := map[string]interface{}{
+		"username": resp.Username,
+	}
+	if resp.Password != "" {
+		payload["password"] = resp.Password
+	}
+	out, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}

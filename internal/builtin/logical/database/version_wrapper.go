@@ -95,7 +95,11 @@ func (d databaseVersionWrapper) NewUser(ctx context.Context, req v5.NewUserReque
 	// v5 Database
 	if d.isV5() {
 		resp, err = d.v5.NewUser(ctx, req)
-		return resp, req.Password, err
+		password := req.Password
+		if resp.Password != "" {
+			password = resp.Password
+		}
+		return resp, password, err
 	}
 
 	// v4 Database

@@ -1185,12 +1185,13 @@ func (p *PluginProxy) NewUser(ctx context.Context, req dbplugin.NewUserRequest) 
 
 	var newUserResp struct {
 		Username string `json:"username"`
+		Password string `json:"password"`
 	}
 	if err := json.Unmarshal([]byte(response), &newUserResp); err != nil {
 		return dbplugin.NewUserResponse{}, fmt.Errorf("parse response failed: %w", err)
 	}
 
-	return dbplugin.NewUserResponse{Username: newUserResp.Username}, nil
+	return dbplugin.NewUserResponse{Username: newUserResp.Username, Password: newUserResp.Password}, nil
 }
 
 func (p *PluginProxy) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (dbplugin.UpdateUserResponse, error) {

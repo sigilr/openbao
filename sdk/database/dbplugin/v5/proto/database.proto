@@ -42,6 +42,7 @@ message UsernameConfig {
 
 message NewUserResponse {
     string username = 1;
+    string password = 2;
 }
 
 /////////////////
