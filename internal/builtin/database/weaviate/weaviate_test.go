@@ -137,6 +137,90 @@ func TestWeaviate_NewUser_And_DeleteUser(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestWeaviate_NewUser_CustomRoles(t *testing.T) {
+	var mu sync.Mutex
+	var createdRoles []string
+	var assignedRoles []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/.well-known/ready":
+			w.WriteHeader(http.StatusOK)
+
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/authz/roles":
+			var role struct {
+				Name string `json:"name"`
+			}
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &role)
+			createdRoles = append(createdRoles, role.Name)
+			w.WriteHeader(http.StatusCreated)
+
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/users/db/"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]string{"apikey": "test-key"})
+
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/authz/users/") && strings.HasSuffix(r.URL.Path, "/assign"):
+			var body struct {
+				Roles []string `json:"roles"`
+			}
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &body)
+			assignedRoles = body.Roles
+			w.WriteHeader(http.StatusOK)
+
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	db := newWeaviate()
+	_, err := db.Initialize(context.Background(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"url":     srv.URL,
+			"api_key": "test",
+		},
+		VerifyConnection: true,
+	})
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck
+
+	role1JSON := `{
+		"name": "customrole",
+		"permissions": [
+			{"action": "read_data", "collections": {"collection": "Products"}},
+			{"action": "create_data", "collections": {"collection": "Products"}}
+		]
+	}`
+	role2JSON := `{
+		"name": "clusterAdmin",
+		"permissions": [
+			{"action": "read_cluster"}
+		]
+	}`
+	req := dbplugin.NewUserRequest{
+		UsernameConfig: dbplugin.UsernameMetadata{
+			DisplayName: "testuser",
+			RoleName:    "reader",
+		},
+		Statements: dbplugin.Statements{
+			Commands: []string{"viewer", role1JSON, role2JSON},
+		},
+	}
+	resp, err := db.NewUser(context.Background(), req)
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.Username)
+
+	mu.Lock()
+	require.Equal(t, []string{"customrole", "clusterAdmin"}, createdRoles)
+	require.Equal(t, []string{"viewer", "customrole", "clusterAdmin"}, assignedRoles)
+	mu.Unlock()
+}
+
 func TestWeaviate_UsernameTemplate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

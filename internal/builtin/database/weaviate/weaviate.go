@@ -192,13 +192,63 @@ func (w *Weaviate) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (db
 		return dbplugin.NewUserResponse{}, errors.New("empty api key returned by weaviate")
 	}
 
-	roles := req.Statements.Commands
-	if len(roles) > 0 {
+	var rolesToAssign []string
+	for _, cmd := range req.Statements.Commands {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
+		}
+
+		// Single custom role JSON definition
+		if strings.HasPrefix(cmd, "{") {
+			var roleDef weaviateRoleDef
+			if err := json.Unmarshal([]byte(cmd), &roleDef); err == nil && roleDef.Name != "" {
+				if err := w.ensureRole(ctx, roleDef); err != nil {
+					_ = w.deleteUser(ctx, username)
+					return dbplugin.NewUserResponse{}, err
+				}
+				rolesToAssign = append(rolesToAssign, roleDef.Name)
+				continue
+			}
+		}
+
+		// Array of custom role JSON definitions
+		if strings.HasPrefix(cmd, "[") {
+			var roleDefs []weaviateRoleDef
+			if err := json.Unmarshal([]byte(cmd), &roleDefs); err == nil && len(roleDefs) > 0 {
+				for _, rd := range roleDefs {
+					if rd.Name == "" {
+						continue
+					}
+					if err := w.ensureRole(ctx, rd); err != nil {
+						_ = w.deleteUser(ctx, username)
+						return dbplugin.NewUserResponse{}, err
+					}
+					rolesToAssign = append(rolesToAssign, rd.Name)
+				}
+				continue
+			}
+		}
+
+		// Plain role name string (e.g. "viewer", or comma-separated "viewer, admin")
+		if strings.Contains(cmd, ",") {
+			for _, part := range strings.Split(cmd, ",") {
+				if part = strings.TrimSpace(part); part != "" {
+					rolesToAssign = append(rolesToAssign, part)
+				}
+			}
+		} else {
+			rolesToAssign = append(rolesToAssign, cmd)
+		}
+	}
+
+	rolesToAssign = deduplicateStrings(rolesToAssign)
+	if len(rolesToAssign) > 0 {
 		assignReq := struct {
 			Roles    []string `json:"roles"`
 			UserType string   `json:"userType"`
 		}{
-			Roles:    roles,
+			Roles:    rolesToAssign,
 			UserType: "db",
 		}
 		assignPath := "/v1/authz/users/" + escapedUser + "/assign"
@@ -274,6 +324,58 @@ func (w *Weaviate) deleteUser(ctx context.Context, username string) error {
 		return nil
 	}
 	return fmt.Errorf("failed to delete user %q: %w", username, formatWeaviateError(resp.Status, body))
+}
+
+// weaviateRoleDef represents a custom role definition in Weaviate.
+type weaviateRoleDef struct {
+	Name        string `json:"name"`
+	Permissions any    `json:"permissions"`
+}
+
+func (w *Weaviate) ensureRole(ctx context.Context, role weaviateRoleDef) error {
+	path := "/v1/authz/roles"
+	resp, body, err := w.doRequest(ctx, http.MethodPost, path, role)
+	if err != nil {
+		return fmt.Errorf("failed to create role %q: %w", role.Name, err)
+	}
+	// 201 Created or 200 OK means role was created.
+	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	// 409 Conflict means role already exists.
+	if resp.StatusCode == http.StatusConflict {
+		// If permissions were supplied, append them to the existing role
+		if role.Permissions != nil {
+			addPermPath := "/v1/authz/roles/" + url.PathEscape(role.Name) + "/add-permissions"
+			addBody := struct {
+				Permissions any `json:"permissions"`
+			}{
+				Permissions: role.Permissions,
+			}
+			pResp, _, pErr := w.doRequest(ctx, http.MethodPost, addPermPath, addBody)
+			if pErr == nil && pResp != nil && (pResp.StatusCode == http.StatusOK || pResp.StatusCode == http.StatusNoContent || pResp.StatusCode == http.StatusConflict) {
+				return nil
+			}
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to create role %q: %w", role.Name, formatWeaviateError(resp.Status, body))
+}
+
+func deduplicateStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (w *Weaviate) healthcheck(ctx context.Context) error {
