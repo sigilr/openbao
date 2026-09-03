@@ -143,6 +143,10 @@ type NewUserResponse struct {
 	// Username of the user created within the database.
 	// REQUIRED so Vault knows the name of the user that was created
 	Username string
+
+	// Password is an optional database-generated password/API key override.
+	// If empty, OpenBao defaults to the pre-generated password in NewUserRequest.
+	Password string
 }
 
 // CredentialType is a type of database credential.
