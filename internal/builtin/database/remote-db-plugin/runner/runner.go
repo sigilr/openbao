@@ -34,6 +34,7 @@ import (
 	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMySQL "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
+	dbNeo4j "github.com/openbao/openbao/v2/internal/builtin/database/neo4j"
 	dbOracle "github.com/openbao/openbao/v2/internal/builtin/database/oracle"
 	dbPostgres "github.com/openbao/openbao/v2/internal/builtin/database/postgresql"
 	dbRabbitmq "github.com/openbao/openbao/v2/internal/builtin/database/rabbitmq"
@@ -417,6 +418,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbOracle.New
 	case "rabbitmq-database-plugin":
 		factory = dbRabbitmq.New
+	case "neo4j-database-plugin":
+		factory = dbNeo4j.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

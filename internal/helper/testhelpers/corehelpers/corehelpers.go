@@ -179,6 +179,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"mongodb-database-plugin",
 			"mssql-database-plugin",
 			"oracle-database-plugin",
+			"neo4j-database-plugin",
 			"postgresql-database-plugin",
 			"rabbitmq-database-plugin",
 			"redis-database-plugin",
@@ -194,6 +195,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"remote-mongodb-plugin",
 			"remote-mssql-plugin",
 			"remote-oracle-plugin",
+			"remote-neo4j-plugin",
 		}
 	case consts.PluginTypeCredential:
 		return []string{
