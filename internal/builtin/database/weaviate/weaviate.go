@@ -14,7 +14,7 @@
 //     creation statements via `POST /v1/authz/users/{id}/assign`, and returns
 //     Weaviate's generated API key in NewUserResponse.Password.
 //   - UpdateUser rotates the user's API key via
-//     `POST /v1/users/db/{user_id}/rotate-key` or handles static role rotation.
+//     `POST /v1/users/db/{user_id}/rotate-key`.
 //   - DeleteUser deletes the database user via `DELETE /v1/users/db/{user_id}`.
 package weaviate
 
@@ -269,7 +269,7 @@ func (w *Weaviate) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (db
 	}, nil
 }
 
-// UpdateUser handles key rotation or static-role password updates.
+// UpdateUser handles user key rotation.
 func (w *Weaviate) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (dbplugin.UpdateUserResponse, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -288,7 +288,7 @@ func (w *Weaviate) UpdateUser(ctx context.Context, req dbplugin.UpdateUserReques
 			return dbplugin.UpdateUserResponse{}, fmt.Errorf("failed to rotate key for user %q: %w", req.Username, err)
 		}
 		// If user exists on Weaviate, rotate-key returns 200.
-		// If 404 (user not found, e.g. static roles tracking an env-var key), we don't fail.
+		// If 404 (user not found), we don't fail.
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 			return dbplugin.UpdateUserResponse{}, fmt.Errorf("failed to rotate key for user %q: %w", req.Username, formatWeaviateError(resp.Status, body))
 		}
