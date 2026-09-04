@@ -25,6 +25,7 @@ const sidebars: SidebarsConfig = {
             "secret/databases/cassandra",
             "secret/databases/elasticsearch",
             "secret/databases/influxdb",
+            "secret/databases/kafka",
             "secret/databases/mongodb",
             "secret/databases/mssql",
             "secret/databases/mysql-maria",

@@ -19,6 +19,7 @@ import (
 	dbCass "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
 	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
+	dbKafka "github.com/openbao/openbao/v2/internal/builtin/database/kafka"
 	dbMongo "github.com/openbao/openbao/v2/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/v2/internal/builtin/database/mssql"
 	dbMysql "github.com/openbao/openbao/v2/internal/builtin/database/mysql"
@@ -87,6 +88,7 @@ func newRegistry() *registry {
 			"cassandra-database-plugin":     {Factory: dbCass.New},
 			"elasticsearch-database-plugin": {Factory: dbES.New},
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
+			"kafka-database-plugin":         {Factory: dbKafka.New},
 			"mongodb-database-plugin":       {Factory: dbMongo.New},
 			"mssql-database-plugin":         {Factory: dbMSSQL.New},
 			"oracle-database-plugin":        {Factory: dbOracle.New},
@@ -97,6 +99,7 @@ func newRegistry() *registry {
 			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
 			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},
+			"remote-kafka-plugin":           {Factory: dbRemote.New("kafka-database-plugin")},
 			"remote-mongodb-plugin":         {Factory: dbRemote.New("mongodb-database-plugin")},
 			"remote-mssql-plugin":           {Factory: dbRemote.New("mssql-database-plugin")},
 			"remote-mysql-plugin":           {Factory: dbRemote.New("mysql-database-plugin")},

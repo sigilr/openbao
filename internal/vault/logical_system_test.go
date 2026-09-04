@@ -3884,10 +3884,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 
 		if diff := deep.Equal(resp.Data, map[string]any{
 			"keys": []string{
-				"cassandra-database-plugin", "elasticsearch-database-plugin", "influxdb-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "elasticsearch-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"oracle-database-plugin", "postgresql-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
 				"remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
@@ -3915,10 +3915,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 			"secret": []string{"keymgmt", "kmip", "kv", "transform"},
 			"auth":   []string{"approle", "pending-removal-test-plugin"},
 			"database": []string{
-				"cassandra-database-plugin", "elasticsearch-database-plugin", "influxdb-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "elasticsearch-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"oracle-database-plugin", "postgresql-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
 				"remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-valkey-plugin",
 				"test-plugin", "valkey-database-plugin",
 			},
@@ -3948,6 +3948,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "influxdb-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "kafka-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",
@@ -4026,6 +4032,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "remote-influxdb-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-kafka-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

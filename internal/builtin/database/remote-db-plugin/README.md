@@ -112,6 +112,7 @@ $ bao read database/creds/readonly
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |
 | `remote-oracle-plugin` | `oracle-database-plugin` |
 | `remote-rabbitmq-plugin` | `rabbitmq-database-plugin` |
+| `remote-kafka-plugin` | `kafka-database-plugin` (SCRAM users) |
 
 Adding more is one line in `helper/builtinplugins/registry.go` plus a `case`
 in `runner/runner.go:loadPlugin` — the underlying plugin already runs
