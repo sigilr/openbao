@@ -11,9 +11,9 @@ SPDX-License-Identifier: MPL-2.0
 $ go test ./internal/builtin/database/milvus/...
 ```
 
-Covers Type/Version, JSON statement parsing, full request flow against
-`httptest.Server` (including the API-error envelope translation), and
-the {"code": N} non-zero error path.
+Covers Type/Version, JSON statement parsing, full credential lifecycle
+against an in-memory gRPC server implementing `milvuspb.MilvusServiceServer`,
+role-grant failure cleanup, and error handling.
 
 ## Acceptance / manual
 
@@ -22,7 +22,7 @@ Gated on `BAO_ACC=1` + `MILVUS_URL`.
 ### Local Milvus via Docker
 
 ```
-$ docker run --rm -d --name milvus -p 19530:19530 -p 9091:9091 \
+$ docker run --rm -d --name milvus -p 19530:19530 \
     -e ETCD_USE_EMBED=true -e ETCD_DATA_DIR=/var/lib/milvus/etcd \
     -e ETCD_CONFIG_PATH=/milvus/configs/embedEtcd.yaml \
     -e COMMON_STORAGETYPE=local \
@@ -40,7 +40,7 @@ $ bao server -dev
 $ bao secrets enable database
 $ bao write database/config/milvus \
     plugin_name=milvus-database-plugin \
-    url=http://localhost:9091 \
+    url=localhost:19530 \
     username=root password=Milvus \
     allowed_roles=reader
 
@@ -50,11 +50,6 @@ $ bao write database/roles/reader \
     default_ttl=1h
 
 $ bao read database/creds/reader
-
-# Verify with the HTTP API:
-$ curl -u '<USERNAME>:<PASSWORD>' \
-    http://localhost:9091/v2/vectordb/users/list \
-    -H 'Content-Type: application/json' -d '{}'
 
 # Revoke:
 $ bao lease revoke <LEASE_ID>
@@ -67,6 +62,5 @@ $ bao lease revoke <LEASE_ID>
 | Empty `creation_statements` | `dbutil.ErrEmptyCreationStatement` |
 | Non-JSON `creation_statements` | "creation_statements must be a JSON role doc" |
 | Username > 32 chars | Server rejects; tune `username_template` |
-| Milvus returns `{"code":1,"message":"..."}` | Surfaced as plugin error including code+message |
 | Grant role fails after user create | Plugin drops the user before returning |
-| Wrong URL or auth | Init `users/list` ping fails with HTTP or envelope error |
+| Wrong URL or auth | Connection verification (`GetVersion`) fails |

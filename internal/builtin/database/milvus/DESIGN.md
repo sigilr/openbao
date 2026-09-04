@@ -8,10 +8,9 @@ SPDX-License-Identifier: MPL-2.0
 ## Scope
 
 `milvus-database-plugin` implements the OpenBao v5 database plugin against
-Milvus 2.x using its HTTP RESTful API v2 (`/v2/vectordb/users/...` and
-`/v2/vectordb/users/grant_role`). Dynamic credentials become native
-Milvus users; `creation_statements` is a JSON role doc listing
-pre-existing roles to grant.
+Milvus 2.x using the official Milvus Go SDK (`github.com/milvus-io/milvus-sdk-go/v2/client`)
+over gRPC. Dynamic credentials become native Milvus users; `creation_statements`
+is a JSON role doc listing pre-existing roles to grant.
 
 Built-in and remote variants are both registered.
 
@@ -19,10 +18,10 @@ Built-in and remote variants are both registered.
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `url` | yes | Milvus HTTP URL (e.g. `http://milvus:19530`) |
+| `url` | yes | Milvus gRPC server address (e.g. `milvus:19530`) |
 | `username` / `password` | one of | Root credentials |
-| `token` | one of | Zilliz Cloud-style API token (sent as `Authorization: Bearer`) |
-| `db_name` | no | Sent as `dbName` request header |
+| `token` | one of | API key / token (e.g. Zilliz Cloud) |
+| `db_name` | no | Milvus database name |
 | `ca_cert` / `ca_path` / `client_cert` / `client_key` / `insecure` | no | TLS plumbing |
 | `username_template` | no | Override default template |
 | `spoke_name` | yes (remote) | Spoke that executes the requests |
@@ -30,7 +29,7 @@ Built-in and remote variants are both registered.
 ## Creation statement
 
 ```json
-{"roles": ["admin"]}
+{"roles": ["public"]}
 ```
 
 Roles must already exist on the cluster.
@@ -39,35 +38,26 @@ Roles must already exist on the cluster.
 
 ### NewUser
 
-```http
-POST /v2/vectordb/users/create     {"userName":"<name>","password":"<pw>"}
-POST /v2/vectordb/users/grant_role {"userName":"<name>","roleName":"<role>"}
-```
-
-If grant_role fails, the plugin sends `users/drop` to clean up.
+- Calls `client.CreateCredential(ctx, username, password)`
+- For each role in `creation_statements`, calls `client.AddUserRole(ctx, username, role)`
+- If `AddUserRole` fails, the plugin calls `client.DeleteCredential(ctx, username)` to clean up partially created user.
 
 ### UpdateUser
 
-```http
-POST /v2/vectordb/users/update_password {"userName":"<name>","newPassword":"<pw>"}
-```
+- Calls `client.UpdateCredential(ctx, username, "", newPassword)`
 
 ### DeleteUser
 
-```http
-POST /v2/vectordb/users/drop {"userName":"<name>"}
-```
-
-## API-level errors
-
-Milvus returns HTTP 200 with an envelope `{"code": N, "message": "..."}`
-even for failures. The plugin parses the envelope and treats `code != 0`
-as an error so we never silently succeed.
+- Calls `client.DeleteCredential(ctx, username)`
 
 ## Tests
 
-Always-on: Type/Version, JSON parsing, full request-flow against
-`httptest.Server`, and a dedicated test for the API-error envelope
-(`code:1`) translating into a returned error.
+Always-on unit tests run against an in-memory gRPC server implementing `milvuspb.MilvusServiceServer` (`fakeMilvusServer`).
+Tests cover:
+- Type and version reporting
+- Statement JSON parsing
+- Full credential lifecycle (`CreateCredential`, `AddUserRole`, `UpdateCredential`, `DeleteCredential`)
+- Role grant failure and automatic cleanup of partially created credentials
+- Error handling
 
 Acceptance tests are gated on `BAO_ACC=1` + `MILVUS_URL`.

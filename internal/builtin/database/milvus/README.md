@@ -5,8 +5,8 @@ SPDX-License-Identifier: MPL-2.0
 
 # Milvus Database Plugin
 
-Issues dynamic credentials against Milvus 2.x via its HTTP RESTful API
-v2. Available as `milvus-database-plugin` (built-in) and
+Issues dynamic credentials against Milvus 2.x via the Milvus Go SDK (v2)
+over gRPC. Available as `milvus-database-plugin` (built-in) and
 `remote-milvus-plugin` (proxied through a spoke).
 
 See [DESIGN.md](DESIGN.md) and [TEST.md](TEST.md).
@@ -18,7 +18,7 @@ $ bao secrets enable database
 
 $ bao write database/config/milvus \
     plugin_name=milvus-database-plugin \
-    url=http://milvus.example.com:19530 \
+    url=milvus.example.com:19530 \
     username=root password=Milvus123 \
     allowed_roles=reader
 
@@ -33,10 +33,10 @@ $ bao write database/roles/reader \
 | Field | Required | Description |
 | --- | --- | --- |
 | `plugin_name` | yes | `milvus-database-plugin` or `remote-milvus-plugin` |
-| `url` | yes | Milvus HTTP URL |
+| `url` | yes | Milvus gRPC server address (`host:port`) |
 | `username` / `password` | one of | Root credentials |
-| `token` | one of | Bearer token (Zilliz Cloud style) |
-| `db_name` | no | Default `dbName` header per request |
+| `token` | one of | API key / token (e.g. Zilliz Cloud) |
+| `db_name` | no | Default database name |
 | `ca_cert` / `ca_path` / `client_cert` / `client_key` / `insecure` | no | TLS plumbing |
 | `username_template` | no | Override default template |
 | `spoke_name` | yes (remote) | Spoke that executes the requests |

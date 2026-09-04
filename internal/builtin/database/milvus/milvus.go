@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Package milvus implements an OpenBao v5 database plugin for Milvus 2.x
-// using its HTTP RESTful API v2 user management endpoints.
+// using the Milvus Go SDK (v2) over gRPC.
 package milvus
 
 import (
@@ -37,9 +37,9 @@ const (
 // ReportedVersion is overridable at build time.
 var ReportedVersion = ""
 
-// Milvus implements dbplugin.Database via the HTTP RESTful API v2
-// (`/v2/vectordb/users/...` and `/v2/vectordb/roles/...`). creation_statements
-// is a JSON role doc `{"roles":["role1"]}` listing pre-existing roles to grant.
+// Milvus implements dbplugin.Database via the Milvus Go SDK over gRPC.
+// creation_statements is a JSON role doc `{"roles":["role1"]}` listing
+// pre-existing roles to grant.
 type Milvus struct {
 	mu sync.Mutex
 
