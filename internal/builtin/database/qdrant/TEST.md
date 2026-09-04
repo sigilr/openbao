@@ -11,9 +11,9 @@ SPDX-License-Identifier: MPL-2.0
 $ go test ./internal/builtin/database/qdrant/...
 ```
 
-Covers Type/Version, the documented `NewUser` rejection, `UpdateUser`
-validation + no-op success, `DeleteUser` no-op, and `Healthcheck`
-against an `httptest.Server` (200 and 401).
+Covers Type/Version, `NewUser` JWT generation and signature verification,
+`UpdateUser` validation, `ValueExists` lifecycle (`NewUser` validation point insertion + `DeleteUser` point deletion),
+and `Healthcheck` against an `httptest.Server` (200 and 401).
 
 ## Acceptance / manual
 
@@ -24,6 +24,7 @@ Gated on `BAO_ACC=1` + `QDRANT_URL`.
 ```
 $ docker run --rm -d --name qdrant -p 6333:6333 \
     -e QDRANT__SERVICE__API_KEY=topsecret \
+    -e QDRANT__SERVICE__JWT_RBAC=true \
     qdrant/qdrant:v1.13.0
 ```
 
@@ -40,16 +41,14 @@ $ bao write database/config/qdrant \
     api_key=topsecret \
     allowed_roles=app
 
-# Dynamic credentials are not supported — this should fail with the
-# documented error:
-$ bao write database/roles/app db_name=qdrant creation_statements=''
-$ bao read database/creds/app
-# error: dynamic credentials are not supported by Qdrant ...
+# Dynamic credentials via granular JWT:
+$ bao write database/roles/app \
+    db_name=qdrant \
+    creation_statements='{"access": [{"collection": "test_collection", "access": "rw"}]}' \
+    default_ttl=1h \
+    max_ttl=24h
 
-# Static roles work as a credential-tracking mechanism:
-$ bao write database/static-roles/app \
-    db_name=qdrant username=app rotation_period=24h
-$ bao read database/static-creds/app
+$ bao read database/creds/app
 ```
 
 ### Failure modes
@@ -58,4 +57,3 @@ $ bao read database/static-creds/app
 | --- | --- |
 | Wrong `api_key` with `verify_connection=true` | Init fails: `qdrant /readyz failed: 401 …` |
 | Unreachable URL | Init fails with the wrapped net error |
-| `bao read database/creds/...` | error: dynamic credentials are not supported … |

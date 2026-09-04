@@ -8,7 +8,7 @@
 //     validation collection (default: "openbao_users"), signs an HS256 JWT
 //     containing permissions, lease expiry (exp), and a value_exists claim,
 //     and returns the signed JWT in NewUserResponse.Password.
-//   - UpdateUser handles static-role rotation.
+//   - UpdateUser handles credential updates.
 //   - DeleteUser revokes the user's token by deleting its validation point from
 //     the validation collection, immediately invalidating the token via value_exists.
 package qdrant
@@ -280,9 +280,8 @@ func (q *Qdrant) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbpl
 	}, nil
 }
 
-// UpdateUser is a no-op against the server. Static-role rotation flows
-// through this method and we want OpenBao to keep tracking the rotated
-// value even though we can't push it to Qdrant.
+// UpdateUser is a no-op against the server. Credential rotation flows
+// through this method and OpenBao keeps tracking the rotated value.
 func (q *Qdrant) UpdateUser(ctx context.Context, req dbplugin.UpdateUserRequest) (dbplugin.UpdateUserResponse, error) {
 	if req.Username == "" {
 		return dbplugin.UpdateUserResponse{}, errors.New("missing username")

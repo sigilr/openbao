@@ -7,35 +7,34 @@ SPDX-License-Identifier: MPL-2.0
 
 ## Scope
 
-`qdrant-database-plugin` is a **static-credentials-only** OpenBao v5
-database plugin for Qdrant. Qdrant's API key is loaded from the
-`QDRANT__SERVICE__API_KEY` environment variable at startup — there's no
-runtime user/key-management API — so the plugin's surface is intentionally
-limited:
+`qdrant-database-plugin` is an OpenBao v5 database plugin for Qdrant.
+It supports dynamic credential generation using Qdrant's Granular Access API
+Keys (HS256-signed JSON Web Tokens) and stateful token revocation via the
+`value_exists` claim:
 
 - `Initialize` parses config and (with `VerifyConnection=true`) calls
-  the `/readyz` endpoint with the configured API key as the `api-key`
+  the `/readyz` endpoint with the configured admin API key as the `api-key`
   header.
-- `NewUser` returns an explicit error pointing operators at static roles
-  or external configuration management.
-- `UpdateUser` is a no-op against the server but returns success on
-  password updates so OpenBao static-role rotation tracks the new
-  credential and emits audit events.
-- `DeleteUser` is a no-op.
-
-The same pattern as the Memcached plugin in this repo; see that plugin
-for additional context.
+- `NewUser` generates a unique dynamic username, ensures the validation
+  collection (`openbao_users`) exists, inserts a validation point with
+  `user_id`, parses creation statements into Qdrant collection access rules,
+  and signs an HS256 JWT carrying the lease expiration (`exp`), permissions (`access`),
+  and stateful validation claim (`value_exists`).
+- `UpdateUser` is a no-op against the server but tracks rotated credentials in OpenBao.
+- `DeleteUser` revokes the JWT immediately by deleting the validation point
+  matching `user_id` from the validation collection in Qdrant.
 
 ## Configuration
 
 | Field | Required | Description |
 | --- | --- | --- |
 | `url` | yes | `http(s)://host:port` |
-| `api_key` | no | API key for VerifyConnection |
+| `api_key` | yes | Admin API key used for JWT signing and verification |
+| `validation_collection` | no | Collection used for stateful token validation (default: `openbao_users`) |
 | `ca_cert` / `ca_path` / `client_cert` / `client_key` / `insecure` | no | TLS plumbing |
 
 ## Tests
 
-Always-on tests cover Type/Version, the `NewUser` rejection, `UpdateUser`
-validation + no-op, `DeleteUser`, healthcheck against `httptest.Server`,
-and a failure path with 401 from the upstream.
+Always-on tests cover Type/Version, `NewUser` JWT signing and claims verification,
+`UpdateUser` validation, `ValueExists` lifecycle (`NewUser` point insertion + `DeleteUser` point deletion),
+healthcheck against `httptest.Server`, and failure paths.

@@ -5,12 +5,9 @@ SPDX-License-Identifier: MPL-2.0
 
 # Qdrant Database Plugin
 
-Static-credentials-only OpenBao plugin for Qdrant. Qdrant has no runtime
-key-management API; the API key is loaded from the
-`QDRANT__SERVICE__API_KEY` environment variable at startup. This plugin
-lets OpenBao be the source of truth for the key and its rotation
-schedule, while the actual push to the server is left to configuration
-management.
+OpenBao database plugin for Qdrant. It generates dynamic credentials using
+Qdrant's Granular Access API Keys (HS256-signed JWTs) and provides stateful token
+revocation through Qdrant's `value_exists` validation mechanism.
 
 See [DESIGN.md](DESIGN.md) and [TEST.md](TEST.md).
 
@@ -25,17 +22,14 @@ $ bao write database/config/qdrant \
     api_key=topsecret \
     allowed_roles=app
 
-$ bao write database/static-roles/app \
+$ bao write database/roles/app \
     db_name=qdrant \
-    username=app \
-    rotation_period=24h
+    creation_statements='{"access": [{"collection": "test_collection", "access": "rw"}]}' \
+    default_ttl=1h \
+    max_ttl=24h
+
+$ bao read database/creds/app
 ```
-
-## Limitations
-
-- Dynamic credentials are not supported.
-- `UpdateUser` and `DeleteUser` are no-ops against the server.
-- Configuration management must apply rotated keys to the server.
 
 ## Building
 
