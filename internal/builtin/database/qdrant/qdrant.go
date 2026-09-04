@@ -387,7 +387,8 @@ func (q *Qdrant) insertValidationPoint(ctx context.Context, collection, username
 	payload := map[string]any{
 		"points": []map[string]any{
 			{
-				"id": pointID,
+				"id":     pointID,
+				"vector": map[string]any{},
 				"payload": map[string]any{
 					"user_id": username,
 				},

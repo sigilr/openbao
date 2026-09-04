@@ -228,8 +228,8 @@ func TestQdrant_ValueExists_Lifecycle(t *testing.T) {
 	require.Len(t, pointsInserted, 1)
 	pts := pointsInserted[0]["points"].([]any)
 	pt := pts[0].(map[string]any)
-	payload := pt["payload"].(map[string]any)
-	require.Equal(t, resp.Username, payload["user_id"])
+	require.NotNil(t, pt["vector"])
+	require.Equal(t, resp.Username, pt["payload"].(map[string]any)["user_id"])
 	mu.Unlock()
 
 	// Verify JWT contains value_exists claim
