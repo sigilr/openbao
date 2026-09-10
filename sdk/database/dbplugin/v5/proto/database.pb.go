@@ -10,13 +10,14 @@
 package proto
 
 import (
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
 )
 
 const (
@@ -280,6 +281,7 @@ func (x *UsernameConfig) GetRoleName() string {
 type NewUserResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -317,6 +319,13 @@ func (*NewUserResponse) Descriptor() ([]byte, []int) {
 func (x *NewUserResponse) GetUsername() string {
 	if x != nil {
 		return x.Username
+	}
+	return ""
+}
+
+func (x *NewUserResponse) GetPassword() string {
+	if x != nil {
+		return x.Password
 	}
 	return ""
 }
@@ -841,9 +850,10 @@ const file_sdk_database_dbplugin_v5_proto_database_proto_rawDesc = "" +
 	"\asubject\x18\b \x01(\tR\asubject\"P\n" +
 	"\x0eUsernameConfig\x12!\n" +
 	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\x12\x1b\n" +
-	"\trole_name\x18\x02 \x01(\tR\broleName\"-\n" +
+	"\trole_name\x18\x02 \x01(\tR\broleName\"I\n" +
 	"\x0fNewUserResponse\x12\x1a\n" +
-	"\busername\x18\x01 \x01(\tR\busername\"\x8d\x02\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\"\x8d\x02\n" +
 	"\x11UpdateUserRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x127\n" +
 	"\bpassword\x18\x02 \x01(\v2\x1b.dbplugin.v5.ChangePasswordR\bpassword\x12=\n" +
@@ -904,26 +914,29 @@ func file_sdk_database_dbplugin_v5_proto_database_proto_rawDescGZIP() []byte {
 	return file_sdk_database_dbplugin_v5_proto_database_proto_rawDescData
 }
 
-var file_sdk_database_dbplugin_v5_proto_database_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_sdk_database_dbplugin_v5_proto_database_proto_goTypes = []any{
-	(*InitializeRequest)(nil),     // 0: dbplugin.v5.InitializeRequest
-	(*InitializeResponse)(nil),    // 1: dbplugin.v5.InitializeResponse
-	(*NewUserRequest)(nil),        // 2: dbplugin.v5.NewUserRequest
-	(*UsernameConfig)(nil),        // 3: dbplugin.v5.UsernameConfig
-	(*NewUserResponse)(nil),       // 4: dbplugin.v5.NewUserResponse
-	(*UpdateUserRequest)(nil),     // 5: dbplugin.v5.UpdateUserRequest
-	(*ChangePassword)(nil),        // 6: dbplugin.v5.ChangePassword
-	(*ChangePublicKey)(nil),       // 7: dbplugin.v5.ChangePublicKey
-	(*ChangeExpiration)(nil),      // 8: dbplugin.v5.ChangeExpiration
-	(*UpdateUserResponse)(nil),    // 9: dbplugin.v5.UpdateUserResponse
-	(*DeleteUserRequest)(nil),     // 10: dbplugin.v5.DeleteUserRequest
-	(*DeleteUserResponse)(nil),    // 11: dbplugin.v5.DeleteUserResponse
-	(*TypeResponse)(nil),          // 12: dbplugin.v5.TypeResponse
-	(*Statements)(nil),            // 13: dbplugin.v5.Statements
-	(*Empty)(nil),                 // 14: dbplugin.v5.Empty
-	(*structpb.Struct)(nil),       // 15: google.protobuf.Struct
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
-}
+var (
+	file_sdk_database_dbplugin_v5_proto_database_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+	file_sdk_database_dbplugin_v5_proto_database_proto_goTypes  = []any{
+		(*InitializeRequest)(nil),     // 0: dbplugin.v5.InitializeRequest
+		(*InitializeResponse)(nil),    // 1: dbplugin.v5.InitializeResponse
+		(*NewUserRequest)(nil),        // 2: dbplugin.v5.NewUserRequest
+		(*UsernameConfig)(nil),        // 3: dbplugin.v5.UsernameConfig
+		(*NewUserResponse)(nil),       // 4: dbplugin.v5.NewUserResponse
+		(*UpdateUserRequest)(nil),     // 5: dbplugin.v5.UpdateUserRequest
+		(*ChangePassword)(nil),        // 6: dbplugin.v5.ChangePassword
+		(*ChangePublicKey)(nil),       // 7: dbplugin.v5.ChangePublicKey
+		(*ChangeExpiration)(nil),      // 8: dbplugin.v5.ChangeExpiration
+		(*UpdateUserResponse)(nil),    // 9: dbplugin.v5.UpdateUserResponse
+		(*DeleteUserRequest)(nil),     // 10: dbplugin.v5.DeleteUserRequest
+		(*DeleteUserResponse)(nil),    // 11: dbplugin.v5.DeleteUserResponse
+		(*TypeResponse)(nil),          // 12: dbplugin.v5.TypeResponse
+		(*Statements)(nil),            // 13: dbplugin.v5.Statements
+		(*Empty)(nil),                 // 14: dbplugin.v5.Empty
+		(*structpb.Struct)(nil),       // 15: google.protobuf.Struct
+		(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	}
+)
+
 var file_sdk_database_dbplugin_v5_proto_database_proto_depIdxs = []int32{
 	15, // 0: dbplugin.v5.InitializeRequest.config_data:type_name -> google.protobuf.Struct
 	15, // 1: dbplugin.v5.InitializeResponse.config_data:type_name -> google.protobuf.Struct

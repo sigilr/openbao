@@ -140,6 +140,7 @@ func newUserReqToProto(req NewUserRequest) (*proto.NewUserRequest, error) {
 func newUserRespFromProto(rpcResp *proto.NewUserResponse) (NewUserResponse, error) {
 	resp := NewUserResponse{
 		Username: rpcResp.GetUsername(),
+		Password: rpcResp.GetPassword(),
 	}
 	return resp, nil
 }

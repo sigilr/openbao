@@ -117,6 +117,7 @@ $ bao read database/creds/readonly
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |
 | `remote-neo4j-plugin` | `neo4j-database-plugin` |
 | `remote-oracle-plugin` | `oracle-database-plugin` |
+| `remote-qdrant-plugin` | `qdrant-database-plugin` (vector DB, static-only) |
 | `remote-rabbitmq-plugin` | `rabbitmq-database-plugin` |
 | `remote-solr-plugin` | `solr-database-plugin` (Apache Solr) |
 

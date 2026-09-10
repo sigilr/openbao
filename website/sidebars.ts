@@ -358,6 +358,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/neo4j",
                         "secrets/databases/oracle",
                         "secrets/databases/postgresql",
+                        "secrets/databases/qdrant",
                         "secrets/databases/rabbitmq",
                         "secrets/databases/solr",
                         "secrets/databases/valkey",

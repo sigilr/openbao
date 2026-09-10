@@ -31,6 +31,7 @@ import (
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbNeo4j "github.com/openbao/openbao/internal/builtin/database/neo4j"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
+	dbQdrant "github.com/openbao/openbao/internal/builtin/database/qdrant"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
 	dbSolr "github.com/openbao/openbao/internal/builtin/database/solr"
@@ -104,6 +105,7 @@ func newRegistry() *registry {
 			"neo4j-database-plugin":         {Factory: dbNeo4j.New},
 			"oracle-database-plugin":        {Factory: dbOracle.New},
 			"postgresql-database-plugin":    {Factory: dbPostgres.New},
+			"qdrant-database-plugin":        {Factory: dbQdrant.New},
 			"rabbitmq-database-plugin":      {Factory: dbRabbitmq.New},
 			"redis-database-plugin":         {Factory: dbValkey.New},
 			"solr-database-plugin":          {Factory: dbSolr.New},
@@ -122,6 +124,7 @@ func newRegistry() *registry {
 			"remote-neo4j-plugin":           {Factory: dbRemote.New("neo4j-database-plugin")},
 			"remote-oracle-plugin":          {Factory: dbRemote.New("oracle-database-plugin")},
 			"remote-postgres-plugin":        {Factory: dbRemote.New("postgresql-database-plugin")},
+			"remote-qdrant-plugin":          {Factory: dbRemote.New("qdrant-database-plugin")},
 			"remote-rabbitmq-plugin":        {Factory: dbRemote.New("rabbitmq-database-plugin")},
 			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-solr-plugin":            {Factory: dbRemote.New("solr-database-plugin")},

@@ -163,6 +163,7 @@ func (g *gRPCServer) NewUser(ctx context.Context, req *proto.NewUserRequest) (*p
 
 	resp := &proto.NewUserResponse{
 		Username: dbResp.Username,
+		Password: dbResp.Password,
 	}
 	return resp, nil
 }
