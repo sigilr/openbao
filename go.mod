@@ -389,3 +389,5 @@ require github.com/microsoft/go-mssqldb v1.10.0
 require github.com/sijms/go-ora/v2 v2.9.0
 
 require github.com/SAP/go-hdb v1.16.12
+
+require github.com/neo4j/neo4j-go-driver/v5 v5.28.4

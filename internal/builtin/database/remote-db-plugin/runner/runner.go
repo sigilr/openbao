@@ -31,6 +31,7 @@ import (
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
+	dbNeo4j "github.com/openbao/openbao/internal/builtin/database/neo4j"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
@@ -416,6 +417,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbMongo.New
 	case "mssql-database-plugin":
 		factory = dbMSSQL.New
+	case "neo4j-database-plugin":
+		factory = dbNeo4j.New
 	case "oracle-database-plugin":
 		factory = dbOracle.New
 	case "rabbitmq-database-plugin":

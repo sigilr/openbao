@@ -25,6 +25,7 @@ import (
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
+	dbNeo4j "github.com/openbao/openbao/internal/builtin/database/neo4j"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
@@ -91,6 +92,7 @@ func newRegistry() *registry {
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
 			"mongodb-database-plugin":       {Factory: dbMongo.New},
 			"mssql-database-plugin":         {Factory: dbMSSQL.New},
+			"neo4j-database-plugin":         {Factory: dbNeo4j.New},
 			"oracle-database-plugin":        {Factory: dbOracle.New},
 			"postgresql-database-plugin":    {Factory: dbPostgres.New},
 			"rabbitmq-database-plugin":      {Factory: dbRabbitmq.New},
@@ -103,6 +105,7 @@ func newRegistry() *registry {
 			"remote-mongodb-plugin":         {Factory: dbRemote.New("mongodb-database-plugin")},
 			"remote-mssql-plugin":           {Factory: dbRemote.New("mssql-database-plugin")},
 			"remote-mysql-plugin":           {Factory: dbRemote.New("mysql-database-plugin")},
+			"remote-neo4j-plugin":           {Factory: dbRemote.New("neo4j-database-plugin")},
 			"remote-oracle-plugin":          {Factory: dbRemote.New("oracle-database-plugin")},
 			"remote-postgres-plugin":        {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-rabbitmq-plugin":        {Factory: dbRemote.New("rabbitmq-database-plugin")},

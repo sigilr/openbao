@@ -351,6 +351,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/mongodb",
                         "secrets/databases/mssql",
                         "secrets/databases/mysql-maria",
+                        "secrets/databases/neo4j",
                         "secrets/databases/oracle",
                         "secrets/databases/postgresql",
                         "secrets/databases/rabbitmq",

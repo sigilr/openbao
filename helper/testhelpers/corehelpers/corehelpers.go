@@ -179,6 +179,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"influxdb-database-plugin",
 			"mongodb-database-plugin",
 			"mssql-database-plugin",
+			"neo4j-database-plugin",
 			"oracle-database-plugin",
 			"postgresql-database-plugin",
 			"rabbitmq-database-plugin",
@@ -195,6 +196,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"remote-hana-plugin",
 			"remote-mongodb-plugin",
 			"remote-mssql-plugin",
+			"remote-neo4j-plugin",
 			"remote-oracle-plugin",
 		}
 	case consts.PluginTypeCredential:
