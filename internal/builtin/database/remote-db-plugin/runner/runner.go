@@ -30,6 +30,7 @@ import (
 	dbDruid "github.com/openbao/openbao/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
+	dbMilvus "github.com/openbao/openbao/internal/builtin/database/milvus"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbNeo4j "github.com/openbao/openbao/internal/builtin/database/neo4j"
@@ -417,6 +418,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbES.New
 	case "hana-database-plugin":
 		factory = dbHana.New
+	case "milvus-database-plugin":
+		factory = dbMilvus.New
 	case "mongodb-database-plugin":
 		factory = dbMongo.New
 	case "mssql-database-plugin":
