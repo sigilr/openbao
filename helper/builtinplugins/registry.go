@@ -21,6 +21,7 @@ import (
 	logicalSsh "github.com/openbao/openbao/builtin/logical/ssh"
 	logicalTotp "github.com/openbao/openbao/builtin/logical/totp"
 	logicalTransit "github.com/openbao/openbao/builtin/logical/transit"
+	dbDruid "github.com/openbao/openbao/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
@@ -88,6 +89,7 @@ func newRegistry() *registry {
 			"mysql-legacy-database-plugin": {Factory: dbMysql.New(dbMysql.DefaultLegacyUserNameTemplate)},
 
 			"cassandra-database-plugin":     {Factory: dbCass.New},
+			"druid-database-plugin":         {Factory: dbDruid.New},
 			"elasticsearch-database-plugin": {Factory: dbES.New},
 			"hana-database-plugin":          {Factory: dbHana.New},
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
@@ -101,6 +103,7 @@ func newRegistry() *registry {
 			"solr-database-plugin":          {Factory: dbSolr.New},
 			"valkey-database-plugin":        {Factory: dbValkey.New},
 			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
+			"remote-druid-plugin":           {Factory: dbRemote.New("druid-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
 			"remote-hana-plugin":            {Factory: dbRemote.New("hana-database-plugin")},
 			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},

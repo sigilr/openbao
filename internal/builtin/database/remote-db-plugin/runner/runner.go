@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	dbDruid "github.com/openbao/openbao/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
@@ -410,6 +411,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbCassandra.New
 	case "influxdb-database-plugin":
 		factory = dbInflux.New
+	case "druid-database-plugin":
+		factory = dbDruid.New
 	case "elasticsearch-database-plugin":
 		factory = dbES.New
 	case "hana-database-plugin":

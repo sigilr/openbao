@@ -107,6 +107,7 @@ $ bao read database/creds/readonly
 | `remote-valkey-plugin` | `valkey-database-plugin` |
 | `remote-cassandra-plugin` | `cassandra-database-plugin` |
 | `remote-influxdb-plugin` | `influxdb-database-plugin` |
+| `remote-druid-plugin` | `druid-database-plugin` (Apache Druid) |
 | `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
 | `remote-hana-plugin` | `hana-database-plugin` (SAP HANA) |
 | `remote-mongodb-plugin` | `mongodb-database-plugin` |
