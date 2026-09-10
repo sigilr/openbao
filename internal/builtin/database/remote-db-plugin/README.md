@@ -108,6 +108,7 @@ $ bao read database/creds/readonly
 | `remote-cassandra-plugin` | `cassandra-database-plugin` |
 | `remote-influxdb-plugin` | `influxdb-database-plugin` |
 | `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
+| `remote-hana-plugin` | `hana-database-plugin` (SAP HANA) |
 | `remote-mongodb-plugin` | `mongodb-database-plugin` |
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |
 | `remote-oracle-plugin` | `oracle-database-plugin` |

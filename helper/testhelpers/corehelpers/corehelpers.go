@@ -175,6 +175,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 
 			"cassandra-database-plugin",
 			"elasticsearch-database-plugin",
+			"hana-database-plugin",
 			"influxdb-database-plugin",
 			"mongodb-database-plugin",
 			"mssql-database-plugin",
@@ -191,6 +192,7 @@ func (m *mockBuiltinRegistry) Keys(pluginType consts.PluginType) []string {
 			"remote-redis-plugin",
 			"remote-valkey-plugin",
 			"remote-elasticsearch-plugin",
+			"remote-hana-plugin",
 			"remote-mongodb-plugin",
 			"remote-mssql-plugin",
 			"remote-oracle-plugin",

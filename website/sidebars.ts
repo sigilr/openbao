@@ -346,6 +346,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/cassandra",
                         "secrets/databases/custom",
                         "secrets/databases/elasticsearch",
+                        "secrets/databases/hana",
                         "secrets/databases/influxdb",
                         "secrets/databases/mongodb",
                         "secrets/databases/mssql",

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
+	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
@@ -409,6 +410,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbInflux.New
 	case "elasticsearch-database-plugin":
 		factory = dbES.New
+	case "hana-database-plugin":
+		factory = dbHana.New
 	case "mongodb-database-plugin":
 		factory = dbMongo.New
 	case "mssql-database-plugin":
