@@ -1,0 +1,3 @@
+```release-note:bug
+website: fix MDX line-wrap bugs in solr.mdx and rabbitmq.mdx that broke the full-site docs build.
+```
