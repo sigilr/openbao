@@ -1,0 +1,3 @@
+```release-note:feature
+`plugins/database: add the Apache Kafka database plugin (kafka-database-plugin).`
+```

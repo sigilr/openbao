@@ -350,6 +350,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/hana",
                         "secrets/databases/ignite",
                         "secrets/databases/influxdb",
+                        "secrets/databases/kafka",
                         "secrets/databases/milvus",
                         "secrets/databases/mongodb",
                         "secrets/databases/mssql",

@@ -111,6 +111,7 @@ $ bao read database/creds/readonly
 | `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
 | `remote-hana-plugin` | `hana-database-plugin` (SAP HANA) |
 | `remote-ignite-plugin` | `ignite-database-plugin` (Apache Ignite SQL DDL) |
+| `remote-kafka-plugin` | `kafka-database-plugin` (SCRAM users) |
 | `remote-milvus-plugin` | `milvus-database-plugin` (Milvus vector DB) |
 | `remote-mongodb-plugin` | `mongodb-database-plugin` |
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |
