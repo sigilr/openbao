@@ -34,6 +34,7 @@ import (
 	dbNeo4j "github.com/openbao/openbao/internal/builtin/database/neo4j"
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
+	dbSolr "github.com/openbao/openbao/internal/builtin/database/solr"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -423,6 +424,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbOracle.New
 	case "rabbitmq-database-plugin":
 		factory = dbRabbitmq.New
+	case "solr-database-plugin":
+		factory = dbSolr.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}

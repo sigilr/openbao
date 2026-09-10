@@ -235,6 +235,25 @@ export const AVAILABLE_PLUGIN_TYPES = [
     ],
   },
   {
+    value: 'solr-database-plugin',
+    displayName: 'Apache Solr',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
+  {
     value: 'remote-elasticsearch-plugin',
     displayName: 'Elasticsearch (Remote)',
     fields: [
@@ -369,6 +388,26 @@ export const AVAILABLE_PLUGIN_TYPES = [
       { attr: 'root_rotation_statements', group: 'statements' },
     ],
   },
+  {
+    value: 'remote-solr-plugin',
+    displayName: 'Apache Solr (Remote)',
+    fields: [
+      { attr: 'plugin_name' },
+      { attr: 'name' },
+      { attr: 'verify_connection', show: false },
+      { attr: 'password_policy' },
+      { attr: 'spoke_name', group: 'pluginConfig' },
+      { attr: 'url', group: 'pluginConfig' },
+      { attr: 'username', group: 'pluginConfig', show: false },
+      { attr: 'password', group: 'pluginConfig', show: false },
+      { attr: 'ca_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_cert', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'client_key', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'insecure', group: 'pluginConfig', subgroup: 'TLS options' },
+      { attr: 'username_template', group: 'pluginConfig' },
+      { attr: 'root_rotation_statements', group: 'statements' },
+    ],
+  },
 ];
 
 export const ROLE_FIELDS = {
@@ -398,6 +437,8 @@ export const STATEMENT_FIELDS = {
     'remote-rabbitmq-plugin': [],
     'neo4j-database-plugin': [],
     'remote-neo4j-plugin': [],
+    'solr-database-plugin': [],
+    'remote-solr-plugin': [],
   },
   dynamic: {
     default: ['creation_statements', 'revocation_statements', 'rollback_statements', 'renew_statements'],
@@ -425,6 +466,8 @@ export const STATEMENT_FIELDS = {
     'remote-rabbitmq-plugin': ['creation_statements'],
     'neo4j-database-plugin': ['creation_statements'],
     'remote-neo4j-plugin': ['creation_statements'],
+    'solr-database-plugin': ['creation_statements'],
+    'remote-solr-plugin': ['creation_statements'],
   },
 };
 

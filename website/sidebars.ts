@@ -355,6 +355,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/oracle",
                         "secrets/databases/postgresql",
                         "secrets/databases/rabbitmq",
+                        "secrets/databases/solr",
                         "secrets/databases/valkey",
                     ],
                     Identity: [

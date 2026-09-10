@@ -3888,8 +3888,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-valkey-plugin",
-				"test-plugin", "valkey-database-plugin",
+				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin",
+				"solr-database-plugin", "test-plugin", "valkey-database-plugin",
 			},
 		}); diff != nil {
 			t.Fatal(strings.Join(diff, "\n"))
@@ -3919,8 +3919,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-influxdb-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-valkey-plugin",
-				"test-plugin", "valkey-database-plugin",
+				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin",
+				"solr-database-plugin", "test-plugin", "valkey-database-plugin",
 			},
 			"detailed": []map[string]any{{
 				"name":               "approle",
@@ -4097,7 +4097,19 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"type":               "database",
 				"version":            "v2.0.0+builtin.bao",
 			}, {
+				"name":               "remote-solr-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
 				"name":               "remote-valkey-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "solr-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

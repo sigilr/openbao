@@ -29,6 +29,7 @@ import (
 	dbOracle "github.com/openbao/openbao/internal/builtin/database/oracle"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
+	dbSolr "github.com/openbao/openbao/internal/builtin/database/solr"
 	logicalRelay "github.com/openbao/openbao/internal/builtin/logical/relay"
 	dbCass "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
@@ -97,6 +98,7 @@ func newRegistry() *registry {
 			"postgresql-database-plugin":    {Factory: dbPostgres.New},
 			"rabbitmq-database-plugin":      {Factory: dbRabbitmq.New},
 			"redis-database-plugin":         {Factory: dbValkey.New},
+			"solr-database-plugin":          {Factory: dbSolr.New},
 			"valkey-database-plugin":        {Factory: dbValkey.New},
 			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
@@ -110,6 +112,7 @@ func newRegistry() *registry {
 			"remote-postgres-plugin":        {Factory: dbRemote.New("postgresql-database-plugin")},
 			"remote-rabbitmq-plugin":        {Factory: dbRemote.New("rabbitmq-database-plugin")},
 			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
+			"remote-solr-plugin":            {Factory: dbRemote.New("solr-database-plugin")},
 			"remote-valkey-plugin":          {Factory: dbRemote.New("valkey-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
