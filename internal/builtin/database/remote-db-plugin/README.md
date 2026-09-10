@@ -110,6 +110,7 @@ $ bao read database/creds/readonly
 | `remote-druid-plugin` | `druid-database-plugin` (Apache Druid) |
 | `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
 | `remote-hana-plugin` | `hana-database-plugin` (SAP HANA) |
+| `remote-ignite-plugin` | `ignite-database-plugin` (Apache Ignite SQL DDL) |
 | `remote-milvus-plugin` | `milvus-database-plugin` (Milvus vector DB) |
 | `remote-mongodb-plugin` | `mongodb-database-plugin` |
 | `remote-mssql-plugin` | `mssql-database-plugin` (Microsoft SQL Server) |

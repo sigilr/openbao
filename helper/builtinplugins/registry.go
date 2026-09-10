@@ -24,6 +24,7 @@ import (
 	dbDruid "github.com/openbao/openbao/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
+	dbIgnite "github.com/openbao/openbao/internal/builtin/database/ignite"
 	dbMilvus "github.com/openbao/openbao/internal/builtin/database/milvus"
 	dbMongo "github.com/openbao/openbao/internal/builtin/database/mongodb"
 	dbMSSQL "github.com/openbao/openbao/internal/builtin/database/mssql"
@@ -93,6 +94,7 @@ func newRegistry() *registry {
 			"druid-database-plugin":         {Factory: dbDruid.New},
 			"elasticsearch-database-plugin": {Factory: dbES.New},
 			"hana-database-plugin":          {Factory: dbHana.New},
+			"ignite-database-plugin":        {Factory: dbIgnite.New},
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
 			"milvus-database-plugin":        {Factory: dbMilvus.New},
 			"mongodb-database-plugin":       {Factory: dbMongo.New},
@@ -108,6 +110,7 @@ func newRegistry() *registry {
 			"remote-druid-plugin":           {Factory: dbRemote.New("druid-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
 			"remote-hana-plugin":            {Factory: dbRemote.New("hana-database-plugin")},
+			"remote-ignite-plugin":          {Factory: dbRemote.New("ignite-database-plugin")},
 			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},
 			"remote-milvus-plugin":          {Factory: dbRemote.New("milvus-database-plugin")},
 			"remote-mongodb-plugin":         {Factory: dbRemote.New("mongodb-database-plugin")},

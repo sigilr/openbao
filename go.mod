@@ -405,3 +405,5 @@ require (
 	github.com/milvus-io/milvus-proto/go-api/v2 v2.4.10-0.20240819025435-512e3b98866a
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2
 )
+
+require github.com/amsokol/ignite-go-client v0.12.2
