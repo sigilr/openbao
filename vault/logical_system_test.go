@@ -3888,8 +3888,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "qdrant-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin",
-				"solr-database-plugin", "test-plugin", "valkey-database-plugin",
+				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin", "remote-weaviate-plugin",
+				"solr-database-plugin", "test-plugin", "valkey-database-plugin", "weaviate-database-plugin",
 			},
 		}); diff != nil {
 			t.Fatal(strings.Join(diff, "\n"))
@@ -3919,8 +3919,8 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "qdrant-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
 				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
-				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin",
-				"solr-database-plugin", "test-plugin", "valkey-database-plugin",
+				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin", "remote-weaviate-plugin",
+				"solr-database-plugin", "test-plugin", "valkey-database-plugin", "weaviate-database-plugin",
 			},
 			"detailed": []map[string]any{{
 				"name":               "approle",
@@ -4169,6 +4169,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"type":               "database",
 				"version":            "v2.0.0+builtin.bao",
 			}, {
+				"name":               "remote-weaviate-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
 				"name":               "solr-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
@@ -4182,6 +4188,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version": "v1.2.3",
 			}, {
 				"name":               "valkey-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "weaviate-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

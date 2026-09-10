@@ -35,6 +35,7 @@ import (
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbRemote "github.com/openbao/openbao/internal/builtin/database/remote-db-plugin"
 	dbSolr "github.com/openbao/openbao/internal/builtin/database/solr"
+	dbWeaviate "github.com/openbao/openbao/internal/builtin/database/weaviate"
 	logicalRelay "github.com/openbao/openbao/internal/builtin/logical/relay"
 	dbCass "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
@@ -110,6 +111,7 @@ func newRegistry() *registry {
 			"redis-database-plugin":         {Factory: dbValkey.New},
 			"solr-database-plugin":          {Factory: dbSolr.New},
 			"valkey-database-plugin":        {Factory: dbValkey.New},
+			"weaviate-database-plugin":      {Factory: dbWeaviate.New},
 			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-druid-plugin":           {Factory: dbRemote.New("druid-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
@@ -129,6 +131,7 @@ func newRegistry() *registry {
 			"remote-redis-plugin":           {Factory: dbRemote.New("redis-database-plugin")},
 			"remote-solr-plugin":            {Factory: dbRemote.New("solr-database-plugin")},
 			"remote-valkey-plugin":          {Factory: dbRemote.New("valkey-database-plugin")},
+			"remote-weaviate-plugin":        {Factory: dbRemote.New("weaviate-database-plugin")},
 		},
 		logicalBackends: map[string]logicalBackend{
 			"kubernetes": {Factory: logicalKube.Factory},

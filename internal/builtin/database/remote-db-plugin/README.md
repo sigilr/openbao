@@ -120,6 +120,7 @@ $ bao read database/creds/readonly
 | `remote-qdrant-plugin` | `qdrant-database-plugin` (vector DB, static-only) |
 | `remote-rabbitmq-plugin` | `rabbitmq-database-plugin` |
 | `remote-solr-plugin` | `solr-database-plugin` (Apache Solr) |
+| `remote-weaviate-plugin` | `weaviate-database-plugin` (vector DB, static-only) |
 
 Adding more is one line in `helper/builtinplugins/registry.go` plus a `case`
 in `runner/runner.go:loadPlugin` — the underlying plugin already runs

@@ -40,6 +40,7 @@ import (
 	dbQdrant "github.com/openbao/openbao/internal/builtin/database/qdrant"
 	dbRabbitmq "github.com/openbao/openbao/internal/builtin/database/rabbitmq"
 	dbSolr "github.com/openbao/openbao/internal/builtin/database/solr"
+	dbWeaviate "github.com/openbao/openbao/internal/builtin/database/weaviate"
 	dbCassandra "github.com/openbao/openbao/plugins/database/cassandra"
 	dbInflux "github.com/openbao/openbao/plugins/database/influxdb"
 	dbMySQL "github.com/openbao/openbao/plugins/database/mysql"
@@ -441,6 +442,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbRabbitmq.New
 	case "solr-database-plugin":
 		factory = dbSolr.New
+	case "weaviate-database-plugin":
+		factory = dbWeaviate.New
 	default:
 		return nil, fmt.Errorf("unknown plugin: %s", pluginName)
 	}
