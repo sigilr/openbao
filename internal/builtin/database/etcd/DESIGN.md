@@ -10,8 +10,8 @@ SPDX-License-Identifier: MPL-2.0
 `etcd-database-plugin` implements the OpenBao v5 database plugin contract
 against etcd's built-in v3 Auth API, using the official
 `go.etcd.io/etcd/client/v3` client. Dynamic credentials become native etcd
-users created via `UserAdd`; permissions come from pre-existing roles named
-in `creation_statements`.
+users created via `UserAdd`; permissions come from pre-existing roles and/or
+inline custom roles defined in `creation_statements`.
 
 Also exposed remotely as `remote-etcd-plugin`.
 
@@ -57,7 +57,16 @@ Accepts existing roles, custom inline roles, or a combination:
 }
 ```
 
-Pre-existing roles named under `roles` must already exist on the cluster. Custom roles named under `custom_roles` are created and assigned permissions idempotently by the plugin.
+Pre-existing roles named under `roles` must already exist on the cluster. Custom roles named under `custom_roles` are created if necessary, and their listed permissions are granted or updated by the plugin.
+
+Custom-role management is deliberately additive-only. The plugin does not
+revoke permissions that disappear from a later definition and does not delete
+custom roles. A permission update replaces the permission type only when the
+key and range are unchanged; changing either adds another permission while the
+old range remains. Operators must revoke obsolete permissions directly in etcd
+or migrate to a uniquely named role before retiring the old one. Reusing a
+custom-role name across OpenBao roles intentionally produces the union of their
+permissions.
 
 ## Lifecycle
 
@@ -69,7 +78,7 @@ UserAdd(name, password)
 UserGrantRole(name, role)   // once per role in the statement
 ```
 
-1. If custom roles are defined, each is created via `RoleAdd`. If the role already exists, creation continues without error. Each permission is then granted via `RoleGrantPermission`.
+1. If custom roles are defined, each is created via `RoleAdd`. If the role already exists, creation continues without error. Each permission is then granted or updated via `RoleGrantPermission`; existing permissions not present in the statement remain unchanged.
 2. The user is created via `UserAdd`.
 3. Each role (pre-existing and custom) is granted to the user via `UserGrantRole`.
 4. On any per-role grant failure, the plugin calls `UserDelete` before returning so a half-configured user isn't left behind. Custom roles created in step 1 are not deleted.

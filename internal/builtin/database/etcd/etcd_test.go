@@ -39,12 +39,6 @@ func TestEtcd_SanitizeEndpoints(t *testing.T) {
 	require.Nil(t, sanitizeEndpoints(nil))
 }
 
-func TestEtcd_HostFromEndpoint(t *testing.T) {
-	require.Equal(t, "etcd.example.com", hostFromEndpoint("https://etcd.example.com:2379"))
-	require.Equal(t, "etcd.example.com", hostFromEndpoint("etcd.example.com:2379"))
-	require.Equal(t, "etcd.example.com", hostFromEndpoint("etcd.example.com"))
-}
-
 func TestEtcd_IsUserNotFound(t *testing.T) {
 	require.False(t, isUserNotFound(nil))
 	require.False(t, isUserNotFound(context.DeadlineExceeded))

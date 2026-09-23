@@ -75,8 +75,15 @@ Accepts existing roles, custom inline roles, or a combination:
 - `key`: key path or range start.
 - `prefix`: boolean; if `true`, automatically computes prefix range end.
 - `range_end`: optional explicit range end key.
-- Custom roles are created idempotently (`RoleAdd` ignores "already exists", `RoleGrantPermission` updates permissions).
-- Ephemeral user revocation deletes the user and preserves custom roles.
+- Custom-role management is additive-only. `RoleAdd` ignores "already exists",
+  and `RoleGrantPermission` grants or updates each listed key range. Permissions
+  omitted from later definitions are not revoked; changing a key or range adds
+  the new permission without removing the old range.
+- Ephemeral user revocation deletes the user and preserves custom roles. To
+  narrow access, revoke obsolete permissions directly in etcd or use a new,
+  uniquely named role and retire the old role after its active credentials are
+  revoked. Avoid sharing custom-role names unless accumulated permissions are
+  intentional.
 
 ## Building
 

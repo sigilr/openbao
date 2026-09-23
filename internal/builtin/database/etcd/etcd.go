@@ -3,8 +3,8 @@
 
 // Package etcd implements an OpenBao v5 database plugin for etcd's built-in
 // auth store. Dynamic credentials become native etcd users created via the
-// v3 Auth API, with permissions coming from pre-existing roles named in
-// creation_statements.
+// v3 Auth API, with permissions coming from pre-existing roles and/or inline
+// custom roles defined in creation_statements.
 package etcd
 
 import (
@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -225,7 +224,7 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 		Context:     ctx,
 	}
 	if tlsSettings.Configured() {
-		tlsConfig, err := tlsSettings.Build(hostFromEndpoint(cfg.Endpoints[0]))
+		tlsConfig, err := tlsSettings.Build("")
 		if err != nil {
 			return dbplugin.InitializeResponse{}, err
 		}
@@ -276,9 +275,10 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 }
 
 // NewUser creates an etcd user via UserAdd, ensuring any custom roles exist
-// and granting each role in the statement via UserGrantRole. If a role grant
-// fails, the just-created user is deleted so no half-configured user is left
-// behind. Custom roles are preserved on user revocation.
+// and granting each role in the statement via UserGrantRole. Custom-role
+// permissions are additive-only: omitted permissions are not revoked. If a
+// role grant fails, the just-created user is deleted so no half-configured user
+// is left behind. Custom roles are preserved on user revocation.
 func (e *Etcd) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
 	if len(req.Statements.Commands) == 0 {
 		return dbplugin.NewUserResponse{}, dbutil.ErrEmptyCreationStatement
@@ -363,7 +363,7 @@ func (e *Etcd) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplug
 
 		// Plain role name string (e.g. "reader", or comma-separated "reader, writer")
 		if strings.Contains(cmd, ",") {
-			for _, part := range strings.Split(cmd, ",") {
+			for part := range strings.SplitSeq(cmd, ",") {
 				if part = strings.TrimSpace(part); part != "" {
 					rolesToAssign = append(rolesToAssign, part)
 				}
@@ -463,23 +463,6 @@ func sanitizeEndpoints(endpoints []string) []string {
 		}
 	}
 	return clean
-}
-
-// hostFromEndpoint extracts a bare hostname from an etcd endpoint for use as
-// the default TLS server name, accepting both scheme-qualified
-// (https://host:2379) and bare (host:2379) forms.
-func hostFromEndpoint(endpoint string) string {
-	if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
-		return u.Hostname()
-	}
-	host := endpoint
-	if idx := strings.Index(host, "://"); idx != -1 {
-		host = host[idx+3:]
-	}
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-	return host
 }
 
 func (e *Etcd) ensureRole(ctx context.Context, role etcdRoleDef) error {
