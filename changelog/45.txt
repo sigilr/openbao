@@ -1,0 +1,3 @@
+```release-note:feature
+storage/swift: Restore the OpenStack Swift physical storage backend, last available under MPL 2.0.
+```
