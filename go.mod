@@ -117,6 +117,7 @@ require (
 	github.com/openbao/openbao/api/auth/userpass/v2 v2.0.0
 	github.com/openbao/openbao/api/v2 v2.6.0
 	github.com/openbao/openbao/sdk/v2 v2.6.0
+	github.com/oracle/oci-go-sdk/v65 v65.123.0
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/pires/go-proxyproto v0.14.0
 	github.com/posener/complete v1.2.3
@@ -248,6 +249,7 @@ require (
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-resty/resty/v2 v2.16.5 // indirect
+	github.com/gofrs/flock v0.10.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
@@ -325,6 +327,7 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/softlayer/softlayer-go v0.0.0-20180806151055-260589d94c7d // indirect
+	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/spf13/cast v1.5.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect

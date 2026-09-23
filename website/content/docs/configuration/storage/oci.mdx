@@ -1,0 +1,70 @@
+---
+sidebar_label: OCI Object Storage
+description: |-
+  The OCI Object Storage backend is used to persist OpenBao's data in
+  Oracle Cloud Infrastructure Object Storage.
+---
+
+# OCI Object Storage storage backend
+
+The OCI Object Storage storage backend is used to persist OpenBao's data
+in [Oracle Cloud Infrastructure Object Storage][oci].
+
+:::warning
+
+**Not verified against a live OCI account.** Unlike most other storage
+backends restored in this project, OCI Object Storage has no local
+emulator; its test suite only runs against a real OCI tenancy
+(gated on `BAO_ACC` and OCI credentials) and could not be exercised in
+this environment. The port has been build- and vet-verified, but treat
+it with more caution than the rest of this series until it's been run
+against a real bucket.
+
+:::
+
+:::tip
+
+**High Availability** – the OCI Object Storage backend supports High
+Availability, using conditional (ETag-based) writes against a second
+"lock" bucket.
+
+:::
+
+```hcl
+storage "oci" {
+  bucket_name       = "openbao"
+  namespace_name    = "mytenancy"
+  auth_type_api_key = "true"
+}
+```
+
+## `oci` parameters
+
+- `bucket_name` `(string: <required>)` – Specifies the name of the OCI
+  Object Storage bucket to store data in. It must already exist; OpenBao
+  does not create it.
+
+- `namespace_name` `(string: <required>)` – Specifies the Object Storage
+  namespace the bucket belongs to.
+
+- `region` `(string: "")` – Specifies the OCI region to use. Defaults to
+  the region configured in the resolved OCI configuration provider.
+
+- `auth_type_api_key` `(string: "false")` – When `true`, authenticates
+  using the standard OCI configuration file / API key
+  ([`common.DefaultConfigProvider`][default_config_provider]). When
+  `false` (the default), authenticates using
+  [instance principal][instance_principal] credentials, intended for
+  OpenBao instances running on an OCI compute instance.
+
+- `ha_enabled` `(string: "false")` – Enables High Availability support.
+  Requires `lock_bucket_name` to also be set.
+
+- `lock_bucket_name` `(string: "")` – Specifies the name of a second
+  bucket used to store HA lock records. Required when `ha_enabled` is
+  `true`. Must already exist and should generally be a different bucket
+  than `bucket_name`.
+
+[oci]: https://www.oracle.com/cloud/storage/object-storage/
+[default_config_provider]: https://pkg.go.dev/github.com/oracle/oci-go-sdk/v65/common#DefaultConfigProvider
+[instance_principal]: https://pkg.go.dev/github.com/oracle/oci-go-sdk/v65/common/auth#InstancePrincipalConfigurationProvider
