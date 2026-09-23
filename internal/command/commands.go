@@ -40,6 +40,7 @@ import (
 
 	physFile "github.com/openbao/openbao/sdk/v2/physical/file"
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
+	physCockroachDB "github.com/openbao/openbao/v2/internal/physical/cockroachdb"
 	physPostgresql "github.com/openbao/openbao/v2/internal/physical/postgresql"
 	physRaft "github.com/openbao/openbao/v2/internal/physical/raft"
 
@@ -145,11 +146,12 @@ var (
 	}
 
 	physicalBackends = map[string]physical.Factory{
-		"file":       physFile.NewFileBackend,
-		"inmem_ha":   physInmem.NewInmemHA,
-		"inmem":      physInmem.NewInmem,
-		"raft":       physRaft.NewRaftBackend,
-		"postgresql": physPostgresql.NewPostgreSQLBackend,
+		"file":        physFile.NewFileBackend,
+		"inmem_ha":    physInmem.NewInmemHA,
+		"inmem":       physInmem.NewInmem,
+		"raft":        physRaft.NewRaftBackend,
+		"postgresql":  physPostgresql.NewPostgreSQLBackend,
+		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
