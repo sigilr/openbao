@@ -25,6 +25,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/logical"
 	"github.com/openbao/openbao/v2/internal/builtin/database/dbtls"
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -57,8 +58,97 @@ type etcdConfig struct {
 	DialTimeout string   `mapstructure:"dial_timeout"`
 }
 
+// etcdStatement represents a structured creation statement containing
+// pre-existing roles and/or custom role definitions.
 type etcdStatement struct {
-	Roles []string `json:"roles"`
+	Roles       []string      `json:"roles"`
+	CustomRoles []etcdRoleDef `json:"custom_roles"`
+}
+
+func (s *etcdStatement) UnmarshalJSON(data []byte) error {
+	type Alias etcdStatement
+	aux := &struct {
+		*Alias
+		SingleRole     string        `json:"role"`
+		AltCustomRoles []etcdRoleDef `json:"customRoles"`
+	}{
+		Alias: (*Alias)(s),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if len(s.Roles) == 0 && aux.SingleRole != "" {
+		s.Roles = []string{aux.SingleRole}
+	}
+	if len(s.CustomRoles) == 0 && len(aux.AltCustomRoles) > 0 {
+		s.CustomRoles = aux.AltCustomRoles
+	}
+	return nil
+}
+
+// etcdRoleDef represents a custom role definition in etcd.
+type etcdRoleDef struct {
+	Name        string           `json:"name"`
+	Permissions []etcdPermission `json:"permissions"`
+}
+
+func (r *etcdRoleDef) UnmarshalJSON(data []byte) error {
+	type Alias etcdRoleDef
+	aux := &struct {
+		*Alias
+		AltPermissions []etcdPermission `json:"privileges"`
+	}{
+		Alias: (*Alias)(r),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if len(r.Permissions) == 0 && len(aux.AltPermissions) > 0 {
+		r.Permissions = aux.AltPermissions
+	}
+	return nil
+}
+
+// etcdPermission represents a key permission grant for an etcd role.
+type etcdPermission struct {
+	Permission string `json:"permission"`
+	Key        string `json:"key"`
+	RangeEnd   string `json:"range_end"`
+	Prefix     bool   `json:"prefix"`
+}
+
+func (p *etcdPermission) UnmarshalJSON(data []byte) error {
+	type Alias etcdPermission
+	aux := &struct {
+		*Alias
+		AltPerm     string `json:"perm"`
+		Type        string `json:"type"`
+		AltKey      string `json:"path"`
+		AltRangeEnd string `json:"rangeEnd"`
+		AltPrefix   bool   `json:"isPrefix"`
+	}{
+		Alias: (*Alias)(p),
+	}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	if p.Permission == "" {
+		if aux.AltPerm != "" {
+			p.Permission = aux.AltPerm
+		} else if aux.Type != "" {
+			p.Permission = aux.Type
+		}
+	}
+	if p.Key == "" && aux.AltKey != "" {
+		p.Key = aux.AltKey
+	}
+	if p.RangeEnd == "" && aux.AltRangeEnd != "" {
+		p.RangeEnd = aux.AltRangeEnd
+	}
+	if !p.Prefix && aux.AltPrefix {
+		p.Prefix = true
+	}
+	return nil
 }
 
 var (
@@ -127,6 +217,21 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
 
+	endpoints := make([]string, 0, len(cfg.Endpoints))
+	for _, ep := range cfg.Endpoints {
+		ep = strings.TrimRight(ep, "/")
+		if strings.HasPrefix(ep, "etcd://") {
+			host := strings.TrimPrefix(ep, "etcd://")
+			if tlsSettings.Configured() {
+				ep = "https://" + host
+			} else {
+				ep = "http://" + host
+			}
+		}
+		endpoints = append(endpoints, ep)
+	}
+	cfg.Endpoints = endpoints
+
 	clientCfg := clientv3.Config{
 		Endpoints:   cfg.Endpoints,
 		DialTimeout: dialTimeout,
@@ -185,18 +290,13 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 	return dbplugin.InitializeResponse{Config: req.Config}, nil
 }
 
-// NewUser creates an etcd user via UserAdd and grants each role in the
-// statement via UserGrantRole. If a role grant fails (for example the role
-// does not exist), the just-created user is deleted so no half-configured
-// user is left behind.
+// NewUser creates an etcd user via UserAdd, ensuring any custom roles exist
+// and granting each role in the statement via UserGrantRole. If a role grant
+// fails, the just-created user is deleted so no half-configured user is left
+// behind. Custom roles are preserved on user revocation.
 func (e *Etcd) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplugin.NewUserResponse, error) {
 	if len(req.Statements.Commands) == 0 {
 		return dbplugin.NewUserResponse{}, dbutil.ErrEmptyCreationStatement
-	}
-
-	var stmt etcdStatement
-	if err := json.Unmarshal([]byte(req.Statements.Commands[0]), &stmt); err != nil {
-		return dbplugin.NewUserResponse{}, fmt.Errorf("creation_statements must be a JSON role doc: %w", err)
 	}
 
 	e.mu.Lock()
@@ -205,6 +305,90 @@ func (e *Etcd) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplug
 	if e.client == nil {
 		return dbplugin.NewUserResponse{}, errors.New("database not initialized")
 	}
+
+	var rolesToAssign []string
+	for _, cmd := range req.Statements.Commands {
+		cmd = strings.TrimSpace(cmd)
+		if cmd == "" {
+			continue
+		}
+
+		// Structured JSON statement: {"roles": [...], "custom_roles": [...]}
+		if strings.HasPrefix(cmd, "{") {
+			var stmt etcdStatement
+			if err := json.Unmarshal([]byte(cmd), &stmt); err == nil && (len(stmt.Roles) > 0 || len(stmt.CustomRoles) > 0 || strings.Contains(cmd, `"roles"`) || strings.Contains(cmd, `"custom_roles"`)) {
+				for _, r := range stmt.Roles {
+					if r = strings.TrimSpace(r); r != "" {
+						rolesToAssign = append(rolesToAssign, r)
+					}
+				}
+				for _, cr := range stmt.CustomRoles {
+					if cr.Name == "" {
+						return dbplugin.NewUserResponse{}, errors.New("custom role definition missing name")
+					}
+					if err := e.ensureRole(ctx, cr); err != nil {
+						return dbplugin.NewUserResponse{}, err
+					}
+					rolesToAssign = append(rolesToAssign, cr.Name)
+				}
+				continue
+			}
+
+			// Single custom role JSON definition: {"name": "...", "permissions": [...]}
+			var roleDef etcdRoleDef
+			if err := json.Unmarshal([]byte(cmd), &roleDef); err == nil && roleDef.Name != "" {
+				if err := e.ensureRole(ctx, roleDef); err != nil {
+					return dbplugin.NewUserResponse{}, err
+				}
+				rolesToAssign = append(rolesToAssign, roleDef.Name)
+				continue
+			}
+
+			return dbplugin.NewUserResponse{}, fmt.Errorf("failed to parse role statement JSON: %q", cmd)
+		}
+
+		// Array of roles or custom role definitions: ["reader"] or [{"name": "..."}]
+		if strings.HasPrefix(cmd, "[") {
+			var strRoles []string
+			if err := json.Unmarshal([]byte(cmd), &strRoles); err == nil && len(strRoles) > 0 {
+				for _, r := range strRoles {
+					if r = strings.TrimSpace(r); r != "" {
+						rolesToAssign = append(rolesToAssign, r)
+					}
+				}
+				continue
+			}
+
+			var roleDefs []etcdRoleDef
+			if err := json.Unmarshal([]byte(cmd), &roleDefs); err == nil && len(roleDefs) > 0 {
+				for _, rd := range roleDefs {
+					if rd.Name == "" {
+						return dbplugin.NewUserResponse{}, errors.New("custom role definition missing name")
+					}
+					if err := e.ensureRole(ctx, rd); err != nil {
+						return dbplugin.NewUserResponse{}, err
+					}
+					rolesToAssign = append(rolesToAssign, rd.Name)
+				}
+				continue
+			}
+
+			return dbplugin.NewUserResponse{}, fmt.Errorf("failed to parse role statement JSON array: %q", cmd)
+		}
+
+		// Plain role name string (e.g. "reader", or comma-separated "reader, writer")
+		if strings.Contains(cmd, ",") {
+			for _, part := range strings.Split(cmd, ",") {
+				if part = strings.TrimSpace(part); part != "" {
+					rolesToAssign = append(rolesToAssign, part)
+				}
+			}
+		} else {
+			rolesToAssign = append(rolesToAssign, cmd)
+		}
+	}
+
+	rolesToAssign = deduplicateStrings(rolesToAssign)
 
 	username, err := e.usernameProducer.Generate(req.UsernameConfig)
 	if err != nil {
@@ -220,12 +404,12 @@ func (e *Etcd) NewUser(ctx context.Context, req dbplugin.NewUserRequest) (dbplug
 		return dbplugin.NewUserResponse{}, opErr
 	}
 
-	for _, role := range stmt.Roles {
-		if role == "" {
-			continue
-		}
+	for _, role := range rolesToAssign {
 		if _, err := e.client.UserGrantRole(ctx, username, role); err != nil {
-			return cleanup(fmt.Errorf("grant role %q: %w", role, err))
+			errStr := strings.ToLower(err.Error())
+			if !strings.Contains(errStr, "already exist") && !strings.Contains(errStr, "already granted") {
+				return cleanup(fmt.Errorf("grant role %q: %w", role, err))
+			}
 		}
 	}
 
@@ -288,6 +472,7 @@ func sanitizeEndpoints(endpoints []string) []string {
 	for _, e := range endpoints {
 		for part := range strings.SplitSeq(e, ",") {
 			part = strings.TrimSpace(part)
+			part = strings.TrimRight(part, "/")
 			if part != "" {
 				clean = append(clean, part)
 			}
@@ -311,4 +496,83 @@ func hostFromEndpoint(endpoint string) string {
 		host = host[:idx]
 	}
 	return host
+}
+
+func (e *Etcd) ensureRole(ctx context.Context, role etcdRoleDef) error {
+	role.Name = strings.TrimSpace(role.Name)
+	if role.Name == "" {
+		return errors.New("custom role definition missing name")
+	}
+
+	if _, err := e.client.RoleAdd(ctx, role.Name); err != nil {
+		if !isRoleAlreadyExists(err) {
+			return fmt.Errorf("failed to create role %q: %w", role.Name, err)
+		}
+	}
+
+	for _, p := range role.Permissions {
+		permType, err := parseEtcdPermissionType(p.Permission)
+		if err != nil {
+			return fmt.Errorf("role %q: %w", role.Name, err)
+		}
+
+		key := p.Key
+		rangeEnd := strings.TrimSpace(p.RangeEnd)
+		if p.Prefix && rangeEnd == "" {
+			rangeEnd = clientv3.GetPrefixRangeEnd(key)
+		} else if key == "" && rangeEnd == "" {
+			return fmt.Errorf("role %q permission requires a non-empty key (or prefix: true)", role.Name)
+		}
+
+		if _, err := e.client.RoleGrantPermission(ctx, role.Name, key, rangeEnd, permType); err != nil {
+			errStr := strings.ToLower(err.Error())
+			if !strings.Contains(errStr, "already exist") && !strings.Contains(errStr, "already granted") {
+				return fmt.Errorf("failed to grant permission to role %q: %w", role.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func parseEtcdPermissionType(s string) (clientv3.PermissionType, error) {
+	norm := strings.ToUpper(strings.TrimSpace(s))
+	norm = strings.ReplaceAll(norm, "-", "")
+	norm = strings.ReplaceAll(norm, "_", "")
+	switch norm {
+	case "READ":
+		return clientv3.PermissionType(clientv3.PermRead), nil
+	case "WRITE":
+		return clientv3.PermissionType(clientv3.PermWrite), nil
+	case "READWRITE":
+		return clientv3.PermissionType(clientv3.PermReadWrite), nil
+	default:
+		return clientv3.StrToPermissionType(s)
+	}
+}
+
+func isRoleAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, rpctypes.ErrRoleAlreadyExist) || errors.Is(err, rpctypes.ErrGRPCRoleAlreadyExist) {
+		return true
+	}
+	errStr := strings.ToLower(err.Error())
+	return strings.Contains(errStr, "role name already exists") || strings.Contains(errStr, "role already exist")
+}
+
+func deduplicateStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	var out []string
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
 }

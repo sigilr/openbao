@@ -33,27 +33,46 @@ schema doesn't know about plugin-specific list fields — see `kafka`'s
 
 ## Creation statement
 
-JSON:
+Accepts existing roles, custom inline roles, or a combination:
 
 ```json
-{"roles": ["reader", "editor"]}
+{
+  "roles": ["reader"],
+  "custom_roles": [
+    {
+      "name": "app_writer",
+      "permissions": [
+        {
+          "permission": "readwrite",
+          "key": "/app/",
+          "prefix": true
+        },
+        {
+          "permission": "read",
+          "key": "/config/sample"
+        }
+      ]
+    }
+  ]
+}
 ```
 
-Roles must already exist on the cluster (`etcdctl role add`) — this plugin
-does not create roles, only users and role grants.
+Pre-existing roles named under `roles` must already exist on the cluster. Custom roles named under `custom_roles` are created and assigned permissions idempotently by the plugin.
 
 ## Lifecycle
 
 ### NewUser
 
 ```
+ensureRole(customRole)      // RoleAdd (ignoring "already exists") + RoleGrantPermission
 UserAdd(name, password)
 UserGrantRole(name, role)   // once per role in the statement
 ```
 
-On any per-role grant failure (for example, the role doesn't exist), the
-plugin calls `UserDelete` before returning so a half-configured user isn't
-left behind.
+1. If custom roles are defined, each is created via `RoleAdd`. If the role already exists, creation continues without error. Each permission is then granted via `RoleGrantPermission`.
+2. The user is created via `UserAdd`.
+3. Each role (pre-existing and custom) is granted to the user via `UserGrantRole`.
+4. On any per-role grant failure, the plugin calls `UserDelete` before returning so a half-configured user isn't left behind. Custom roles created in step 1 are not deleted.
 
 ### UpdateUser
 
@@ -70,8 +89,7 @@ users).
 UserDelete(name)
 ```
 
-A "user name not found" error is treated as success so revocation is
-idempotent against a user that's already gone.
+`DeleteUser` only removes the ephemeral user. Custom roles are not deleted because other active credentials may still be bound to them. A "user name not found" error is treated as success so revocation is idempotent against a user that's already gone.
 
 ## Connectivity check
 

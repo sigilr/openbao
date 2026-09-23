@@ -41,11 +41,42 @@ $ bao write database/roles/reader \
 
 ## Creation statement
 
+Accepts existing roles, custom inline roles, or a combination:
+
+### Pre-existing roles
 ```json
 {"roles": ["reader", "editor"]}
 ```
 
-Roles must already exist on the cluster.
+### Custom roles with inline permissions
+```json
+{
+  "roles": ["reader"],
+  "custom_roles": [
+    {
+      "name": "app_writer",
+      "permissions": [
+        {
+          "permission": "readwrite",
+          "key": "/app/",
+          "prefix": true
+        },
+        {
+          "permission": "read",
+          "key": "/config/sample"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `permission`: `"read"`, `"write"`, or `"readwrite"` (case-insensitive).
+- `key`: key path or range start.
+- `prefix`: boolean; if `true`, automatically computes prefix range end.
+- `range_end`: optional explicit range end key.
+- Custom roles are created idempotently (`RoleAdd` ignores "already exists", `RoleGrantPermission` updates permissions).
+- Ephemeral user revocation deletes the user and preserves custom roles.
 
 ## Building
 
