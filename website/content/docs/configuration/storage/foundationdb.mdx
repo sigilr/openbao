@@ -1,0 +1,73 @@
+---
+sidebar_label: FoundationDB Storage
+description: |-
+  The FoundationDB storage backend is used to persist OpenBao's data in a
+  FoundationDB cluster.
+---
+
+# FoundationDB storage backend
+
+The FoundationDB storage backend is used to persist OpenBao's data in a
+[FoundationDB][foundationdb] cluster.
+
+:::warning
+
+**Not compiled into standard builds.** Unlike other storage backends,
+FoundationDB requires CGo and the native `libfdb_c` client library at build
+and run time. `bao` binaries built the normal way (`CGO_ENABLED=0`, no
+build tags) accept `storage "foundationdb"` in configuration but fail at
+startup with `FoundationDB backend not available in this OpenBao build`.
+Building with the FoundationDB backend enabled requires the native client
+library to be installed and `-tags foundationdb` (or `make dev
+FDB_ENABLED=1`) to be passed at build time. See
+`internal/physical/foundationdb/README.md` in the source tree for full
+instructions.
+
+:::
+
+:::tip
+
+**High Availability** – the FoundationDB storage backend supports High
+Availability.
+
+:::
+
+```hcl
+storage "foundationdb" {
+  path         = "vault"
+  api_version  = "710"
+  cluster_file = "/etc/foundationdb/fdb.cluster"
+}
+```
+
+## `foundationdb` parameters
+
+- `path` `(string: "vault")` – Specifies the path (directory) under which
+  OpenBao's keys will be stored in FoundationDB's directory layer.
+
+- `api_version` `(int: <required>)` – Specifies the FoundationDB API version
+  the client should request. Must be at least `520`, and no higher than the
+  version supported by the native client library the binary was built
+  against.
+
+- `cluster_file` `(string: <required>)` – The path of a
+  [cluster file][fdb_cluster_file] describing how to connect to the
+  FoundationDB cluster.
+
+- `ha_enabled` `(string: "true|false")` – Default not enabled. Enables use
+  of FoundationDB for OpenBao High Availability.
+
+- `tls_cert_file`, `tls_key_file`, `tls_ca_file` `(string: "")` – Paths to a
+  TLS certificate, private key, and CA bundle to use for the client's
+  connection to FoundationDB. All three must be set together to enable TLS.
+
+- `tls_password` `(string: "")` – Passphrase for an encrypted
+  `tls_key_file`.
+
+- `tls_verify_peers` `(string: "")` – Peer verification constraints;
+  required when TLS is enabled. See FoundationDB's
+  [TLS documentation][fdb_tls] for the constraint syntax.
+
+[foundationdb]: https://www.foundationdb.org/
+[fdb_cluster_file]: https://apple.github.io/foundationdb/administration.html#cluster-files
+[fdb_tls]: https://apple.github.io/foundationdb/tls.html
