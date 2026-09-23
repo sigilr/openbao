@@ -217,21 +217,6 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
 
-	endpoints := make([]string, 0, len(cfg.Endpoints))
-	for _, ep := range cfg.Endpoints {
-		ep = strings.TrimRight(ep, "/")
-		if strings.HasPrefix(ep, "etcd://") {
-			host := strings.TrimPrefix(ep, "etcd://")
-			if tlsSettings.Configured() {
-				ep = "https://" + host
-			} else {
-				ep = "http://" + host
-			}
-		}
-		endpoints = append(endpoints, ep)
-	}
-	cfg.Endpoints = endpoints
-
 	clientCfg := clientv3.Config{
 		Endpoints:   cfg.Endpoints,
 		DialTimeout: dialTimeout,
@@ -472,7 +457,6 @@ func sanitizeEndpoints(endpoints []string) []string {
 	for _, e := range endpoints {
 		for part := range strings.SplitSeq(e, ",") {
 			part = strings.TrimSpace(part)
-			part = strings.TrimRight(part, "/")
 			if part != "" {
 				clean = append(clean, part)
 			}
