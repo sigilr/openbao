@@ -89,7 +89,6 @@ require (
 	github.com/kr/text v0.2.0
 	github.com/mattn/go-colorable v0.1.15
 	github.com/mattn/go-isatty v0.0.22
-	github.com/mediocregopher/radix/v4 v4.1.5
 	github.com/mholt/acmez/v3 v3.1.6
 	github.com/michaelklishin/rabbit-hole/v3 v3.5.0
 	github.com/microsoft/go-mssqldb v1.10.0
@@ -135,6 +134,7 @@ require (
 	github.com/tsaarni/certyaml v0.11.0
 	github.com/twmb/franz-go v1.21.5
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
+	github.com/valkey-io/valkey-go v1.0.76
 	github.com/yeqown/go-qrcode/v2 v2.2.5
 	go.etcd.io/bbolt v1.5.0
 	go.mongodb.org/mongo-driver v1.17.9
@@ -330,10 +330,9 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.865 // indirect
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/cvm v1.0.480 // indirect
-	github.com/tidwall/gjson v1.17.1 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
-	github.com/tilinna/clock v1.0.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/tsaarni/x500dn v1.1.0 // indirect

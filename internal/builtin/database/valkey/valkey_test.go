@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mediocregopher/radix/v4"
 	"github.com/moby/moby/api/types/network"
 	"github.com/openbao/openbao/api/v2"
 	"github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/require"
+	"github.com/valkey-io/valkey-go"
 )
 
 var pre6dot5 = false // check for Pre 6.5.0 Valkey
@@ -69,11 +69,14 @@ func prepareValkeyTestContainer(t *testing.T) (string, int) {
 	address := "127.0.0.1:6379"
 	if err = pool.Retry(t.Context(), 10*time.Second, func() error {
 		t.Log("Waiting for the database to start...")
-		poolConfig := radix.PoolConfig{}
-		_, err := poolConfig.New(t.Context(), "tcp", address)
+		client, err := valkey.NewClient(valkey.ClientOption{
+			InitAddress:       []string{address},
+			ForceSingleClient: true,
+		})
 		if err != nil {
 			return err
 		}
+		client.Close()
 
 		return nil
 	}); err != nil {
@@ -457,9 +460,13 @@ func checkRuleAllowed(t *testing.T, username, password, address string, port int
 	if !db.Initialized {
 		t.Fatal("Database should be initialized")
 	}
-	var response string
-	err = db.client.Do(t.Context(), radix.Cmd(&response, cmd, rules...))
-
+	built := db.client.B().Arbitrary(cmd).Args(rules...).Build()
+	err = db.client.Do(t.Context(), built).Error()
+	if valkey.IsValkeyNil(err) {
+		// A nil reply (e.g. GET on a key that doesn't exist) means the command
+		// was permitted by the ACL but simply had nothing to return.
+		return nil
+	}
 	return err
 }
 
@@ -992,7 +999,13 @@ func testComputeTimeout(t *testing.T) {
 }
 
 func createUser(ctx context.Context, hostname string, port int, valkeyTls bool, CACert []byte, adminuser, adminpassword, username, password, aclRule string) (err error) {
-	var poolConfig radix.PoolConfig
+	opt := valkey.ClientOption{
+		InitAddress:       []string{fmt.Sprintf("%s:%d", hostname, port)},
+		Username:          adminuser,
+		Password:          adminpassword,
+		ForceSingleClient: true,
+		DisableCache:      true,
+	}
 
 	if valkeyTls {
 		rootCAs := x509.NewCertPool()
@@ -1001,47 +1014,23 @@ func createUser(ctx context.Context, hostname string, port int, valkeyTls bool, 
 			return fmt.Errorf("failed to parse root certificate")
 		}
 
-		poolConfig = radix.PoolConfig{
-			Dialer: radix.Dialer{
-				AuthUser: adminuser,
-				AuthPass: adminpassword,
-				NetDialer: &tls.Dialer{
-					Config: &tls.Config{
-						RootCAs:            rootCAs,
-						InsecureSkipVerify: true,
-					},
-				},
-			},
-		}
-	} else {
-		poolConfig = radix.PoolConfig{
-			Dialer: radix.Dialer{
-				AuthUser: adminuser,
-				AuthPass: adminpassword,
-			},
+		opt.TLSConfig = &tls.Config{
+			RootCAs:            rootCAs,
+			InsecureSkipVerify: true,
 		}
 	}
 
-	addr := fmt.Sprintf("%s:%d", hostname, port)
-	client, err := poolConfig.New(ctx, "tcp", addr)
+	client, err := valkey.NewClient(opt)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
-	var response string
-	err = client.Do(ctx, radix.Cmd(&response, "ACL", "SETUSER", username, "on", ">"+password, aclRule))
+	cmd := client.B().Arbitrary("ACL", "SETUSER", username, "on", ">"+password, aclRule).Build()
+	res := client.Do(ctx, cmd)
 
+	response, _ := res.ToString()
 	fmt.Printf("Response in createUser: %s\n", response)
 
-	if err != nil {
-		return err
-	}
-
-	if client != nil {
-		if err = client.Close(); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return res.Error()
 }
