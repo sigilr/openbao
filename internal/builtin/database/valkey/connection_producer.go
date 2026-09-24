@@ -153,8 +153,53 @@ func (c *valkeyDBConnectionProducer) Connection(ctx context.Context) (any, error
 		}
 	}
 
+	var firstDial sync.Once
+	var stopInitialCancel func() bool
+	opt.DialCtxFn = func(dialCtx context.Context, addr string, dialer *net.Dialer, tlsConfig *tls.Config) (net.Conn, error) {
+		initialDial := false
+		firstDial.Do(func() {
+			dialCtx = ctx
+			initialDial = true
+		})
+
+		var conn net.Conn
+		var err error
+		if tlsConfig != nil {
+			tlsDialer := &tls.Dialer{
+				NetDialer: dialer,
+				Config:    tlsConfig,
+			}
+			conn, err = tlsDialer.DialContext(dialCtx, "tcp", addr)
+		} else {
+			conn, err = dialer.DialContext(dialCtx, "tcp", addr)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if initialDial {
+			stopInitialCancel = context.AfterFunc(ctx, func() {
+				_ = conn.Close()
+			})
+		}
+
+		return conn, nil
+	}
+
 	client, err := valkey.NewClient(opt)
+	if stopInitialCancel != nil {
+		stopInitialCancel()
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if client != nil {
+			client.Close()
+		}
+		return nil, ctxErr
+	}
 	if err != nil {
+		if client != nil {
+			client.Close()
+		}
 		return nil, err
 	}
 	c.client = client
