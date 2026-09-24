@@ -346,6 +346,7 @@ const sidebars: SidebarsConfig = {
                         "secrets/databases/custom",
                         "secrets/databases/druid",
                         "secrets/databases/elasticsearch",
+                        "secrets/databases/etcd",
                         "secrets/databases/hana",
                         "secrets/databases/ignite",
                         "secrets/databases/influxdb",

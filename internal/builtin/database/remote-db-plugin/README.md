@@ -109,6 +109,7 @@ $ bao read database/creds/readonly
 | `remote-influxdb-plugin` | `influxdb-database-plugin` |
 | `remote-druid-plugin` | `druid-database-plugin` (Apache Druid) |
 | `remote-elasticsearch-plugin` | `elasticsearch-database-plugin` |
+| `remote-etcd-plugin` | `etcd-database-plugin` |
 | `remote-hana-plugin` | `hana-database-plugin` (SAP HANA) |
 | `remote-ignite-plugin` | `ignite-database-plugin` (Apache Ignite SQL DDL) |
 | `remote-kafka-plugin` | `kafka-database-plugin` (SCRAM users) |

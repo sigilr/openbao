@@ -19,6 +19,7 @@ import (
 	dbCass "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
 	dbDruid "github.com/openbao/openbao/v2/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
+	dbEtcd "github.com/openbao/openbao/v2/internal/builtin/database/etcd"
 	dbHana "github.com/openbao/openbao/v2/internal/builtin/database/hana"
 	dbIgnite "github.com/openbao/openbao/v2/internal/builtin/database/ignite"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
@@ -96,6 +97,7 @@ func newRegistry() *registry {
 			"cassandra-database-plugin":     {Factory: dbCass.New},
 			"druid-database-plugin":         {Factory: dbDruid.New},
 			"elasticsearch-database-plugin": {Factory: dbES.New},
+			"etcd-database-plugin":          {Factory: dbEtcd.New},
 			"hana-database-plugin":          {Factory: dbHana.New},
 			"ignite-database-plugin":        {Factory: dbIgnite.New},
 			"influxdb-database-plugin":      {Factory: dbInflux.New},
@@ -115,6 +117,7 @@ func newRegistry() *registry {
 			"remote-cassandra-plugin":       {Factory: dbRemote.New("cassandra-database-plugin")},
 			"remote-druid-plugin":           {Factory: dbRemote.New("druid-database-plugin")},
 			"remote-elasticsearch-plugin":   {Factory: dbRemote.New("elasticsearch-database-plugin")},
+			"remote-etcd-plugin":            {Factory: dbRemote.New("etcd-database-plugin")},
 			"remote-hana-plugin":            {Factory: dbRemote.New("hana-database-plugin")},
 			"remote-ignite-plugin":          {Factory: dbRemote.New("ignite-database-plugin")},
 			"remote-influxdb-plugin":        {Factory: dbRemote.New("influxdb-database-plugin")},

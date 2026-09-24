@@ -31,6 +31,7 @@ import (
 	dbCassandra "github.com/openbao/openbao/v2/internal/builtin/database/cassandra"
 	dbDruid "github.com/openbao/openbao/v2/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/v2/internal/builtin/database/elasticsearch"
+	dbEtcd "github.com/openbao/openbao/v2/internal/builtin/database/etcd"
 	dbHana "github.com/openbao/openbao/v2/internal/builtin/database/hana"
 	dbIgnite "github.com/openbao/openbao/v2/internal/builtin/database/ignite"
 	dbInflux "github.com/openbao/openbao/v2/internal/builtin/database/influxdb"
@@ -420,6 +421,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbDruid.New
 	case "elasticsearch-database-plugin":
 		factory = dbES.New
+	case "etcd-database-plugin":
+		factory = dbEtcd.New
 	case "hana-database-plugin":
 		factory = dbHana.New
 	case "ignite-database-plugin":
