@@ -86,7 +86,6 @@ require (
 	github.com/kr/text v0.2.0
 	github.com/mattn/go-colorable v0.1.15
 	github.com/mattn/go-isatty v0.0.22
-	github.com/mediocregopher/radix/v4 v4.1.5
 	github.com/mholt/acmez/v3 v3.1.6
 	github.com/michaelklishin/rabbit-hole/v3 v3.5.0
 	github.com/mitchellh/copystructure v1.2.0
@@ -344,7 +343,6 @@ require (
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
-	github.com/tilinna/clock v1.0.2 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/tsaarni/x500dn v1.1.0 // indirect
@@ -415,3 +413,5 @@ require (
 )
 
 require github.com/google/uuid v1.6.0
+
+require github.com/valkey-io/valkey-go v1.0.76

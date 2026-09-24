@@ -1,0 +1,3 @@
+```release-note:improvement
+secrets/database/valkey: replace the unmaintained mediocregopher/radix client with valkey-io/valkey-go.
+```

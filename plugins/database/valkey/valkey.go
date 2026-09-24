@@ -6,16 +6,14 @@ package valkey
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	hclog "github.com/hashicorp/go-hclog"
-	"github.com/mediocregopher/radix/v4"
-	"github.com/mediocregopher/radix/v4/resp/resp3"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/credsutil"
+	"github.com/valkey-io/valkey-go"
 )
 
 const (
@@ -120,23 +118,19 @@ func (c *ValkeyDB) DeleteUser(ctx context.Context, req dbplugin.DeleteUserReques
 		}
 	}()
 
-	var response string
-
-	err = db.Do(ctx, radix.Cmd(&response, "ACL", "DELUSER", req.Username))
-	if err != nil {
+	cmd := db.B().AclDeluser().Username(req.Username).Build()
+	if err := db.Do(ctx, cmd).Error(); err != nil {
 		return dbplugin.DeleteUserResponse{}, err
 	}
 
 	return dbplugin.DeleteUserResponse{}, nil
 }
 
-func newUser(ctx context.Context, db radix.Client, username string, req dbplugin.NewUserRequest) error {
+func newUser(ctx context.Context, db valkey.Client, username string, req dbplugin.NewUserRequest) error {
 	statements := removeEmpty(req.Statements.Commands)
 	if len(statements) == 0 {
 		statements = append(statements, defaultValkeyUserRule)
 	}
-
-	aclargs := []string{"SETUSER", username, "ON", ">" + req.Password}
 
 	logger := hclog.New(&hclog.LoggerOptions{})
 	var aclRules []string
@@ -149,15 +143,10 @@ func newUser(ctx context.Context, db radix.Client, username string, req dbplugin
 		aclRules = statements
 	}
 
-	aclargs = append(aclargs, aclRules...)
-	var response string
+	tokens := append([]string{"ACL", "SETUSER", username, "ON", ">" + req.Password}, aclRules...)
+	cmd := db.B().Arbitrary(tokens...).Build()
 
-	err = db.Do(ctx, radix.Cmd(&response, "ACL", aclargs...))
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return db.Do(ctx, cmd).Error()
 }
 
 func (c *ValkeyDB) changeUserPassword(ctx context.Context, username, password string) error {
@@ -177,25 +166,22 @@ func (c *ValkeyDB) changeUserPassword(ctx context.Context, username, password st
 		}
 	}()
 
-	var response resp3.ArrayHeader
-	mn := radix.Maybe{Rcv: &response}
-	var valkeyErr resp3.SimpleError
-	err = db.Do(ctx, radix.Cmd(&mn, "ACL", "GETUSER", username))
-	if errors.As(err, &valkeyErr) {
-		return fmt.Errorf("valkey error returned: %s", valkeyErr.Error())
-	}
-
-	if err != nil {
+	getCmd := db.B().AclGetuser().Username(username).Build()
+	res := db.Do(ctx, getCmd)
+	if err := res.Error(); err != nil {
 		return fmt.Errorf("reset of passwords for user %s failed in changeUserPassword: %w", username, err)
 	}
 
-	if mn.Null {
+	msg, err := res.ToMessage()
+	if err != nil {
+		return fmt.Errorf("reset of passwords for user %s failed in changeUserPassword: %w", username, err)
+	}
+	if msg.IsNil() {
 		return fmt.Errorf("changeUserPassword for user %s failed: user not found", username)
 	}
 
-	var sresponse string
-	err = db.Do(ctx, radix.Cmd(&sresponse, "ACL", "SETUSER", username, "RESETPASS", ">"+password))
-	if err != nil {
+	setCmd := db.B().AclSetuser().Username(username).Rule("RESETPASS", ">"+password).Build()
+	if err := db.Do(ctx, setCmd).Error(); err != nil {
 		return err
 	}
 
@@ -223,12 +209,12 @@ func computeTimeout(ctx context.Context) (timeout time.Duration) {
 	return defaultTimeout
 }
 
-func (c *ValkeyDB) getConnection(ctx context.Context) (radix.Client, error) {
+func (c *ValkeyDB) getConnection(ctx context.Context) (valkey.Client, error) {
 	db, err := c.Connection(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return db.(radix.Client), nil
+	return db.(valkey.Client), nil
 }
 
 func (c *ValkeyDB) Type() (string, error) {
