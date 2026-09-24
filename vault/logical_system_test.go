@@ -3884,10 +3884,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 
 		if diff := deep.Equal(resp.Data, map[string]any{
 			"keys": []string{
-				"cassandra-database-plugin", "druid-database-plugin", "elasticsearch-database-plugin", "hana-database-plugin", "ignite-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "milvus-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "druid-database-plugin", "elasticsearch-database-plugin", "etcd-database-plugin", "hana-database-plugin", "ignite-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "milvus-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "qdrant-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-etcd-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
 				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin", "remote-weaviate-plugin",
 				"solr-database-plugin", "test-plugin", "valkey-database-plugin", "weaviate-database-plugin",
 			},
@@ -3915,10 +3915,10 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 			"secret": []string{"keymgmt", "kmip", "kv", "transform"},
 			"auth":   []string{"approle", "pending-removal-test-plugin"},
 			"database": []string{
-				"cassandra-database-plugin", "druid-database-plugin", "elasticsearch-database-plugin", "hana-database-plugin", "ignite-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "milvus-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
+				"cassandra-database-plugin", "druid-database-plugin", "elasticsearch-database-plugin", "etcd-database-plugin", "hana-database-plugin", "ignite-database-plugin", "influxdb-database-plugin", "kafka-database-plugin", "milvus-database-plugin", "mongodb-database-plugin", "mssql-database-plugin", "mysql-aurora-database-plugin",
 				"mysql-database-plugin", "mysql-legacy-database-plugin", "mysql-rds-database-plugin",
 				"neo4j-database-plugin", "oracle-database-plugin", "postgresql-database-plugin", "qdrant-database-plugin", "rabbitmq-database-plugin", "redis-database-plugin",
-				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
+				"remote-cassandra-plugin", "remote-druid-plugin", "remote-elasticsearch-plugin", "remote-etcd-plugin", "remote-hana-plugin", "remote-ignite-plugin", "remote-influxdb-plugin", "remote-kafka-plugin", "remote-milvus-plugin", "remote-mongodb-plugin", "remote-mssql-plugin", "remote-mysql-plugin",
 				"remote-neo4j-plugin", "remote-oracle-plugin", "remote-postgres-plugin", "remote-qdrant-plugin", "remote-rabbitmq-plugin", "remote-redis-plugin", "remote-solr-plugin", "remote-valkey-plugin", "remote-weaviate-plugin",
 				"solr-database-plugin", "test-plugin", "valkey-database-plugin", "weaviate-database-plugin",
 			},
@@ -3948,6 +3948,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "elasticsearch-database-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "etcd-database-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",
@@ -4068,6 +4074,12 @@ func TestSystemBackend_PluginCatalog_List(t *testing.T) {
 				"version":            "v2.0.0+builtin.bao",
 			}, {
 				"name":               "remote-elasticsearch-plugin",
+				"builtin":            true,
+				"deprecation_status": "supported",
+				"type":               "database",
+				"version":            "v2.0.0+builtin.bao",
+			}, {
+				"name":               "remote-etcd-plugin",
 				"builtin":            true,
 				"deprecation_status": "supported",
 				"type":               "database",

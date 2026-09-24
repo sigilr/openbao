@@ -282,7 +282,10 @@ qdrant-database-plugin:
 weaviate-database-plugin:
 	@CGO_ENABLED=0 go build -o bin/weaviate-database-plugin ./internal/builtin/database/weaviate/weaviate-database-plugin
 
-.PHONY: bin default prep test vet bootstrap fmt fmtcheck weaviate-database-plugin qdrant-database-plugin kafka-database-plugin ignite-database-plugin milvus-database-plugin druid-database-plugin solr-database-plugin neo4j-database-plugin hana-database-plugin elasticsearch-database-plugin oracle-database-plugin mssql-database-plugin mongodb-database-plugin mysql-database-plugin mysql-legacy-database-plugin cassandra-database-plugin influxdb-database-plugin postgresql-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
+etcd-database-plugin:
+	@CGO_ENABLED=0 go build -o bin/etcd-database-plugin ./internal/builtin/database/etcd/etcd-database-plugin
+
+.PHONY: bin default prep test vet bootstrap fmt fmtcheck etcd-database-plugin weaviate-database-plugin qdrant-database-plugin kafka-database-plugin ignite-database-plugin milvus-database-plugin druid-database-plugin solr-database-plugin neo4j-database-plugin hana-database-plugin elasticsearch-database-plugin oracle-database-plugin mssql-database-plugin mongodb-database-plugin mysql-database-plugin mysql-legacy-database-plugin cassandra-database-plugin influxdb-database-plugin postgresql-database-plugin ember-dist ember-dist-dev static-dist static-dist-dev assetcheck check-openbao-in-path packages build build-ci semgrep semgrep-ci vet-godoctests ci-vet-godoctests
 
 .NOTPARALLEL: ember-dist ember-dist-dev
 

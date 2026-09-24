@@ -29,6 +29,7 @@ import (
 
 	dbDruid "github.com/openbao/openbao/internal/builtin/database/druid"
 	dbES "github.com/openbao/openbao/internal/builtin/database/elasticsearch"
+	dbEtcd "github.com/openbao/openbao/internal/builtin/database/etcd"
 	dbHana "github.com/openbao/openbao/internal/builtin/database/hana"
 	dbIgnite "github.com/openbao/openbao/internal/builtin/database/ignite"
 	dbKafka "github.com/openbao/openbao/internal/builtin/database/kafka"
@@ -420,6 +421,8 @@ func loadPlugin(pluginName string) (dbplugin.Database, error) {
 		factory = dbDruid.New
 	case "elasticsearch-database-plugin":
 		factory = dbES.New
+	case "etcd-database-plugin":
+		factory = dbEtcd.New
 	case "hana-database-plugin":
 		factory = dbHana.New
 	case "ignite-database-plugin":
