@@ -178,10 +178,9 @@ func (c *SQLConnectionProducer) Connection(ctx context.Context) (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse config: %w", err)
 		}
-		config.TLSConfig = mergeTLSConfig(config.TLSConfig, c.TLSConfig)
-
+		applyInlineTLS(config.TLSConfig, c.TLSConfig)
 		for _, fallback := range config.Fallbacks {
-			fallback.TLSConfig = mergeTLSConfig(fallback.TLSConfig, c.TLSConfig)
+			applyInlineTLS(fallback.TLSConfig, c.TLSConfig)
 		}
 
 		c.db = stdlib.OpenDB(*config)
@@ -201,20 +200,26 @@ func (c *SQLConnectionProducer) Connection(ctx context.Context) (any, error) {
 	return c.db, nil
 }
 
-// mergeTLSConfig adds inline trust and client identity material while
-// preserving pgx-derived settings such as the TLS server name for each host.
-func mergeTLSConfig(base, inline *tls.Config) *tls.Config {
+// applyInlineTLS adds inline trust and client identity material to a TLS
+// config that pgx derived from the connection URL. The config is modified in
+// place because pgx's verify-ca check reads RootCAs from the config it created,
+// so a copy would silently ignore the inline CA. A nil config means the sslmode
+// does not use TLS for that attempt (disable, or the plaintext fallback of
+// allow/prefer) and is left alone, as are settings pgx derived such as the
+// server name.
+func applyInlineTLS(base, inline *tls.Config) {
 	if base == nil {
-		base = &tls.Config{}
-	} else {
-		base = base.Clone()
+		return
 	}
-	base.RootCAs = inline.RootCAs
-	base.Certificates = inline.Certificates
+	if inline.RootCAs != nil {
+		base.RootCAs = inline.RootCAs
+	}
+	if len(inline.Certificates) > 0 {
+		base.Certificates = inline.Certificates
+	}
 	if inline.MinVersion > base.MinVersion {
 		base.MinVersion = inline.MinVersion
 	}
-	return base
 }
 
 func (c *SQLConnectionProducer) SecretValues() map[string]any {

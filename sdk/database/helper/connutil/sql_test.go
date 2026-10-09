@@ -96,8 +96,7 @@ func TestSQLPasswordChars(t *testing.T) {
 	}
 }
 
-func TestMergeTLSConfigPreservesDerivedServerName(t *testing.T) {
-	base := &tls.Config{ServerName: "postgres.example.com"}
+func TestApplyInlineTLS(t *testing.T) {
 	rootCAs := x509.NewCertPool()
 	inline := &tls.Config{
 		RootCAs:      rootCAs,
@@ -105,14 +104,36 @@ func TestMergeTLSConfigPreservesDerivedServerName(t *testing.T) {
 		MinVersion:   tls.VersionTLS12,
 	}
 
-	merged := mergeTLSConfig(base, inline)
+	t.Run("modifies pgx config in place and keeps derived settings", func(t *testing.T) {
+		base := &tls.Config{ServerName: "postgres.example.com"}
+		same := base
 
-	assert.Equal(t, "postgres.example.com", merged.ServerName)
-	assert.Same(t, rootCAs, merged.RootCAs)
-	assert.Len(t, merged.Certificates, 1)
-	assert.Equal(t, uint16(tls.VersionTLS12), merged.MinVersion)
-	assert.NotSame(t, base, merged)
-	assert.Nil(t, base.RootCAs)
+		applyInlineTLS(base, inline)
+
+		assert.Same(t, same, base)
+		assert.Equal(t, "postgres.example.com", base.ServerName)
+		assert.Same(t, rootCAs, base.RootCAs)
+		assert.Len(t, base.Certificates, 1)
+		assert.Equal(t, uint16(tls.VersionTLS12), base.MinVersion)
+	})
+
+	t.Run("nil config stays nil", func(t *testing.T) {
+		var base *tls.Config
+		applyInlineTLS(base, inline)
+		assert.Nil(t, base)
+	})
+
+	t.Run("empty inline fields do not clobber URL-derived material", func(t *testing.T) {
+		urlCAs := x509.NewCertPool()
+		urlCert := tls.Certificate{Certificate: [][]byte{{1}}}
+		base := &tls.Config{RootCAs: urlCAs, Certificates: []tls.Certificate{urlCert}, MinVersion: tls.VersionTLS13}
+
+		applyInlineTLS(base, &tls.Config{})
+
+		assert.Same(t, urlCAs, base.RootCAs)
+		assert.Equal(t, []tls.Certificate{urlCert}, base.Certificates)
+		assert.Equal(t, uint16(tls.VersionTLS13), base.MinVersion)
+	})
 }
 
 func TestSQLDisableEscaping(t *testing.T) {
