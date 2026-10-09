@@ -1,0 +1,3 @@
+```release-note:improvement
+plugins/database/postgresql: Support inline CA and client certificate PEM data for TLS connections.
+```

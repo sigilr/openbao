@@ -5,11 +5,16 @@ package postgresql
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +24,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/helper/docker"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
 	"github.com/openbao/openbao/sdk/v2/helper/testhelpers/postgresql"
+	"github.com/openbao/openbao/v2/internal/helper/testhelpers/certhelpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,6 +71,239 @@ func TestPostgreSQL_InitializeWithStringVals(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatalf("err: %s", err)
 	}
+}
+
+func TestPostgreSQL_InitializeWithInlineTLS(t *testing.T) {
+	caCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("test certificate authority"),
+		certhelpers.IsCA(true),
+		certhelpers.SelfSign(),
+	)
+	clientCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("postgresql client"),
+		certhelpers.Parent(caCert),
+	)
+
+	db := new()
+	resp, err := db.Initialize(t.Context(), dbplugin.InitializeRequest{
+		Config: map[string]any{
+			"connection_url":  "postgres://{{username}}:{{password}}@postgres.example.com:5432/postgres?sslmode=verify-full",
+			"username":        "postgres",
+			"password":        "password",
+			"tls_ca":          string(caCert.Pem),
+			"tls_certificate": string(clientCert.Pem),
+			"private_key":     string(clientCert.PrivateKeyPEM()),
+		},
+		VerifyConnection: false,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, db.TLSConfig)
+	expectedRootCAs := x509.NewCertPool()
+	require.True(t, expectedRootCAs.AppendCertsFromPEM(caCert.Pem))
+	require.True(t, db.TLSConfig.RootCAs.Equal(expectedRootCAs))
+	require.Len(t, db.TLSConfig.Certificates, 1)
+	require.Equal(t, string(caCert.Pem), resp.Config["tls_ca"])
+	require.Equal(t, "[private_key]", db.secretValues()[string(clientCert.PrivateKeyPEM())])
+}
+
+func TestPostgreSQL_InitializeInlineTLSErrors(t *testing.T) {
+	caCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("test certificate authority"),
+		certhelpers.IsCA(true),
+		certhelpers.SelfSign(),
+	)
+	clientCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("postgresql client"),
+		certhelpers.Parent(caCert),
+	)
+
+	tests := map[string]struct {
+		config      map[string]any
+		errContains string
+	}{
+		"invalid CA": {
+			config:      map[string]any{"tls_ca": "not PEM"},
+			errContains: "unable to add tls_ca to certificate pool",
+		},
+		"certificate without key": {
+			config:      map[string]any{"tls_certificate": string(clientCert.Pem)},
+			errContains: "both tls_certificate and private_key are required",
+		},
+		"key without certificate": {
+			config:      map[string]any{"private_key": string(clientCert.PrivateKeyPEM())},
+			errContains: "both tls_certificate and private_key are required",
+		},
+		"invalid certificate and key": {
+			config: map[string]any{
+				"tls_certificate": string(clientCert.Pem),
+				"private_key":     "not PEM",
+			},
+			errContains: "unable to load tls_certificate and private_key",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			config := map[string]any{
+				"connection_url": "postgres://{{username}}:{{password}}@postgres.example.com:5432/postgres?sslmode=verify-full",
+				"username":       "postgres",
+				"password":       "password",
+			}
+			maps.Copy(config, test.config)
+
+			_, err := new().Initialize(t.Context(), dbplugin.InitializeRequest{
+				Config:           config,
+				VerifyConnection: false,
+			})
+			require.ErrorContains(t, err, test.errContains)
+		})
+	}
+}
+
+// TestPostgreSQL_InitializeInlineTLSSSLModes checks that inline TLS material
+// is layered onto the TLS config pgx derives from the connection URL without
+// changing what each sslmode means. It talks to a fake server that speaks just
+// enough of the PostgreSQL protocol to negotiate TLS, and records whether each
+// connection attempt was plaintext, a successful TLS handshake, or a TLS
+// handshake the client aborted (for example, because it rejected the server
+// certificate).
+func TestPostgreSQL_InitializeInlineTLSSSLModes(t *testing.T) {
+	caCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("test certificate authority"),
+		certhelpers.IsCA(true),
+		certhelpers.SelfSign(),
+	)
+	serverCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("postgresql server"),
+		certhelpers.Parent(caCert),
+		certhelpers.DNS("localhost"),
+		certhelpers.IP("127.0.0.1"),
+	)
+	clientCert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("postgresql client"),
+		certhelpers.Parent(caCert),
+	)
+
+	tests := map[string]struct {
+		wantPlaintext bool
+		wantTLS       bool
+	}{
+		// disable must stay plaintext: inline TLS material must not switch TLS on.
+		"disable": {wantPlaintext: true},
+		// allow and prefer keep their plaintext attempt, and any TLS attempt they
+		// make must complete.
+		"allow":  {wantPlaintext: true, wantTLS: true},
+		"prefer": {wantPlaintext: true, wantTLS: true},
+		// require, verify-ca and verify-full must negotiate TLS. verify-ca checks
+		// the chain in a pgx closure that reads RootCAs from pgx's own config, so
+		// it only trusts the inline CA if that config is modified in place.
+		"require":     {wantTLS: true},
+		"verify-ca":   {wantTLS: true},
+		"verify-full": {wantTLS: true},
+	}
+
+	for sslMode, test := range tests {
+		t.Run(sslMode, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+
+			var (
+				mu                          sync.Mutex
+				plaintext, tlsOK, tlsFailed int
+				handlers, accepting         sync.WaitGroup
+			)
+			record := func(counter *int) {
+				mu.Lock()
+				defer mu.Unlock()
+				*counter++
+			}
+
+			accepting.Add(1)
+			go func() {
+				defer accepting.Done()
+				for {
+					conn, err := ln.Accept()
+					if err != nil {
+						return
+					}
+					handlers.Add(1)
+					go func() {
+						defer handlers.Done()
+						defer conn.Close()
+						_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+						// Either an SSLRequest or the first bytes of a plaintext
+						// startup message: length, then protocol or request code.
+						header := make([]byte, 8)
+						if _, err := conn.Read(header); err != nil {
+							return
+						}
+
+						const sslRequestCode = 80877103
+						if binary.BigEndian.Uint32(header[4:]) != sslRequestCode {
+							record(&plaintext)
+							_, _ = conn.Write(testFatalErrorResponse())
+							return
+						}
+
+						if _, err := conn.Write([]byte{'S'}); err != nil {
+							return
+						}
+						tlsConn := tls.Server(conn, &tls.Config{Certificates: []tls.Certificate{serverCert.TLSCert}})
+						if err := tlsConn.Handshake(); err != nil {
+							record(&tlsFailed)
+							return
+						}
+						record(&tlsOK)
+						_, _ = tlsConn.Write(testFatalErrorResponse())
+					}()
+				}
+			}()
+
+			db := new()
+			_, err = db.Initialize(t.Context(), dbplugin.InitializeRequest{
+				Config: map[string]any{
+					"connection_url":  fmt.Sprintf("postgres://{{username}}:{{password}}@127.0.0.1:%d/postgres?sslmode=%s&connect_timeout=5", ln.Addr().(*net.TCPAddr).Port, sslMode),
+					"username":        "postgres",
+					"password":        "password",
+					"tls_ca":          string(caCert.Pem),
+					"tls_certificate": string(clientCert.Pem),
+					"private_key":     string(clientCert.PrivateKeyPEM()),
+				},
+				VerifyConnection: true,
+			})
+			// The fake server rejects every startup, so verifying the connection
+			// fails, but only after the client got as far as authentication.
+			require.ErrorContains(t, err, "inline-tls-test-server")
+
+			require.NoError(t, ln.Close())
+			accepting.Wait()
+			handlers.Wait()
+
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Zero(t, tlsFailed, "client aborted a TLS handshake with the server")
+			assert.Equal(t, test.wantPlaintext, plaintext > 0, "plaintext attempts: %d", plaintext)
+			assert.Equal(t, test.wantTLS, tlsOK > 0, "completed TLS handshakes: %d", tlsOK)
+		})
+	}
+}
+
+// testFatalErrorResponse is a PostgreSQL ErrorResponse message that ends the
+// startup, so that the client reports a recognizable error.
+func testFatalErrorResponse() []byte {
+	body := []byte("SFATAL\x00C28000\x00Minline-tls-test-server\x00\x00")
+	msg := make([]byte, 5, 5+len(body))
+	msg[0] = 'E'
+	binary.BigEndian.PutUint32(msg[1:], uint32(4+len(body)))
+	return append(msg, body...)
 }
 
 func TestPostgreSQL_Initialize_ConnURLWithDSNFormat(t *testing.T) {
