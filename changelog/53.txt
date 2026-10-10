@@ -1,0 +1,3 @@
+```release-note:improvement
+website: add a feature-by-feature comparison page for Vault Community, Vault Enterprise, and this fork's OpenBao.
+```
