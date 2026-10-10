@@ -42,6 +42,7 @@ import (
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
 	physPostgresql "github.com/openbao/openbao/v2/internal/physical/postgresql"
 	physRaft "github.com/openbao/openbao/v2/internal/physical/raft"
+	physZooKeeper "github.com/openbao/openbao/v2/internal/physical/zookeeper"
 
 	sr "github.com/openbao/openbao/v2/internal/serviceregistration"
 	ksr "github.com/openbao/openbao/v2/internal/serviceregistration/kubernetes"
@@ -150,6 +151,7 @@ var (
 		"inmem":      physInmem.NewInmem,
 		"raft":       physRaft.NewRaftBackend,
 		"postgresql": physPostgresql.NewPostgreSQLBackend,
+		"zookeeper":  physZooKeeper.NewZooKeeperBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{

@@ -1,0 +1,100 @@
+---
+sidebar_label: ZooKeeper Storage
+description: |-
+  The ZooKeeper storage backend is used to persist OpenBao's data in
+  Apache ZooKeeper.
+---
+
+# ZooKeeper storage backend
+
+The ZooKeeper storage backend is used to persist OpenBao's data in
+[Apache ZooKeeper][zookeeper].
+
+:::tip
+
+**High Availability** – the ZooKeeper storage backend supports High
+Availability.
+
+:::
+
+```hcl
+storage "zookeeper" {
+  address = "localhost:2181"
+  path    = "vault/"
+}
+```
+
+## `zookeeper` parameters
+
+- `address` `(string: "localhost:2181", comma-separated)` – Specifies the
+  addresses of the ZooKeeper instances as a comma-separated list.
+
+- `path` `(string: "vault/")` – Specifies the path in ZooKeeper's tree where
+  OpenBao data will be stored.
+
+- `znode_owner` `(string: "world:anyone")` – Specifies the ACL `scheme:id`
+  applied to every znode OpenBao creates. Defaults to `world:anyone`, i.e.
+  unrestricted access; ZooKeeper access control should generally be
+  enforced elsewhere (network policy, `auth_info`, etc.) unless this is
+  overridden.
+
+- `auth_info` `(string: "")` – Specifies a `scheme:auth` pair passed to
+  ZooKeeper's `AddAuth` API immediately after connecting, so that the
+  client authenticates as a specific principal (for use with, for example,
+  ZooKeeper's `digest` scheme together with a restrictive `znode_owner`).
+
+- `tls_enabled` `(string: "true|false", default "false")` – Enables a TLS
+  connection to ZooKeeper.
+
+- `tls_cert_file` `(string: "")` – Specifies the path to a PEM-encoded
+  client certificate file, for mutual TLS. Requires `tls_key_file`.
+
+- `tls_key_file` `(string: "")` – Specifies the path to a PEM-encoded
+  client private key file, for mutual TLS. Requires `tls_cert_file`.
+
+- `tls_ca_file` `(string: "")` – Specifies the path to a PEM-encoded CA
+  certificate file used to verify the ZooKeeper server's certificate.
+
+- `tls_skip_verify` `(string: "true|false", default "false")` – Disables
+  verification of the ZooKeeper server's certificate chain and host name.
+  Not recommended for production use.
+
+- `tls_verify_ip` `(string: "true|false", default "false")` – When set,
+  verifies the server's IP address against the certificate instead of its
+  DNS name. Only consulted when `tls_skip_verify` is `false`.
+
+- `tls_min_version` `(string: "tls12")` – Specifies the minimum acceptable
+  TLS version. One of `tls10`, `tls11`, `tls12`, or `tls13`.
+
+## `zookeeper` examples
+
+### Custom path
+
+```hcl
+storage "zookeeper" {
+  address = "zk.example.com:2181"
+  path    = "openbao-prod/"
+}
+```
+
+### Restricted ACL with digest authentication
+
+```hcl
+storage "zookeeper" {
+  address     = "zk.example.com:2181"
+  znode_owner = "digest:openbao:<base64-encoded-SHA1-of-username:password>"
+  auth_info   = "digest:openbao:supersecret"
+}
+```
+
+### TLS-enabled connection
+
+```hcl
+storage "zookeeper" {
+  address     = "zk.example.com:2181"
+  tls_enabled = "true"
+  tls_ca_file = "/etc/openbao/zk-ca.pem"
+}
+```
+
+[zookeeper]: https://zookeeper.apache.org/
