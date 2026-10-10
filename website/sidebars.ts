@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
     docs: [
         "what-is-openbao",
         "use-cases",
+        "vault-comparison",
         {
             "Getting Started": ["get-started/developer-qs"],
         },
