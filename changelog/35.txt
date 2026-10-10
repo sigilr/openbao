@@ -1,0 +1,3 @@
+```release-note:feature
+storage/couchdb: Restore the CouchDB physical storage backend, ported from the last MPL 2.0 source and updated to the current storage interface (including paginated listing). This backend does not support High Availability or transactional storage, matching CouchDB's lack of a native multi-document transaction primitive.
+```
