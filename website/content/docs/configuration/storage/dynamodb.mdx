@@ -1,0 +1,142 @@
+---
+sidebar_label: DynamoDB Storage
+description: |-
+  The DynamoDB storage backend is used to persist OpenBao's data in
+  Amazon DynamoDB.
+---
+
+# DynamoDB storage backend
+
+The DynamoDB storage backend is used to persist OpenBao's data in
+[Amazon DynamoDB][dynamodb].
+
+:::tip
+
+**High Availability** – the DynamoDB storage backend supports High
+Availability.
+
+:::
+
+```hcl
+storage "dynamodb" {
+  table  = "openbao-dynamodb-backend"
+  region = "us-east-1"
+}
+```
+
+OpenBao will attempt to create the configured table (with the required
+`Path`/`Key` composite primary key) if it does not already exist.
+
+## `dynamodb` parameters
+
+- `table` `(string: "openbao-dynamodb-backend")` – Specifies the name of
+  the DynamoDB table in which to store OpenBao data. May also be specified
+  via the `AWS_DYNAMODB_TABLE` environment variable.
+
+- `region` `(string: "us-east-1")` – Specifies the AWS region. May also be
+  specified via the `AWS_DYNAMODB_REGION`, `AWS_REGION`, or
+  `AWS_DEFAULT_REGION` environment variables (checked in that order).
+
+- `endpoint` `(string: "")` – Specifies an alternate DynamoDB endpoint, for
+  example to target a local DynamoDB-compatible test server. May also be
+  specified via the `AWS_DYNAMODB_ENDPOINT` environment variable.
+
+- `access_key` `(string: "")` – Specifies the AWS access key to use. If
+  unset, the [default AWS credential chain][aws-creds] is used (environment
+  variables, shared config/credentials files, an IAM instance/task role,
+  etc.).
+
+- `secret_key` `(string: "")` – Specifies the AWS secret key to use with
+  `access_key`.
+
+- `session_token` `(string: "")` – Specifies the AWS session token to use
+  with `access_key`, for temporary credentials.
+
+- `read_capacity` `(string: "5")` – Specifies the read capacity for the
+  DynamoDB table, in RCU. Only consulted when OpenBao creates the table.
+  May also be specified via the `AWS_DYNAMODB_READ_CAPACITY` environment
+  variable.
+
+- `write_capacity` `(string: "5")` – Specifies the write capacity for the
+  DynamoDB table, in WCU. Only consulted when OpenBao creates the table.
+  May also be specified via the `AWS_DYNAMODB_WRITE_CAPACITY` environment
+  variable.
+
+- `dynamodb_max_retries` `(string: "")` – Specifies the maximum number of
+  retries for DynamoDB API calls before giving up. Defaults to the AWS
+  SDK's own default retry behavior when unset. May also be specified via
+  the `AWS_DYNAMODB_MAX_RETRIES` environment variable.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode, using conditional writes for leader election. May
+  also be specified via the `DYNAMODB_HA_ENABLED` environment variable.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to DynamoDB.
+
+## `dynamodb` examples
+
+### Custom table and capacity
+
+```hcl
+storage "dynamodb" {
+  table          = "openbao-prod"
+  region         = "us-west-2"
+  read_capacity  = "20"
+  write_capacity = "20"
+}
+```
+
+### Explicit credentials
+
+```hcl
+storage "dynamodb" {
+  table      = "openbao-prod"
+  region     = "us-west-2"
+  access_key = "..."
+  secret_key = "..."
+}
+```
+
+### High Availability
+
+```hcl
+storage "dynamodb" {
+  table      = "openbao-prod"
+  region     = "us-west-2"
+  ha_enabled = "true"
+}
+```
+
+## Required AWS permissions
+
+The IAM identity OpenBao runs as needs permission to manage the configured
+table:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:CreateTable",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:BatchWriteItem"
+      ],
+      "Resource": "arn:aws:dynamodb:*:*:table/openbao-dynamodb-backend"
+    }
+  ]
+}
+```
+
+Omit `dynamodb:CreateTable` if the table is provisioned out of band and
+OpenBao should only ever read/write to an existing table.
+
+[dynamodb]: https://aws.amazon.com/dynamodb/
+[aws-creds]: https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configuring-sdk.html
