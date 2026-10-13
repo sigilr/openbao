@@ -1,0 +1,3 @@
+```release-note:feature
+storage/mysql: Restore the MySQL physical storage backend, ported from the last MPL 2.0 source and updated to the current storage interface (including paginated listing).
+```
