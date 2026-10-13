@@ -1,0 +1,3 @@
+```release-note:feature
+storage/azure: Restore the Azure Blob Storage physical backend, ported from the last MPL 2.0 source, rewritten against the current Track 2 Azure SDK for Go (the Track 1 SDK it used is archived), and updated to the current storage interface (including paginated listing).
+```

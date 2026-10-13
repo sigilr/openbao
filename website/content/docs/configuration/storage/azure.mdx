@@ -1,0 +1,85 @@
+---
+sidebar_label: Azure Blob Storage
+description: |-
+  The Azure storage backend is used to persist OpenBao's data in an Azure
+  Blob Storage container.
+---
+
+# Azure Blob storage backend
+
+The Azure storage backend is used to persist OpenBao's data in an
+[Azure Blob Storage][azure-blob] container.
+
+:::warning
+
+**Note**: This backend does not support High Availability. Individual
+values are also limited to 4MB, the maximum size of a single uncommitted
+block blob upload.
+
+:::
+
+```hcl
+storage "azure" {
+  container   = "openbao-storage"
+  accountName = "..."
+  accountKey  = "..."
+}
+```
+
+OpenBao will attempt to create the configured container if it does not
+already exist.
+
+## `azure` parameters
+
+- `container` `(string: <required>)` – Specifies the Azure Storage
+  container to use. May also be specified via the `AZURE_BLOB_CONTAINER`
+  environment variable.
+
+- `accountName` `(string: <required>)` – Specifies the Azure Storage
+  account name. May also be specified via the `AZURE_ACCOUNT_NAME`
+  environment variable.
+
+- `accountKey` `(string: "")` – Specifies the Azure Storage account key.
+  May also be specified via the `AZURE_ACCOUNT_KEY` environment variable.
+  If unset, OpenBao authenticates using a
+  [managed identity][azure-managed-identity] instead, which requires
+  running on an Azure resource with an identity that has been granted the
+  `Storage Blob Data Contributor` role on the storage account.
+
+- `environment` `(string: "AzurePublicCloud")` – Specifies the name of the
+  Azure environment/cloud to use, for example `AzureUSGovernmentCloud` or
+  `AzureChinaCloud`. May also be specified via the `AZURE_ENVIRONMENT`
+  environment variable.
+
+- `arm_endpoint` `(string: "")` – Specifies an Azure Resource Manager
+  endpoint URL to look up the environment/cloud descriptor from, as an
+  alternative to `environment`. May also be specified via the
+  `AZURE_ARM_ENDPOINT` environment variable.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to Azure.
+
+## `azure` examples
+
+### Managed identity authentication
+
+```hcl
+storage "azure" {
+  container   = "openbao-prod"
+  accountName = "openbaostorage"
+}
+```
+
+### Azure Government
+
+```hcl
+storage "azure" {
+  container   = "openbao-prod"
+  accountName = "openbaostorage"
+  accountKey  = "..."
+  environment = "AzureUSGovernmentCloud"
+}
+```
+
+[azure-blob]: https://azure.microsoft.com/en-us/products/storage/blobs
+[azure-managed-identity]: https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/overview
