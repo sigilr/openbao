@@ -1,0 +1,3 @@
+```release-note:feature
+storage/s3: Restore the S3 physical storage backend, ported from the last MPL 2.0 source, rewritten against aws-sdk-go-v2 (aws-sdk-go v1 is unsupported and not otherwise a dependency of this project), and updated to the current storage interface (including paginated listing).
+```
