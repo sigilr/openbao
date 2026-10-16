@@ -238,6 +238,14 @@ func setupCassandraTLS(conf map[string]string, cluster *gocql.ClusterConfig) err
 		}
 	}
 
+	// gocql checks each node's certificate against the host name it dialed. Only the
+	// configured hosts keep their name; nodes discovered from the cluster are dialed by IP,
+	// so a certificate that only lists DNS names (one certificate shared by all nodes, for
+	// example) fails on them. tls_server_name pins the name to check every node against.
+	if serverName := conf["tls_server_name"]; serverName != "" {
+		tlsConfig.ServerName = serverName
+	}
+
 	cluster.SslOpts = &gocql.SslOptions{
 		Config:                 tlsConfig,
 		EnableHostVerification: !tlsConfig.InsecureSkipVerify,
