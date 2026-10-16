@@ -63,6 +63,39 @@ storage "mssql" {
 - `max_parallel` `(string: "128")` – Specifies the maximum number of
   concurrent requests to MSSQL.
 
+### TLS parameters
+
+When `encrypt` is unset, the driver encrypts only the login packet, unless the
+server forces encryption. It does **not** verify the server's certificate.
+Set `encrypt` to have the certificate verified.
+
+- `encrypt` `(string: "")` – Specifies how the connection is encrypted:
+  - `true`: encrypt the whole connection, and fail if the server doesn't
+    support encryption.
+  - `false`: encrypt only the login packet, unless the server forces
+    encryption.
+  - `strict`: use TDS 8.0, where TLS is set up before any TDS traffic.
+    Requires SQL Server 2022 or later.
+  - `disable`: don't encrypt anything.
+
+  When set to anything but `disable`, the server certificate is verified
+  unless `trust_server_certificate` is `true`.
+
+- `trust_server_certificate` `(string: "false")` – Specifies whether to
+  skip verifying the server certificate. Not recommended in production.
+
+- `tls_ca_file` `(string: "")` – Specifies the path to a PEM file with the
+  CA certificates to verify the server certificate against. Defaults to the
+  system's trusted CAs.
+
+- `tls_server_name` `(string: "")` – Specifies the name the server
+  certificate must be valid for. Defaults to `server`.
+
+- `tls_min_version` `(string: "")` – Specifies the minimum TLS version to
+  use: `tls10`, `tls11`, `tls12`, or `tls13`.
+
+The TLS parameters other than `encrypt` require `encrypt` to be set.
+
 ## `mssql` examples
 
 ### Custom database, table, and schema
@@ -75,6 +108,19 @@ storage "mssql" {
   schema   = "openbao"
   username = "openbao"
   password = "..."
+}
+```
+
+### TLS with a private CA
+
+```hcl
+storage "mssql" {
+  server          = "mssql.example.com"
+  username        = "openbao"
+  password        = "..."
+  encrypt         = "true"
+  tls_ca_file     = "/etc/openbao/mssql/ca.crt"
+  tls_min_version = "tls12"
 }
 ```
 

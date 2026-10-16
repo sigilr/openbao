@@ -5,16 +5,19 @@ package mssql
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	_ "github.com/microsoft/go-mssqldb"
+	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/microsoft/go-mssqldb/msdsn"
 
 	log "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
@@ -106,24 +109,49 @@ func NewMSSQLBackend(conf map[string]string, logger log.Logger) (physical.Backen
 		return nil, fmt.Errorf("invalid schema name")
 	}
 
-	connectionString := fmt.Sprintf("server=%s;app name=%s;connection timeout=%s;log=%s", server, appname, connectionTimeout, logLevel)
+	params := [][2]string{
+		{"server", server},
+		{"app name", appname},
+		{"connection timeout", connectionTimeout},
+		{"log", logLevel},
+	}
 	if username != "" {
-		connectionString += ";user id=" + username
+		params = append(params, [2]string{"user id", username})
 	}
-
 	if password != "" {
-		connectionString += ";password=" + password
+		params = append(params, [2]string{"password", password})
 	}
-
 	if port != "" {
-		connectionString += ";port=" + port
+		params = append(params, [2]string{"port", port})
 	}
 
-	db, err := sql.Open("mssql", connectionString)
+	tlsParams, caFile, err := parseTLSConfig(conf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to mssql: %w", err)
+		return nil, err
+	}
+	params = append(params, tlsParams...)
+
+	cfg, err := msdsn.Parse(buildConnectionString(params))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse mssql connection parameters: %w", err)
 	}
 
+	if caFile != "" {
+		if cfg.TLSConfig == nil {
+			return nil, errors.New("tls_ca_file can't be used with encrypt = \"disable\"")
+		}
+		pem, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to read tls_ca_file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.New("failed to parse tls_ca_file: no PEM certificates found")
+		}
+		cfg.TLSConfig.RootCAs = pool
+	}
+
+	db := sql.OpenDB(mssql.NewConnectorWithProcessQueryText(cfg))
 	db.SetMaxOpenConns(maxParInt)
 
 	if _, err := db.Exec("IF NOT EXISTS(SELECT * FROM sys.databases WHERE name = ?) CREATE DATABASE "+database, database); err != nil {
@@ -293,4 +321,69 @@ func (m *MSSQLBackend) ListPage(ctx context.Context, prefix, after string, limit
 	}
 
 	return keys[start:end], nil
+}
+
+// parseTLSConfig maps the TLS options of the storage stanza to the driver's
+// connection string keys, and returns the CA file to verify the server with.
+//
+// Without "encrypt" the driver only encrypts the login packet (unless the
+// server forces encryption) and does not verify the server certificate, so
+// "encrypt" must be set for the certificate to be checked.
+func parseTLSConfig(conf map[string]string) ([][2]string, string, error) {
+	var params [][2]string
+
+	encrypt, encryptSet := conf["encrypt"]
+	if encryptSet {
+		encrypt = strings.ToLower(encrypt)
+		switch encrypt {
+		case "disable", "false", "true", "strict":
+		default:
+			return nil, "", fmt.Errorf("invalid encrypt %q: must be one of disable, false, true or strict", encrypt)
+		}
+		params = append(params, [2]string{"encrypt", encrypt})
+	}
+
+	if v, ok := conf["trust_server_certificate"]; ok {
+		trust, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed parsing trust_server_certificate parameter: %w", err)
+		}
+		params = append(params, [2]string{"trustservercertificate", strconv.FormatBool(trust)})
+	}
+
+	if v := conf["tls_server_name"]; v != "" {
+		params = append(params, [2]string{"hostnameincertificate", v})
+	}
+
+	if v := conf["tls_min_version"]; v != "" {
+		version, ok := map[string]string{
+			"tls10": "1.0",
+			"tls11": "1.1",
+			"tls12": "1.2",
+			"tls13": "1.3",
+		}[v]
+		if !ok {
+			return nil, "", fmt.Errorf("invalid tls_min_version %q: must be one of tls10, tls11, tls12 or tls13", v)
+		}
+		params = append(params, [2]string{"tlsmin", version})
+	}
+
+	caFile := conf["tls_ca_file"]
+
+	if !encryptSet && (len(params) > 0 || caFile != "") {
+		return nil, "", errors.New("encrypt must be set to use trust_server_certificate, tls_ca_file, tls_server_name or tls_min_version")
+	}
+
+	return params, caFile, nil
+}
+
+// buildConnectionString builds an ADO style connection string, quoting every
+// value so that a ';' or '"' in, say, the password can't change the meaning of
+// the string.
+func buildConnectionString(params [][2]string) string {
+	parts := make([]string, 0, len(params))
+	for _, p := range params {
+		parts = append(parts, p[0]+"=\""+strings.ReplaceAll(p[1], `"`, `""`)+"\"")
+	}
+	return strings.Join(parts, ";")
 }
