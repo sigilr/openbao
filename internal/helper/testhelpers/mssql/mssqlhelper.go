@@ -8,12 +8,14 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 
 	_ "github.com/microsoft/go-mssqldb"
 
 	"github.com/openbao/openbao/sdk/v2/helper/docker"
+	"github.com/openbao/openbao/v2/internal/helper/testhelpers/certhelpers"
 )
 
 const (
@@ -50,6 +52,61 @@ func PrepareTestContainer(t *testing.T) (cleanup func(), host string, port int) 
 		return func() {}, h, p
 	}
 
+	return prepareTestContainer(t, nil)
+}
+
+// TLSServerName is the name in the certificate of the container started by
+// PrepareTLSTestContainer.
+const TLSServerName = "mssql.test"
+
+// PrepareTLSTestContainer creates a Microsoft SQL Server docker container that
+// forces encryption with a certificate issued by a test CA for TLSServerName.
+// It returns the CA certificate in PEM form. MSSQL_HOST is ignored, since the
+// server's certificate has to be known.
+func PrepareTLSTestContainer(t *testing.T) (cleanup func(), host string, port int, caPEM []byte) {
+	t.Helper()
+
+	ca := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName("mssql test ca"),
+		certhelpers.IsCA(true),
+		certhelpers.SelfSign(),
+	)
+	cert := certhelpers.NewCert(
+		t,
+		certhelpers.CommonName(TLSServerName),
+		certhelpers.DNS(TLSServerName),
+		certhelpers.Parent(ca),
+	)
+
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"tls.crt": cert.Pem,
+		"tls.key": cert.PrivateKeyPEM(),
+		"mssql.conf": []byte(`[network]
+tlscert = /var/opt/mssql/tls.crt
+tlskey = /var/opt/mssql/tls.key
+tlsprotocols = 1.2
+forceencryption = 1
+`),
+	}
+	copyFromTo := map[string]string{}
+	for name, data := range files {
+		path := filepath.Join(dir, name)
+		// the server runs as the mssql user, which has to be able to read the key
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		copyFromTo[path] = "/var/opt/mssql/" + name
+	}
+
+	cleanup, host, port = prepareTestContainer(t, copyFromTo)
+	return cleanup, host, port, ca.Pem
+}
+
+func prepareTestContainer(t *testing.T, copyFromTo map[string]string) (cleanup func(), host string, port int) {
+	t.Helper()
+
 	var lastErr error
 	for range numRetries {
 		runner, err := docker.NewServiceRunner(docker.RunOptions{
@@ -58,6 +115,7 @@ func PrepareTestContainer(t *testing.T) (cleanup func(), host string, port int) 
 			ImageTag:      "2022-latest",
 			Env:           []string{"ACCEPT_EULA=Y", "SA_PASSWORD=" + Password},
 			Ports:         []string{"1433/tcp"},
+			CopyFromTo:    copyFromTo,
 			LogConsumer: func(s string) {
 				if t.Failed() {
 					t.Logf("container logs: %s", s)
