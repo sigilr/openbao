@@ -86,6 +86,12 @@ storage "cassandra" {
 - `tls_min_version` `(string: "tls12")` – Specifies the minimum acceptable
   TLS version. One of `tls10`, `tls11`, `tls12`, or `tls13`.
 
+- `tls_server_name` `(string: "")` – Specifies the name to verify every
+  node's certificate against. By default, each node is checked against the
+  host name it was reached by: a name from `hosts`, or, for nodes discovered
+  from the cluster, their IP address. Set this when the nodes share a
+  certificate that lists DNS names but not the node IPs.
+
 ## `cassandra` examples
 
 ### Custom keyspace and table
@@ -116,6 +122,7 @@ storage "cassandra" {
   hosts           = "cassandra.example.com"
   tls             = "1"
   pem_bundle_file = "/etc/openbao/cassandra-client.pem"
+  tls_server_name = "cassandra.example.com"
 }
 ```
 
