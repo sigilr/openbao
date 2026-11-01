@@ -568,9 +568,11 @@ func (d *DynamoDBBackend) batchWriteRequests(ctx context.Context, requests []typ
 			}
 
 			batch = output.UnprocessedItems
+			timer := time.NewTimer(boff.NextBackOff())
 			select {
-			case <-time.After(boff.NextBackOff()):
+			case <-timer.C:
 			case <-ctx.Done():
+				timer.Stop()
 				err = ctx.Err()
 			}
 			if err != nil {
