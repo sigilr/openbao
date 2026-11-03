@@ -424,3 +424,5 @@ require (
 )
 
 require go.etcd.io/etcd/client/pkg/v3 v3.7.1
+
+require github.com/go-zookeeper/zk v1.0.4
