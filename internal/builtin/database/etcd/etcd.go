@@ -19,7 +19,7 @@ import (
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
 	"github.com/mitchellh/mapstructure"
-	"github.com/openbao/openbao/internal/builtin/database/dbtls"
+	"github.com/openbao/openbao/internal/helper/dbtlsutil"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
@@ -211,7 +211,7 @@ func (e *Etcd) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (
 		dialTimeout = d
 	}
 
-	tlsSettings, err := dbtls.Decode(req.Config)
+	tlsSettings, err := dbtlsutil.Decode(req.Config)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}

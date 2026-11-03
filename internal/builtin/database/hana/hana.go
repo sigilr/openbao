@@ -16,7 +16,7 @@ import (
 
 	hdbdriver "github.com/SAP/go-hdb/driver"
 	"github.com/hashicorp/go-secure-stdlib/strutil"
-	"github.com/openbao/openbao/internal/builtin/database/dbtls"
+	"github.com/openbao/openbao/internal/helper/dbtlsutil"
 	"github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/connutil"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
@@ -70,7 +70,7 @@ func (h *HANA) secretValues() map[string]string {
 }
 
 func (h *HANA) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
-	tlsSettings, err := dbtls.Decode(req.Config)
+	tlsSettings, err := dbtlsutil.Decode(req.Config)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}

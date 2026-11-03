@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/go-secure-stdlib/strutil"
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/microsoft/go-mssqldb/msdsn"
-	"github.com/openbao/openbao/internal/builtin/database/dbtls"
+	"github.com/openbao/openbao/internal/helper/dbtlsutil"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/connutil"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
@@ -88,7 +88,7 @@ func (m *MSSQL) getConnection(ctx context.Context) (*sql.DB, error) {
 }
 
 func (m *MSSQL) Initialize(ctx context.Context, req dbplugin.InitializeRequest) (dbplugin.InitializeResponse, error) {
-	tlsSettings, err := dbtls.Decode(req.Config)
+	tlsSettings, err := dbtlsutil.Decode(req.Config)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
@@ -104,7 +104,7 @@ func (m *MSSQL) Initialize(ctx context.Context, req dbplugin.InitializeRequest) 
 			}
 			config.Encryption = msdsn.EncryptionRequired
 			config.TLSConfig = tlsConfig
-			config.TrustServerCertificate = tlsSettings.Insecure
+			config.TrustServerCertificate = tlsSettings.SkipVerify
 			config.HostInCertificateProvided = tlsSettings.ServerName != ""
 			return sql.OpenDB(mssql.NewConnectorConfig(config)), nil
 		}

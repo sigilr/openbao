@@ -19,7 +19,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	neo4j "github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	neo4jconfig "github.com/neo4j/neo4j-go-driver/v5/neo4j/config"
-	"github.com/openbao/openbao/internal/builtin/database/dbtls"
+	"github.com/openbao/openbao/internal/helper/dbtlsutil"
 	dbplugin "github.com/openbao/openbao/sdk/v2/database/dbplugin/v5"
 	"github.com/openbao/openbao/sdk/v2/database/helper/dbutil"
 	"github.com/openbao/openbao/sdk/v2/helper/template"
@@ -116,7 +116,7 @@ func (n *Neo4j) Initialize(ctx context.Context, req dbplugin.InitializeRequest) 
 		cfg.Database = "system"
 	}
 
-	tlsSettings, err := dbtls.Decode(req.Config)
+	tlsSettings, err := dbtlsutil.Decode(req.Config)
 	if err != nil {
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid TLS configuration: %w", err)
 	}
@@ -125,7 +125,7 @@ func (n *Neo4j) Initialize(ctx context.Context, req dbplugin.InitializeRequest) 
 		return dbplugin.InitializeResponse{}, fmt.Errorf("invalid Neo4j URI: %w", err)
 	}
 	if tlsSettings.Configured() || parsedURI.Scheme == "bolt+ssc" || parsedURI.Scheme == "neo4j+ssc" {
-		parsedURI.Scheme, err = secureScheme(parsedURI.Scheme, tlsSettings.Insecure)
+		parsedURI.Scheme, err = secureScheme(parsedURI.Scheme, tlsSettings.SkipVerify)
 		if err != nil {
 			return dbplugin.InitializeResponse{}, err
 		}
