@@ -48,6 +48,7 @@ import (
 	physGCS "github.com/openbao/openbao/internal/physical/gcs"
 	physMSSQL "github.com/openbao/openbao/internal/physical/mssql"
 	physMySQL "github.com/openbao/openbao/internal/physical/mysql"
+	physOCI "github.com/openbao/openbao/internal/physical/oci"
 	physS3 "github.com/openbao/openbao/internal/physical/s3"
 	physSpanner "github.com/openbao/openbao/internal/physical/spanner"
 	physSwift "github.com/openbao/openbao/internal/physical/swift"
@@ -178,6 +179,7 @@ var (
 		"spanner":     physSpanner.NewBackend,
 		"aerospike":   physAerospike.NewAerospikeBackend,
 		"swift":       physSwift.NewSwiftBackend,
+		"oci":         physOCI.NewBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
