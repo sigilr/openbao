@@ -39,6 +39,7 @@ import (
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 
 	physAerospike "github.com/openbao/openbao/internal/physical/aerospike"
+	physAliCloudOSS "github.com/openbao/openbao/internal/physical/alicloudoss"
 	physAzure "github.com/openbao/openbao/internal/physical/azure"
 	physCassandra "github.com/openbao/openbao/internal/physical/cassandra"
 	physCockroachDB "github.com/openbao/openbao/internal/physical/cockroachdb"
@@ -180,6 +181,7 @@ var (
 		"aerospike":   physAerospike.NewAerospikeBackend,
 		"swift":       physSwift.NewSwiftBackend,
 		"oci":         physOCI.NewBackend,
+		"alicloudoss": physAliCloudOSS.NewAliCloudOSSBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{

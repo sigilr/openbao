@@ -154,6 +154,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/aerospike",
                         "configuration/storage/swift",
                         "configuration/storage/oci",
+                        "configuration/storage/alicloudoss",
                     ],
                 },
                 "configuration/plugins",

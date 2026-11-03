@@ -471,3 +471,5 @@ require github.com/aerospike/aerospike-client-go/v8 v8.8.0
 require github.com/ncw/swift/v2 v2.0.5
 
 require github.com/oracle/oci-go-sdk/v65 v65.123.0
+
+require github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
