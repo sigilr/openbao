@@ -1,0 +1,144 @@
+---
+sidebar_label: Etcd Storage
+description: |-
+  The etcd storage backend is used to persist OpenBao's data in etcd.
+---
+
+# Etcd storage backend
+
+The etcd storage backend is used to persist OpenBao's data in [etcd][etcd].
+
+:::tip
+
+**High Availability** – the etcd storage backend supports High Availability.
+
+:::
+
+```hcl
+storage "etcd" {
+  address = "http://localhost:2379"
+  path    = "/vault"
+}
+```
+
+Only etcd v3 (via the etcd v3 API) is supported. This matches etcd's own
+project timeline: the v2 API and data model were removed upstream in etcd
+3.4, and OpenBao's etcd backend targets v3 exclusively.
+
+## `etcd` parameters
+
+- `address` `(string: "http://127.0.0.1:2379")` – Specifies the addresses of
+  the etcd instances as a comma-separated list.
+
+  ```hcl
+  storage "etcd" {
+    address = "https://etcd-01.example.com:2379,https://etcd-02.example.com:2379"
+  }
+  ```
+
+  May also be specified via the `ETCD_ADDR` environment variable. Mutually
+  exclusive with `discovery_srv`.
+
+- `discovery_srv` `(string: "")` – Specifies the domain name to query for
+  SRV records describing the etcd cluster, as an alternative to a static
+  `address`. May also be specified via the `ETCD_DISCOVERY_SRV`
+  environment variable. Mutually exclusive with `address`.
+
+- `discovery_srv_name` `(string: "")` – Specifies a service name to use in
+  addition to the default `etcd-client` when querying SRV records via
+  `discovery_srv`. May also be specified via the `ETCD_DISCOVERY_SRV_NAME`
+  environment variable.
+
+- `etcd_api` `(string: "3")` – Specifies the API version to use. Only `3`
+  (`etcd3`/`v3`) is supported. May also be specified via the `ETCD_API`
+  environment variable.
+
+- `path` `(string: "/vault")` – Specifies the path in etcd's key-value store
+  where OpenBao data will be stored.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode. May also be specified via the `ETCD_HA_ENABLED`
+  environment variable.
+
+- `username` `(string: "")` – Specifies the etcd username to connect with.
+  May also be specified via the `ETCD_USERNAME` environment variable.
+
+- `password` `(string: "")` – Specifies the etcd password to connect with.
+  May also be specified via the `ETCD_PASSWORD` environment variable.
+
+- `sync` `(string: "true|false", default "true")` – Specifies whether to
+  sync the list of cluster members on startup by querying the already
+  configured endpoints first. Disable this if the addresses given in
+  `address` are not directly reachable by every server (for example, behind
+  a load balancer or Docker port mapping).
+
+- `request_timeout` `(string: "5s")` – Specifies the timeout for each
+  individual etcd request, using a duration format string such as `5s` or
+  `1m`.
+
+- `lock_timeout` `(string: "15s")` – Specifies the lease TTL used for High
+  Availability leader election, using a duration format string.
+
+- `max_receive_size` `(string: "")` – Specifies the maximum message size, in
+  bytes, the client will accept from the server. Corresponds to the gRPC
+  client's `MaxCallRecvMsgSize`.
+
+- `tls_ca_file` `(string: "")` – Specifies the path to a PEM-encoded CA
+  certificate file used to verify the etcd server's certificate.
+
+- `tls_cert_file` `(string: "")` – Specifies the path to a PEM-encoded
+  client certificate file, for mutual TLS. Requires `tls_key_file`.
+
+- `tls_key_file` `(string: "")` – Specifies the path to a PEM-encoded
+  client private key file, for mutual TLS. Requires `tls_cert_file`.
+
+## `etcd` examples
+
+### Custom path
+
+```hcl
+storage "etcd" {
+  address = "http://localhost:2379"
+  path    = "/openbao/prod"
+}
+```
+
+### Authenticated connection
+
+```hcl
+storage "etcd" {
+  address  = "https://etcd.example.com:2379"
+  username = "openbao"
+  password = "..."
+}
+```
+
+### mTLS-enabled connection
+
+```hcl
+storage "etcd" {
+  address       = "https://etcd.example.com:2379"
+  tls_ca_file   = "/etc/openbao/etcd-ca.pem"
+  tls_cert_file = "/etc/openbao/etcd-client.pem"
+  tls_key_file  = "/etc/openbao/etcd-client-key.pem"
+}
+```
+
+### High Availability
+
+```hcl
+storage "etcd" {
+  address    = "http://localhost:2379"
+  ha_enabled = "true"
+}
+```
+
+### SRV-based discovery
+
+```hcl
+storage "etcd" {
+  discovery_srv = "example.com"
+}
+```
+
+[etcd]: https://etcd.io/
