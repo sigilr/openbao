@@ -54,6 +54,7 @@ import (
 	physRaft "github.com/openbao/openbao/v2/internal/physical/raft"
 	physS3 "github.com/openbao/openbao/v2/internal/physical/s3"
 	physSpanner "github.com/openbao/openbao/v2/internal/physical/spanner"
+	physSwift "github.com/openbao/openbao/v2/internal/physical/swift"
 	physZooKeeper "github.com/openbao/openbao/v2/internal/physical/zookeeper"
 
 	sr "github.com/openbao/openbao/v2/internal/serviceregistration"
@@ -176,6 +177,7 @@ var (
 		"gcs":         physGCS.NewBackend,
 		"spanner":     physSpanner.NewBackend,
 		"aerospike":   physAerospike.NewAerospikeBackend,
+		"swift":       physSwift.NewSwiftBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
