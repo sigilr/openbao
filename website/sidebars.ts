@@ -141,6 +141,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/mysql",
                         "configuration/storage/cassandra",
                         "configuration/storage/etcd",
+                        "configuration/storage/zookeeper",
                     ],
                 },
                 "configuration/plugins",
