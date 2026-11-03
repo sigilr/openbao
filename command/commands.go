@@ -39,6 +39,7 @@ import (
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 
 	physCassandra "github.com/openbao/openbao/internal/physical/cassandra"
+	physCouchDB "github.com/openbao/openbao/internal/physical/couchdb"
 	physEtcd "github.com/openbao/openbao/internal/physical/etcd"
 	physMySQL "github.com/openbao/openbao/internal/physical/mysql"
 	physZooKeeper "github.com/openbao/openbao/internal/physical/zookeeper"
@@ -158,6 +159,7 @@ var (
 		"cassandra":  physCassandra.NewCassandraBackend,
 		"etcd":       physEtcd.NewEtcdBackend,
 		"zookeeper":  physZooKeeper.NewZooKeeperBackend,
+		"couchdb":    physCouchDB.NewCouchDBBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
