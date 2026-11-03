@@ -465,3 +465,5 @@ require cloud.google.com/go/storage v1.64.0
 require cloud.google.com/go/spanner v1.94.0
 
 require github.com/aerospike/aerospike-client-go/v8 v8.8.0
+
+require github.com/ncw/swift/v2 v2.0.5

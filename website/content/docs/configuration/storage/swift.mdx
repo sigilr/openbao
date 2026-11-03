@@ -1,0 +1,75 @@
+---
+sidebar_label: Swift Storage
+description: |-
+  The Swift storage backend is used to persist OpenBao's data in an
+  OpenStack Swift container.
+---
+
+# Swift storage backend
+
+The Swift storage backend is used to persist OpenBao's data in an
+[OpenStack Swift][swift] container.
+
+:::tip
+
+**No High Availability** – the Swift storage backend does not support High
+Availability.
+
+:::
+
+```hcl
+storage "swift" {
+  auth_url  = "https://identity.example.com/v3"
+  username  = "admin"
+  password  = "..."
+  container = "openbao"
+}
+```
+
+Every parameter below can also be sourced from the standard OpenStack
+`OS_*` environment variables (e.g. `OS_USERNAME`, `OS_AUTH_URL`); the
+environment variable, when set, takes precedence over the corresponding
+`storage` stanza parameter.
+
+## `swift` parameters
+
+- `auth_url` `(string: <required>)` – Specifies the OpenStack
+  authentication endpoint. Also read from `OS_AUTH_URL`.
+
+- `username` `(string: <required>)` – Specifies the OpenStack account
+  username. Also read from `OS_USERNAME`.
+
+- `password` `(string: <required>)` – Specifies the OpenStack account
+  password. Also read from `OS_PASSWORD`.
+
+- `container` `(string: <required>)` – Specifies the OpenStack Swift
+  container in which to store data. It must already exist; OpenBao does
+  not create it. Also read from `OS_CONTAINER`.
+
+- `project`, `tenant` `(string: "")` – Specifies the OpenStack project
+  (tenant) name. Also read from `OS_PROJECT_NAME`, then `OS_TENANT_NAME`
+  (Keystone v2 naming).
+
+- `domain` `(string: "")` – Specifies the OpenStack user's domain name.
+  Also read from `OS_USER_DOMAIN_NAME`.
+
+- `project-domain` `(string: "")` – Specifies the OpenStack project's
+  domain name. Also read from `OS_PROJECT_DOMAIN_NAME`.
+
+- `region` `(string: "")` – Specifies the OpenStack region. Also read from
+  `OS_REGION_NAME`.
+
+- `tenant_id` `(string: "")` – Specifies the OpenStack tenant ID. Also
+  read from `OS_TENANT_ID`.
+
+- `trust_id` `(string: "")` – Specifies an OpenStack trust ID. Also read
+  from `OS_TRUST_ID`.
+
+- `storage_url`, `auth_token` `(string: "")` – Specifies a pre-authenticated
+  storage URL and auth token, bypassing the normal authentication flow.
+  Also read from `OS_STORAGE_URL` and `OS_AUTH_TOKEN` respectively.
+
+- `max_parallel` `(string: "")` – Specifies the maximum number of
+  concurrent requests to Swift.
+
+[swift]: https://docs.openstack.org/swift/latest/
