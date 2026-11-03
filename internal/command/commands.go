@@ -167,11 +167,6 @@ var (
 		"mssql":       physMSSQL.NewMSSQLBackend,
 		"dynamodb":    physDynamoDB.NewDynamoDBBackend,
 		"s3":          physS3.NewS3Backend,
-		"file":        physFile.NewFileBackend,
-		"inmem_ha":    physInmem.NewInmemHA,
-		"inmem":       physInmem.NewInmem,
-		"raft":        physRaft.NewRaftBackend,
-		"postgresql":  physPostgresql.NewPostgreSQLBackend,
 		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
 	}
 
