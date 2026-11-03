@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/raft",
                         "configuration/storage/postgresql",
                         "configuration/storage/mysql",
+                        "configuration/storage/cassandra",
                     ],
                 },
                 "configuration/plugins",
