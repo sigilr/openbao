@@ -149,6 +149,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/cockroachdb",
                         "configuration/storage/azure",
                         "configuration/storage/google-cloud-storage",
+                        "configuration/storage/google-cloud-spanner",
                     ],
                 },
                 "configuration/plugins",
