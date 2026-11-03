@@ -1,0 +1,138 @@
+---
+sidebar_label: S3 Storage
+description: |-
+  The S3 storage backend is used to persist OpenBao's data in an Amazon S3
+  bucket.
+---
+
+# S3 storage backend
+
+The S3 storage backend is used to persist OpenBao's data in an
+[Amazon S3][s3] bucket.
+
+:::warning
+
+**Note**: This backend does not support High Availability.
+
+:::
+
+```hcl
+storage "s3" {
+  bucket = "openbao-storage"
+  region = "us-east-1"
+}
+```
+
+The target bucket must already exist; OpenBao does not create it.
+
+## `s3` parameters
+
+- `bucket` `(string: <required>)` – Specifies the S3 bucket to use. May also
+  be specified via the `AWS_S3_BUCKET` environment variable.
+
+- `path` `(string: "")` – Specifies an optional key prefix under which all
+  OpenBao data is stored within the bucket.
+
+- `region` `(string: "us-east-1")` – Specifies the AWS region. May also be
+  specified via the `AWS_REGION` or `AWS_DEFAULT_REGION` environment
+  variables (checked in that order).
+
+- `endpoint` `(string: "")` – Specifies an alternate S3-compatible
+  endpoint. May also be specified via the `AWS_S3_ENDPOINT` environment
+  variable.
+
+- `access_key` `(string: "")` – Specifies the AWS access key to use. If
+  unset, the [default AWS credential chain][aws-creds] is used (environment
+  variables, shared config/credentials files, an IAM instance/task role,
+  etc.).
+
+- `secret_key` `(string: "")` – Specifies the AWS secret key to use with
+  `access_key`.
+
+- `session_token` `(string: "")` – Specifies the AWS session token to use
+  with `access_key`, for temporary credentials.
+
+- `s3_force_path_style` `(string: "true|false", default "false")` – Forces
+  path-style addressing (`https://endpoint/bucket/key`) instead of
+  virtual-hosted-style (`https://bucket.endpoint/key`). Required by most
+  non-AWS S3-compatible servers when used with `endpoint`.
+
+- `disable_ssl` `(string: "true|false", default "false")` – Disables TLS
+  when connecting to a custom `endpoint`. Has no effect against AWS S3
+  itself.
+
+- `kms_key_id` `(string: "")` – When set, enables server-side encryption
+  using the given AWS KMS key (`SSE-KMS`) for every object OpenBao writes.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to S3.
+
+## `s3` examples
+
+### Custom path prefix
+
+```hcl
+storage "s3" {
+  bucket = "openbao-storage"
+  path   = "prod/"
+  region = "us-west-2"
+}
+```
+
+### Server-side encryption with a customer-managed KMS key
+
+```hcl
+storage "s3" {
+  bucket     = "openbao-storage"
+  region     = "us-west-2"
+  kms_key_id = "alias/openbao-storage-key"
+}
+```
+
+### S3-compatible, non-AWS endpoint
+
+```hcl
+storage "s3" {
+  bucket              = "openbao"
+  endpoint            = "minio.example.com:9000"
+  s3_force_path_style = "true"
+  disable_ssl         = "true"
+  access_key          = "..."
+  secret_key          = "..."
+}
+```
+
+## Required AWS permissions
+
+The IAM identity OpenBao runs as needs permission to read and write objects
+in the configured bucket:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::openbao-storage"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::openbao-storage/*"
+    }
+  ]
+}
+```
+
+Add `kms:GenerateDataKey` and `kms:Decrypt` on the relevant key if
+`kms_key_id` is set.
+
+[s3]: https://aws.amazon.com/s3/
+[aws-creds]: https://docs.aws.amazon.com/sdk-for-go/v2/developer-guide/configuring-sdk.html

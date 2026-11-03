@@ -44,6 +44,7 @@ import (
 	physEtcd "github.com/openbao/openbao/internal/physical/etcd"
 	physMSSQL "github.com/openbao/openbao/internal/physical/mssql"
 	physMySQL "github.com/openbao/openbao/internal/physical/mysql"
+	physS3 "github.com/openbao/openbao/internal/physical/s3"
 	physZooKeeper "github.com/openbao/openbao/internal/physical/zookeeper"
 	physPostgresql "github.com/openbao/openbao/physical/postgresql"
 	physRaft "github.com/openbao/openbao/physical/raft"
@@ -164,6 +165,7 @@ var (
 		"couchdb":    physCouchDB.NewCouchDBBackend,
 		"mssql":      physMSSQL.NewMSSQLBackend,
 		"dynamodb":   physDynamoDB.NewDynamoDBBackend,
+		"s3":         physS3.NewS3Backend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
