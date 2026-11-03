@@ -48,6 +48,7 @@ import (
 	physMSSQL "github.com/openbao/openbao/internal/physical/mssql"
 	physMySQL "github.com/openbao/openbao/internal/physical/mysql"
 	physS3 "github.com/openbao/openbao/internal/physical/s3"
+	physSpanner "github.com/openbao/openbao/internal/physical/spanner"
 	physZooKeeper "github.com/openbao/openbao/internal/physical/zookeeper"
 	physPostgresql "github.com/openbao/openbao/physical/postgresql"
 	physRaft "github.com/openbao/openbao/physical/raft"
@@ -172,6 +173,7 @@ var (
 		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
 		"azure":       physAzure.NewAzureBackend,
 		"gcs":         physGCS.NewBackend,
+		"spanner":     physSpanner.NewBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{

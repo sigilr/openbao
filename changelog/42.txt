@@ -1,0 +1,3 @@
+```release-note:feature
+storage/spanner: Restore the Google Cloud Spanner physical backend, ported from the last MPL 2.0 source and updated to the current storage interface (including paginated listing and High Availability support). This backend does not implement interactive transactional storage, since Cloud Spanner's own transaction API is closure-based and does not map onto that interface.
+```

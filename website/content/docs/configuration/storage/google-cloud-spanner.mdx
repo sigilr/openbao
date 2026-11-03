@@ -1,0 +1,106 @@
+---
+sidebar_label: Google Cloud Spanner
+description: |-
+  The Spanner storage backend is used to persist OpenBao's data in a Google
+  Cloud Spanner database.
+---
+
+# Google Cloud Spanner storage backend
+
+The Spanner storage backend is used to persist OpenBao's data in a
+[Google Cloud Spanner][spanner] database.
+
+:::tip
+
+**High Availability** – the Spanner storage backend supports High
+Availability, using conditional writes for leader election.
+
+:::
+
+:::warning
+
+This backend does not implement OpenBao's interactive transactional
+storage interface. Cloud Spanner's own read-write transaction API is
+closure-based (the whole set of reads and writes runs inside one function
+the client retries internally on conflict), which doesn't map onto an
+incremental begin/commit handle without added complexity this backend
+chooses not to take on. `Put`, `Get`, `Delete`, and `List` are still each
+individually atomic.
+
+:::
+
+```hcl
+storage "spanner" {
+  database = "projects/my-project/instances/my-instance/databases/openbao"
+}
+```
+
+OpenBao does not create the database or table; both must already exist,
+including the `Key`/`Value` schema described below.
+
+## `spanner` parameters
+
+- `database` `(string: <required>)` – Specifies the full name of the
+  Spanner database, in the form
+  `projects/<project>/instances/<instance>/databases/<database>`. May
+  also be specified via the `GOOGLE_SPANNER_DATABASE` environment
+  variable.
+
+- `table` `(string: "Vault")` – Specifies the name of the table to use for
+  OpenBao data. May also be specified via the `GOOGLE_SPANNER_TABLE`
+  environment variable.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode. May also be specified via the
+  `GOOGLE_SPANNER_HA_ENABLED` environment variable.
+
+- `ha_table` `(string: "<table>HA")` – Specifies the name of the table
+  used for HA leader election. Defaults to the value of `table` suffixed
+  with `HA`. May also be specified via the `GOOGLE_SPANNER_HA_TABLE`
+  environment variable.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to Spanner.
+
+## `spanner` examples
+
+### High Availability
+
+```hcl
+storage "spanner" {
+  database   = "projects/my-project/instances/my-instance/databases/openbao"
+  ha_enabled = "true"
+}
+```
+
+## Required schema
+
+OpenBao does not create tables. Create them with Spanner DDL before
+starting OpenBao:
+
+```sql
+CREATE TABLE Vault (
+  Key   STRING(MAX) NOT NULL,
+  Value BYTES(MAX),
+) PRIMARY KEY (Key);
+```
+
+Additionally, for HA-enabled backends:
+
+```sql
+CREATE TABLE VaultHA (
+  Key       STRING(MAX) NOT NULL,
+  Value     STRING(MAX),
+  Identity  STRING(MAX),
+  Timestamp TIMESTAMP,
+) PRIMARY KEY (Key);
+```
+
+## Required GCP permissions
+
+The identity OpenBao runs as needs the predefined
+`roles/spanner.databaseUser` role (or equivalent fine-grained
+`spanner.databases.{read,write}` / `spanner.sessions.create` permissions)
+on the target database.
+
+[spanner]: https://cloud.google.com/spanner
