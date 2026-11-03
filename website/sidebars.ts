@@ -145,6 +145,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/zookeeper",
                         "configuration/storage/couchdb",
                         "configuration/storage/mssql",
+                        "configuration/storage/dynamodb",
                     ],
                 },
                 "configuration/plugins",
