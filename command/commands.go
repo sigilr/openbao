@@ -39,6 +39,7 @@ import (
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 
 	physCassandra "github.com/openbao/openbao/internal/physical/cassandra"
+	physCockroachDB "github.com/openbao/openbao/internal/physical/cockroachdb"
 	physCouchDB "github.com/openbao/openbao/internal/physical/couchdb"
 	physDynamoDB "github.com/openbao/openbao/internal/physical/dynamodb"
 	physEtcd "github.com/openbao/openbao/internal/physical/etcd"
@@ -153,19 +154,20 @@ var (
 	}
 
 	physicalBackends = map[string]physical.Factory{
-		"file":       physFile.NewFileBackend,
-		"inmem_ha":   physInmem.NewInmemHA,
-		"inmem":      physInmem.NewInmem,
-		"raft":       physRaft.NewRaftBackend,
-		"postgresql": physPostgresql.NewPostgreSQLBackend,
-		"mysql":      physMySQL.NewMySQLBackend,
-		"cassandra":  physCassandra.NewCassandraBackend,
-		"etcd":       physEtcd.NewEtcdBackend,
-		"zookeeper":  physZooKeeper.NewZooKeeperBackend,
-		"couchdb":    physCouchDB.NewCouchDBBackend,
-		"mssql":      physMSSQL.NewMSSQLBackend,
-		"dynamodb":   physDynamoDB.NewDynamoDBBackend,
-		"s3":         physS3.NewS3Backend,
+		"file":        physFile.NewFileBackend,
+		"inmem_ha":    physInmem.NewInmemHA,
+		"inmem":       physInmem.NewInmem,
+		"raft":        physRaft.NewRaftBackend,
+		"postgresql":  physPostgresql.NewPostgreSQLBackend,
+		"mysql":       physMySQL.NewMySQLBackend,
+		"cassandra":   physCassandra.NewCassandraBackend,
+		"etcd":        physEtcd.NewEtcdBackend,
+		"zookeeper":   physZooKeeper.NewZooKeeperBackend,
+		"couchdb":     physCouchDB.NewCouchDBBackend,
+		"mssql":       physMSSQL.NewMSSQLBackend,
+		"dynamodb":    physDynamoDB.NewDynamoDBBackend,
+		"s3":          physS3.NewS3Backend,
+		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{

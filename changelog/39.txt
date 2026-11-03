@@ -1,0 +1,3 @@
+```release-note:feature
+storage/cockroachdb: Restore the CockroachDB physical storage backend, ported from the last MPL 2.0 source and rebuilt on the same schema and interactive-transaction design as storage/postgresql, since CockroachDB speaks the PostgreSQL wire protocol. Supports paginated listing and High Availability.
+```

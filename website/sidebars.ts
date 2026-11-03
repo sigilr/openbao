@@ -147,6 +147,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/mssql",
                         "configuration/storage/dynamodb",
                         "configuration/storage/s3",
+                        "configuration/storage/cockroachdb",
                     ],
                 },
                 "configuration/plugins",
