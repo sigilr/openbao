@@ -140,6 +140,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/postgresql",
                         "configuration/storage/mysql",
                         "configuration/storage/cassandra",
+                        "configuration/storage/etcd",
                     ],
                 },
                 "configuration/plugins",
