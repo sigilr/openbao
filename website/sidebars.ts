@@ -142,6 +142,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/cassandra",
                         "configuration/storage/etcd",
                         "configuration/storage/zookeeper",
+                        "configuration/storage/couchdb",
                     ],
                 },
                 "configuration/plugins",
