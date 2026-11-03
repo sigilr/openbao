@@ -1,0 +1,70 @@
+---
+sidebar_label: Google Cloud Storage
+description: |-
+  The GCS storage backend is used to persist OpenBao's data in a Google
+  Cloud Storage bucket.
+---
+
+# Google Cloud Storage backend
+
+The GCS storage backend is used to persist OpenBao's data in a
+[Google Cloud Storage][gcs] bucket.
+
+:::tip
+
+**High Availability** – the GCS storage backend supports High
+Availability, using conditional (generation-matched) writes for leader
+election.
+
+:::
+
+```hcl
+storage "gcs" {
+  bucket = "openbao-storage"
+}
+```
+
+The target bucket must already exist; OpenBao does not create it.
+Credentials are sourced using the standard [Application Default
+Credentials][adc] chain: environment variables, a service account key
+file, or the metadata server when running on Google Cloud.
+
+## `gcs` parameters
+
+- `bucket` `(string: <required>)` – Specifies the GCS bucket to use. May
+  also be specified via the `GOOGLE_STORAGE_BUCKET` environment variable.
+
+- `chunk_size` `(string: "8192")` – Specifies the chunk size, in KB, used
+  for upload requests. May also be specified via the
+  `GOOGLE_STORAGE_CHUNK_SIZE` environment variable.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode. May also be specified via the
+  `GOOGLE_STORAGE_HA_ENABLED` environment variable.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to GCS.
+
+## `gcs` examples
+
+### High Availability
+
+```hcl
+storage "gcs" {
+  bucket     = "openbao-prod"
+  ha_enabled = "true"
+}
+```
+
+## Required GCP permissions
+
+The identity OpenBao runs as needs the following permissions on the
+bucket (bundled in the predefined `roles/storage.objectAdmin` role):
+
+- `storage.objects.get`
+- `storage.objects.create`
+- `storage.objects.delete`
+- `storage.objects.list`
+
+[gcs]: https://cloud.google.com/storage
+[adc]: https://cloud.google.com/docs/authentication/application-default-credentials
