@@ -144,6 +144,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/etcd",
                         "configuration/storage/zookeeper",
                         "configuration/storage/couchdb",
+                        "configuration/storage/mssql",
                     ],
                 },
                 "configuration/plugins",
