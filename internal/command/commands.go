@@ -40,6 +40,7 @@ import (
 
 	physFile "github.com/openbao/openbao/sdk/v2/physical/file"
 	physInmem "github.com/openbao/openbao/sdk/v2/physical/inmem"
+	physAzure "github.com/openbao/openbao/v2/internal/physical/azure"
 	physCassandra "github.com/openbao/openbao/v2/internal/physical/cassandra"
 	physCockroachDB "github.com/openbao/openbao/v2/internal/physical/cockroachdb"
 	physCouchDB "github.com/openbao/openbao/v2/internal/physical/couchdb"
@@ -168,6 +169,7 @@ var (
 		"dynamodb":    physDynamoDB.NewDynamoDBBackend,
 		"s3":          physS3.NewS3Backend,
 		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
+		"azure":       physAzure.NewAzureBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
