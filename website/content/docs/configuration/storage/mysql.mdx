@@ -1,0 +1,151 @@
+---
+sidebar_label: MySQL Storage
+description: |-
+  The MySQL storage backend is used to persist OpenBao's data in MySQL or a
+  MySQL-compatible server or cluster.
+---
+
+# MySQL storage backend
+
+The MySQL storage backend is used to persist OpenBao's data in [MySQL][mysql]
+or a MySQL-compatible server, such as [MariaDB][mariadb].
+
+:::tip
+
+**High Availability** – the MySQL storage backend supports High Availability.
+
+:::
+
+```hcl
+storage "mysql" {
+  address  = "127.0.0.1:3306"
+  database = "openbao"
+  table    = "openbao_kv_store"
+  username = "openbao"
+  password = "..."
+}
+```
+
+:::warning
+
+**Note**: Unless `tls_ca_file` is set, the connection to MySQL is
+unencrypted, and credentials for the configured root user (as well as all
+stored OpenBao data) are sent in plaintext. Set `plaintext_connection_allowed`
+to acknowledge this explicitly if TLS genuinely isn't available; otherwise
+OpenBao logs a warning at startup.
+
+:::
+
+## `mysql` parameters
+
+- `address` `(string: "127.0.0.1:3306")` – Specifies the address of the MySQL
+  host.
+
+- `username` `(string: <required>)` – Specifies the MySQL username to
+  connect with.
+
+- `password` `(string: <required>)` – Specifies the MySQL password to
+  connect with.
+
+- `database` `(string: "openbao")` – Specifies the name of the database to
+  use. OpenBao will attempt to create it (`CREATE DATABASE IF NOT EXISTS`) if
+  it does not already exist.
+
+- `table` `(string: "openbao_kv_store")` – Specifies the name of the table in
+  which to write OpenBao data. OpenBao will attempt to create it if missing.
+
+- `ha_enabled` `(string: "true|false", default "false")` – Enables High
+  Availability mode. Uses MySQL's [`GET_LOCK`][mysql_get_lock] function for
+  leader election, so all cluster nodes must connect to the same MySQL
+  server (not just the same database) for locking to be effective.
+
+- `lock_table` `(string: "openbao_ha_locks")` – Specifies the name of the
+  table to use for storing High Availability leader information. Only
+  created when `ha_enabled` is `true`.
+
+- `tls_ca_file` `(string: "")` – Specifies the path to a PEM-encoded CA
+  certificate file used to verify the MySQL server's certificate and enable
+  a TLS connection.
+
+- `plaintext_connection_allowed` `(string: "true|false", default "false")` –
+  Acknowledges that no TLS configuration was provided and credentials will
+  be sent in plaintext, silencing the startup warning. Has no effect if
+  `tls_ca_file` is set.
+
+- `max_parallel` `(string: "128")` – Specifies the maximum number of
+  concurrent requests to MySQL.
+
+- `max_idle_connections` `(string: "")` – Sets the maximum number of
+  connections in the idle connection pool. See [golang docs on
+  SetMaxIdleConns][golang_setmaxidleconns] for more information.
+
+- `max_connection_lifetime` `(string: "")` – Sets the maximum amount of time,
+  in seconds, a connection may be reused. See [golang docs on
+  SetConnMaxLifetime][golang_setconnmaxlifetime] for more information.
+
+## `mysql` examples
+
+### Custom database and table names
+
+```hcl
+storage "mysql" {
+  address  = "mysql.example.com:3306"
+  database = "openbao_prod"
+  table    = "kv"
+  username = "openbao"
+  password = "..."
+}
+```
+
+### TLS-enabled connection
+
+```hcl
+storage "mysql" {
+  address     = "mysql.example.com:3306"
+  username    = "openbao"
+  password    = "..."
+  tls_ca_file = "/etc/openbao/mysql-ca.pem"
+}
+```
+
+### High Availability
+
+```hcl
+storage "mysql" {
+  address    = "mysql.example.com:3306"
+  username   = "openbao"
+  password   = "..."
+  ha_enabled = "true"
+}
+```
+
+## Manually creating tables
+
+OpenBao will attempt to automatically create the required tables and
+database. To create them manually instead, use the following schema:
+
+```sql
+CREATE DATABASE IF NOT EXISTS `openbao`;
+
+CREATE TABLE IF NOT EXISTS `openbao`.`openbao_kv_store` (
+  bao_key   varbinary(3072),
+  bao_value mediumblob,
+  PRIMARY KEY (bao_key)
+);
+```
+
+Additionally, for HA-enabled backends:
+
+```sql
+CREATE TABLE IF NOT EXISTS `openbao`.`openbao_ha_locks` (
+  node_job       varbinary(512),
+  current_leader varbinary(512),
+  PRIMARY KEY (node_job)
+);
+```
+
+[mysql]: https://www.mysql.com/
+[mariadb]: https://mariadb.org/
+[mysql_get_lock]: https://dev.mysql.com/doc/refman/8.0/en/locking-functions.html#function_get-lock
+[golang_setmaxidleconns]: https://pkg.go.dev/database/sql#DB.SetMaxIdleConns
+[golang_setconnmaxlifetime]: https://pkg.go.dev/database/sql#DB.SetConnMaxLifetime

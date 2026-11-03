@@ -139,6 +139,7 @@ const sidebars: SidebarsConfig = {
                         "configuration/storage/in-memory",
                         "configuration/storage/raft",
                         "configuration/storage/postgresql",
+                        "configuration/storage/mysql",
                     ],
                 },
                 "configuration/plugins",
