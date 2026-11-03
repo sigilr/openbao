@@ -38,6 +38,7 @@ import (
 	logicalDb "github.com/openbao/openbao/builtin/logical/database"
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 
+	physAzure "github.com/openbao/openbao/internal/physical/azure"
 	physCassandra "github.com/openbao/openbao/internal/physical/cassandra"
 	physCockroachDB "github.com/openbao/openbao/internal/physical/cockroachdb"
 	physCouchDB "github.com/openbao/openbao/internal/physical/couchdb"
@@ -168,6 +169,7 @@ var (
 		"dynamodb":    physDynamoDB.NewDynamoDBBackend,
 		"s3":          physS3.NewS3Backend,
 		"cockroachdb": physCockroachDB.NewCockroachDBBackend,
+		"azure":       physAzure.NewAzureBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
