@@ -38,6 +38,7 @@ import (
 	logicalDb "github.com/openbao/openbao/builtin/logical/database"
 	logicalKv "github.com/openbao/openbao/builtin/logical/kv"
 
+	physAerospike "github.com/openbao/openbao/internal/physical/aerospike"
 	physAzure "github.com/openbao/openbao/internal/physical/azure"
 	physCassandra "github.com/openbao/openbao/internal/physical/cassandra"
 	physCockroachDB "github.com/openbao/openbao/internal/physical/cockroachdb"
@@ -174,6 +175,7 @@ var (
 		"azure":       physAzure.NewAzureBackend,
 		"gcs":         physGCS.NewBackend,
 		"spanner":     physSpanner.NewBackend,
+		"aerospike":   physAerospike.NewAerospikeBackend,
 	}
 
 	serviceRegistrations = map[string]sr.Factory{
